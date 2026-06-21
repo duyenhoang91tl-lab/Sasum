@@ -3539,7 +3539,12 @@ let _advAssign = {
 };
 
 function openAssignModal() {
-  _assignFilteredList = _lastFilteredList ? [..._lastFilteredList] : [];
+  // Lọc lại TƯƠI để danh sách trong modal khớp đúng bảng KH đang lọc (tránh số liệu cũ → 0 KH)
+  try {
+    if (typeof _invalidateFilterCache === 'function') _invalidateFilterCache();
+    applyFilters();
+  } catch(e){ console.warn('Lọc lại trước khi mở Chia data lỗi:', e); }
+  _assignFilteredList = (_lastFilteredList && _lastFilteredList.length) ? [..._lastFilteredList] : [];
   _advAssign.selectedCS = new Set();
   _advAssign.sourceMode = 'filter';
   _advAssign.customCount = _assignFilteredList.length;
@@ -3647,7 +3652,7 @@ function renderAssignCreate() {
       <span style="color:var(--tn)">Tiềm năng: ${tierCount['Tiềm năng']}</span><br>
       <span style="color:var(--green)">✓ Chưa chia: <strong>${neverAssigned.length}</strong></span> &nbsp;|&nbsp;
       <span style="color:#92400e">⚠ Đã chia: <strong>${alreadyAssigned.length}</strong></span>
-      ${totalFiltered === 0 ? '<br><span style="color:var(--red)">⚠ Không có data. Hãy lọc trước rồi mở lại.</span>' : ''}
+      ${totalFiltered === 0 ? '<br><span style="color:var(--red)">⚠ Bảng đang lọc ra 0 KH. Hãy vào tab <strong>Danh sách KH</strong> lọc cho ra khách (hoặc xoá bớt bộ lọc cột / ngày / tìm kiếm) rồi mở lại Chia data.</span>' : ''}
     </div>
 
     <div style="font-size:11px;color:var(--muted);margin-bottom:5px;font-weight:500">Lấy từ:</div>
@@ -3873,9 +3878,8 @@ function doAssignDataAdvanced() {
 
   const summary = entries.map(e=>`${e.csName}: ${e.phones.length} KH`).join(', ');
   toast(`✓ Đã chia ${cursor} KH → ${summary}`);
-  const histTab = document.querySelectorAll('.assign-tab')[1];
-  switchAssignTab('history', histTab);
   updateMyDataBadge();
+  closeAssignModal();   // chia xong tự đóng modal (xem lại ở tab "Lịch sử chia" khi cần)
 }
 
 // Keep old compat functions
