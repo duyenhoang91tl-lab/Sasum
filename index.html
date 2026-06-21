@@ -1978,7 +1978,7 @@ function applyFilters() {
 
     // Advanced filters
     if (advFilters.cs.size > 0) {
-      if (![...advFilters.cs].some(n=>c.csSet.has(n))) return false;
+      if (![...advFilters.cs].some(n=>c.csSet.has(n) || c.careCS===n)) return false;  // khớp cả CS phụ trách lẫn CS chăm sóc
     }
     if (advFilters.products.size > 0 && ![...advFilters.products].some(p=>c.brands.includes(p))) return false;
     if (advFilters.sources.size > 0 && ![...advFilters.sources].some(src=>c.sources.includes(src))) return false;
@@ -2898,6 +2898,7 @@ function updateCSStaffList() {
   for (const c of allCustomers){
     if (typeof _inUserScope==='function' && !_inUserScope(c)) continue;
     if (c.csSet) c.csSet.forEach(n=>{ counts[n]=(counts[n]||0)+1; });
+    if (c.careCS && !(c.csSet && c.csSet.has(c.careCS))) counts[c.careCS]=(counts[c.careCS]||0)+1;
   }
   const sel = document.getElementById('cs-staff-filter');
   const prev = sel ? (sel.value||'all') : 'all';
@@ -3866,9 +3867,9 @@ function doAssignDataAdvanced() {
   saveLS('ome_assign_hist', assignHistory);
   _invalidateFilterCache();
   if (typeof _rebuildAssignIndex === 'function') _rebuildAssignIndex();
-  _applyCareCSToAssigned(entries);   // chia data → cập nhật "CS chăm sóc" + ghi OrderData cột N
+  try { _applyCareCSToAssigned(entries); } catch(e){ console.warn('applyCareCSToAssigned lỗi:', e); }   // chia data → cập nhật "CS chăm sóc" + ghi OrderData cột N
   entries.forEach(e => logAudit('assign', '', '', `Chia ${e.phones.length} KH → ${e.csName}`));
-  if (gsUrl) pushAssignHistToGS();  // ghi toàn bộ lịch sử lên sheet (vết bền vững)
+  try { if (gsUrl) pushAssignHistToGS(); } catch(e){ console.warn('pushAssignHistToGS lỗi:', e); }  // ghi toàn bộ lịch sử lên sheet (vết bền vững)
 
   const summary = entries.map(e=>`${e.csName}: ${e.phones.length} KH`).join(', ');
   toast(`✓ Đã chia ${cursor} KH → ${summary}`);
