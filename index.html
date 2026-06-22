@@ -148,6 +148,10 @@ select.srt{padding:4px 8px;border:1px solid var(--border);border-radius:var(--rs
 .team-cs-chk.on{border-color:var(--green);background:var(--green-bg);color:var(--green);font-weight:600;}
 .team-cs-chk input{margin:0;cursor:pointer;accent-color:var(--green);}
 .team-cs-all{font-size:11px;color:var(--green);background:none;border:1px dashed var(--green);border-radius:6px;padding:2px 8px;cursor:pointer;}
+.team-picker{margin-top:8px;border:1px solid var(--border);border-radius:var(--rsm);padding:8px;background:var(--surface2);}
+.team-picker-bar{display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;}
+.team-picker-search{flex:1;min-width:120px;padding:3px 8px;border:1px solid var(--border);border-radius:var(--rsm);font-size:12px;background:var(--surface);color:var(--text);outline:none;}
+.team-picker-grid{display:flex;flex-wrap:wrap;gap:5px;max-height:180px;overflow-y:auto;}
 .assign-body{flex:1;overflow-y:auto;padding:16px 18px;}
 .assign-footer{padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0;}
 .assign-form-row{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;}
@@ -2146,6 +2150,7 @@ function _vtWrap() { return document.querySelector('#tab-list .table-wrap'); }
 
 function renderTable(list) {
   _vt.list = list;
+  try { window.__omeFiltered = list; } catch(e){}   // MỌI lần bảng vẽ đều ghi danh sách đang hiển thị ra window (nguồn chắc chắn cho Chia data)
   _vt.lastStart = -1; _vt.lastEnd = -1;
   const wrap = _vtWrap();
   if (wrap) wrap.scrollTop = 0;       // về đầu mỗi khi đổi bộ lọc
@@ -3545,16 +3550,19 @@ let _advAssign = {
 };
 
 function openAssignModal() {
-  // Lọc lại TƯƠI để danh sách trong modal khớp đúng bảng KH đang lọc (tránh số liệu cũ → 0 KH)
-  try {
-    if (typeof _invalidateFilterCache === 'function') _invalidateFilterCache();
-    applyFilters();
-  } catch(e){ console.warn('Lọc lại trước khi mở Chia data lỗi:', e); }
-  // Nguồn data ưu tiên đọc từ window.__omeFiltered (chia sẻ chắc chắn giữa các <script> block);
-  // dự phòng _lastFilteredList nếu vì lý do nào đó window chưa có.
-  var _srcObjs = (typeof window !== 'undefined' && window.__omeFiltered && window.__omeFiltered.length) ? window.__omeFiltered : null;
-  _assignFilteredList = _srcObjs ? _srcObjs.map(function(c){ return c.phone; })
-                                 : ((_lastFilteredList && _lastFilteredList.length) ? [..._lastFilteredList] : []);
+  // 1) Ưu tiên LẤY ĐÚNG danh sách KH đang hiển thị trên bảng (renderTable luôn ghi ra window.__omeFiltered)
+  var _srcObjs = (typeof window !== 'undefined' && Array.isArray(window.__omeFiltered) && window.__omeFiltered.length) ? window.__omeFiltered
+               : (typeof _lastFilteredObjs !== 'undefined' && _lastFilteredObjs && _lastFilteredObjs.length ? _lastFilteredObjs : null);
+  // 2) Chỉ khi thật sự chưa có gì (chưa render bảng lần nào) mới lọc lại 1 lần
+  if (!_srcObjs) {
+    try {
+      if (typeof _invalidateFilterCache === 'function') _invalidateFilterCache();
+      applyFilters();
+      _srcObjs = (Array.isArray(window.__omeFiltered) && window.__omeFiltered.length) ? window.__omeFiltered
+               : (_lastFilteredObjs && _lastFilteredObjs.length ? _lastFilteredObjs : null);
+    } catch(e){ console.warn('Lọc lại trước khi mở Chia data lỗi:', e); }
+  }
+  _assignFilteredList = _srcObjs ? _srcObjs.map(function(c){ return c.phone; }) : [];
   _advAssign.selectedCS = new Set();
   _advAssign.sourceMode = 'filter';
   _advAssign.customCount = _assignFilteredList.length;
@@ -5704,12 +5712,31 @@ function renderTeamTab(){
     });
     html += '</div>';
     if (isAdmin){
-      var opts = '<option value="">+ Thêm thành viên…</option>' + allNames.filter(function(n){ return members.indexOf(n)===-1; })
+      var opts = '<option value="">+ Thêm 1 thành viên…</option>' + allNames.filter(function(n){ return members.indexOf(n)===-1; })
         .map(function(n){ return '<option value="'+esc(n)+'">'+esc(n)+'</option>'; }).join('');
-      html += '<div style="display:flex;gap:8px;margin-top:10px;align-items:center">'+
+      html += '<div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">'+
         '<select class="team-add-sel" onchange="if(this.value){addTeamMember(\''+t.id+'\',this.value);this.value=\'\'}">'+opts+'</select>'+
         '<input class="team-add-input" placeholder="…hoặc gõ tên mới" onkeydown="if(event.key===\'Enter\'&&this.value.trim()){addTeamMember(\''+t.id+'\',this.value.trim());this.value=\'\'}">'+
+        '<button class="btn sm secondary" onclick="toggleTeamPicker(\''+t.id+'\')">'+(_teamPickerOpen[t.id]?'▴ Đóng chọn nhiều':'☑ Chọn nhiều CS')+'</button>'+
       '</div>';
+      if (_teamPickerOpen[t.id]){
+        html += '<div class="team-picker">';
+        html += '<div class="team-picker-bar">'+
+          '<input class="team-picker-search" placeholder="🔍 Tìm CS…" oninput="_teamPickerFilter(\''+t.id+'\',this.value)">'+
+          '<button type="button" class="team-cs-all" onclick="teamPickAll(\''+t.id+'\',true)">✓ Chọn tất cả</button>'+
+          '<button type="button" class="team-cs-all" onclick="teamPickAll(\''+t.id+'\',false)">✕ Bỏ tất cả</button>'+
+          '<span style="font-size:11px;color:var(--muted);margin-left:auto">Đang chọn: <b>'+members.length+'</b>/'+allNames.length+'</span>'+
+        '</div>';
+        html += '<div class="team-picker-grid" id="team-picker-grid-'+t.id+'">';
+        allNames.forEach(function(n){
+          var on = members.indexOf(n)!==-1;
+          var isLeader = n===t.leader;
+          html += '<label class="team-cs-chk'+(on?' on':'')+'" data-name="'+esc(n).toLowerCase()+'" title="'+(isLeader?'Leader (luôn là thành viên)':'')+'">'+
+            '<input type="checkbox" '+(on?'checked':'')+' '+(isLeader?'disabled':'')+' onchange="setTeamMemberChecked(\''+t.id+'\',\''+esc(n).replace(/'/g,"\\'")+'\',this.checked)">'+
+            '<span>'+(isLeader?'★ ':'')+esc(n)+'</span></label>';
+        });
+        html += '</div></div>';
+      }
     }
     html += '</div>';
   });
@@ -5762,6 +5789,33 @@ function removeTeamMember(id, name){
   t.members = (t.members||[]).filter(function(m){ return m!==name; });
   saveLS('ome_teams', teams); logAudit('team','', name, t.name+': − '+name); pushTeamsToGS();
   renderTeamTab();
+}
+// ── Chọn nhiều thành viên (tích / bỏ tích, chọn tất cả / bỏ tất cả) ──
+var _teamPickerOpen = {};
+function toggleTeamPicker(id){ _teamPickerOpen[id] = !_teamPickerOpen[id]; renderTeamTab(); }
+function setTeamMemberChecked(id, name, checked){
+  var t = teams.find(function(x){ return x.id===id; }); if(!t) return;
+  if (name===t.leader) return;                       // leader luôn là thành viên
+  if (checked){ if ((t.members||[]).indexOf(name)===-1) t.members.push(name); }
+  else { t.members = (t.members||[]).filter(function(m){ return m!==name; }); }
+  saveLS('ome_teams', teams); pushTeamsToGS();
+  renderTeamTab();
+}
+function teamPickAll(id, checked){
+  var t = teams.find(function(x){ return x.id===id; }); if(!t) return;
+  if (checked){ t.members = _allCSNames().filter(function(n){ return n!==t.leader; }); } // chọn tất cả (trừ leader đã nằm trong)
+  else { t.members = []; }                            // bỏ hết (leader vẫn giữ)
+  saveLS('ome_teams', teams);
+  logAudit('team','', '', t.name + (checked ? ': chọn TẤT CẢ CS làm thành viên' : ': bỏ hết thành viên'));
+  pushTeamsToGS();
+  renderTeamTab();
+}
+function _teamPickerFilter(id, q){
+  q = (q||'').toLowerCase().trim();
+  var grid = document.getElementById('team-picker-grid-'+id); if(!grid) return;
+  grid.querySelectorAll('.team-cs-chk').forEach(function(el){
+    el.style.display = (!q || (el.getAttribute('data-name')||'').indexOf(q)!==-1) ? '' : 'none';
+  });
 }
 
 // ═══════════════════════════════════════════════════════
