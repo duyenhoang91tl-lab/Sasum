@@ -1992,8 +1992,15 @@ function applyFilters() {
       const la = c._lastActionDate;
       const daysAgo = la ? _calendarDaysAgo(la) : null;
       const matchLA = [...colFilters.lastact].some(v => {
+        if (!v || v === '__custom_range__') return false;
         if (v === 'Chưa tác động') return !la;
         if (!la) return false;
+        if (v.startsWith('range:')) {
+          const parts = v.replace('range:','').split('-');
+          const f = parts[0] !== '' ? parseInt(parts[0]) : 0;
+          const t = parts[1] !== '' ? parseInt(parts[1]) : 99999;
+          return daysAgo >= f && daysAgo <= t;
+        }
         if (v === 'Hôm nay') return daysAgo === 0;
         if (v === 'Hôm qua') return daysAgo === 1;
         if (v === '≤ 3 ngày') return daysAgo <= 3;
@@ -2341,11 +2348,44 @@ function markDone(id) {
   const it = schedules.find(x=>x.id===id);
   if (it) {
     it.done=true;
+    // Xóa ngày lịch nhanh tương ứng trong careData (để không còn nhắc nữa)
+    const care = careData[it.phone];
+    if (care) {
+      const typeToField = {goi:'schedGoi',sp:'schedSP',cs:'schedCS',hen:'schedHen'};
+      const field = typeToField[it.type];
+      if (field && care[field] === it.date) {
+        care[field] = ''; care[field+'Note'] = '';
+        saveLS('ome_care', careData);
+      }
+    }
     saveLS('ome_sched',schedules);
     if (gsUrl) pushCareToGS(it.phone);
     renderScheduleTab(); renderOverdueTab(); updateSchedBadges();
+    renderReminderPanel();
     toast('✓ Đã đánh dấu hoàn thành');
   }
+}
+// Đánh dấu done lịch nhanh careData (schedGoi/SP/CS/Hen) từ reminder panel
+function markCareSchedDone(phone, field) {
+  const care = careData[phone] || {};
+  const typeToSchedKey = {schedGoi:'goi', schedSP:'sp', schedCS:'cs', schedHen:'hen'};
+  const schedKey = typeToSchedKey[field];
+  const date = care[field];
+  // Xóa ngày trong careData
+  if (!careData[phone]) careData[phone] = {};
+  careData[phone][field] = '';
+  careData[phone][field+'Note'] = '';
+  saveLS('ome_care', careData);
+  // Đánh dấu done trong schedules[] nếu có
+  if (schedKey && date) {
+    const sc = schedules.find(x=>x.phone===phone&&x.type===schedKey&&x.date===date&&!x.done);
+    if (sc) { sc.done=true; saveLS('ome_sched',schedules); }
+  }
+  if (gsUrl) pushCareToGS(phone);
+  updateSchedBadges();
+  renderReminderPanel();
+  renderScheduleTab(); renderOverdueTab();
+  toast('✓ Đã hoàn thành lịch hẹn');
 }
 function updateSchedBadges() {
   const today = new Date().toISOString().slice(0,10);
@@ -3351,15 +3391,50 @@ function toggleReminderPanel(){ _reminderPanelOpen = !_reminderPanelOpen; render
 function _dueReminders(){
   if (typeof schedules === 'undefined') return [];
   var today = _remDateStr(); var dism = _remLoadDismissed(); var out = [];
+  var seen = new Set(); // tránh trùng lặp phone+type+date
+
+  // 1. Từ mảng schedules[]
   for (var i=0;i<schedules.length;i++){
     var x = schedules[i];
-    if (!x || x.done || !x.date || x.date > today) continue;     // chỉ hôm nay + quá hạn
+    if (!x || x.done || !x.date || x.date > today) continue;
     var id = _remId(x);
-    if (dism[id] === today) continue;                            // đã tắt trong hôm nay
+    if (dism[id] === today) continue;
     var c = (typeof customerMap!=='undefined' && customerMap[x.phone]) ||
             (typeof allCustomers!=='undefined' ? allCustomers.find(function(k){return k.phone===x.phone;}) : null);
-    if (c && typeof _inUserScope==='function' && !_inUserScope(c)) continue;  // theo CS đăng nhập
-    out.push({ id:id, phone:x.phone, type:x.type, date:x.date, note:x.note||'', name: c?c.name:x.phone });
+    if (c && typeof _inUserScope==='function' && !_inUserScope(c)) continue;
+    var key = x.phone+'|'+x.type+'|'+x.date;
+    seen.add(key);
+    out.push({ id:id, phone:x.phone, type:x.type, date:x.date, note:x.note||'', name: c?c.name:x.phone, schedId: x.id });
+  }
+
+  // 2. Từ careData quick-sched (schedGoi/SP/CS/Hen) — chỉ nếu có ngày và đến hạn
+  var careFieldMap = [
+    {field:'schedGoi',   noteField:'schedGoiNote',  type:'goi'},
+    {field:'schedSP',    noteField:'schedSPNote',   type:'sp'},
+    {field:'schedCS',    noteField:'schedCSNote',   type:'cs'},
+    {field:'schedHen',   noteField:'schedHenNote',  type:'hen'},
+  ];
+  if (typeof careData !== 'undefined') {
+    var phones = Object.keys(careData);
+    for (var pi=0;pi<phones.length;pi++){
+      var ph = phones[pi];
+      var care = careData[ph];
+      if (!care) continue;
+      var cc = (typeof customerMap!=='undefined' && customerMap[ph]) ||
+               (typeof allCustomers!=='undefined' ? allCustomers.find(function(k){return k.phone===ph;}) : null);
+      if (cc && typeof _inUserScope==='function' && !_inUserScope(cc)) continue;
+      for (var fi=0;fi<careFieldMap.length;fi++){
+        var fm = careFieldMap[fi];
+        var d = care[fm.field];
+        if (!d || d > today) continue;
+        var key2 = ph+'|'+fm.type+'|'+d;
+        if (seen.has(key2)) continue; // já coberto pelo schedules[]
+        var cid = 'care:'+ph+'|'+fm.field+'|'+d;
+        if (dism[cid] === today) continue;
+        seen.add(key2);
+        out.push({ id:cid, phone:ph, type:fm.type, date:d, note:care[fm.noteField]||'', name: cc?cc.name:ph, careField: fm.field });
+      }
+    }
   }
   return out.sort(function(a,b){ return a.date.localeCompare(b.date); });
 }
@@ -3408,11 +3483,17 @@ function renderReminderPanel(){
     var rm = reminders[r];
     var over = rm.date < _remDateStr();
     var st = (typeof SCHED_TYPES!=='undefined') ? (SCHED_TYPES.find(function(t){return t.key===rm.type;})||SCHED_TYPES[0]) : {label:rm.type,color:'#2563eb'};
+    var doneAction = rm.careField
+      ? 'event.stopPropagation();markCareSchedDone(\''+esc(rm.phone)+'\',\''+rm.careField+'\')'
+      : (rm.schedId ? 'event.stopPropagation();markDone(\''+rm.schedId+'\')' : 'event.stopPropagation();_dismissReminder(\''+rm.id+'\')');
     html += '<div class="rp-card"><div class="rp-card-main" onclick="openDp(\''+esc(rm.phone)+'\')">'+
       '<div class="rp-type" style="background:'+st.color+'">'+esc(st.label)+'</div>'+
       '<div class="rp-cust">'+esc(rm.name)+'</div>'+
       '<div class="rp-note" style="color:'+(over?'var(--red)':'var(--muted)')+'">'+(over?'⚠ Quá hạn · ':'📅 ')+fmtDate(rm.date)+(rm.note?(' · '+esc(rm.note)):'')+'</div></div>'+
-      '<button class="rp-dismiss" title="Tắt" onclick="event.stopPropagation();_dismissReminder(\''+rm.id+'\')">✕</button></div>';
+      '<div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">'+
+      '<button class="rp-hbtn" style="background:var(--green);color:#fff;font-size:10px;padding:2px 7px" title="Đánh dấu hoàn thành" onclick="'+doneAction+'">✓ Done</button>'+
+      '<button class="rp-dismiss" title="Tắt hôm nay" onclick="event.stopPropagation();_dismissReminder(\''+rm.id+'\')">✕</button>'+
+      '</div></div>';
   }
   html += '</div>';
   wrap.innerHTML = html;
@@ -3542,21 +3623,61 @@ function renderColDdItems(col, query) {
   else if (col==='careCS') values = [...new Set(allCustomers.map(c=>c.careCS).filter(Boolean))].sort();
   else if (col==='source') values = [...new Set(allCustomers.flatMap(c=>c.sources).filter(Boolean))].sort();
   else if (col==='sched') values = ['Có lịch', 'Không có lịch', ...SCHED_TYPES.map(t=>t.label)];
-  else if (col==='lastact') values = ['Hôm nay', 'Hôm qua', '≤ 3 ngày', '≤ 7 ngày', '≤ 14 ngày', '≤ 30 ngày', '> 30 ngày', 'Chưa tác động'];
+  else if (col==='lastact') values = ['Hôm nay', 'Hôm qua', '≤ 3 ngày', '≤ 7 ngày', '≤ 14 ngày', '≤ 30 ngày', '> 30 ngày', 'Chưa tác động', '__custom_range__'];
   else if (col==='tacdong') values = ['Trong 24h', 'Hôm nay', 'Hôm qua', '≤ 3 ngày', '≤ 7 ngày', '> 7 ngày', 'Chưa có'];
   else values = [];
   const filtered = values.filter(v=>_foldVi(v||'—').includes(q));
   const container = document.getElementById('col-dd-'+col+'-items');
   if (!container) return;
-  container.innerHTML = filtered.map(v=>`
-    <label class="col-dd-item">
+  container.innerHTML = filtered.map(v=>{
+    if (v === '__custom_range__') {
+      // Custom range UI for lastact
+      const cur = [...(colFilters[col]||[])].find(x=>x&&x.startsWith('range:'));
+      const parts = cur ? cur.replace('range:','').split('-') : ['',''];
+      const from = parts[0]||'', to = parts[1]||'';
+      return `<div class="col-dd-item" style="flex-direction:column;align-items:flex-start;gap:4px;padding:6px 10px;border-top:1px solid var(--border)">
+        <span style="font-size:10px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:.06em">Khoảng ngày tùy chỉnh</span>
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--muted)">Từ</span>
+          <input type="number" id="lastact-range-from" min="0" max="999" value="${from}" placeholder="0"
+            style="width:54px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-size:11px;outline:none;text-align:center"
+            oninput="applyLastActCustomRange()">
+          <span style="font-size:11px;color:var(--muted)">đến</span>
+          <input type="number" id="lastact-range-to" min="0" max="999" value="${to}" placeholder="999"
+            style="width:54px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-size:11px;outline:none;text-align:center"
+            oninput="applyLastActCustomRange()">
+          <span style="font-size:11px;color:var(--muted)">ngày</span>
+          <button onclick="clearLastActCustomRange()" style="border:none;background:var(--red-bg);color:var(--red);border-radius:4px;font-size:10px;padding:2px 6px;cursor:pointer">Xóa</button>
+        </div>
+        ${cur ? `<div style="font-size:10px;color:var(--green)">✓ Đang lọc: ${from||'0'} – ${to||'∞'} ngày</div>` : ''}
+      </div>`;
+    }
+    return `<label class="col-dd-item">
       <input type="checkbox" value="${esc(v)}" ${colFilters[col].has(v)?'checked':''} onchange="toggleColFilterVal('${col}','${esc(v)}',this.checked)">
       ${v ? esc(v) : '<span style="color:var(--hint)">— (trống)</span>'}
-    </label>`).join('');
+    </label>`;
+  }).join('');
 }
 function toggleColFilterVal(col, val, checked) {
   if (checked) colFilters[col].add(val);
   else colFilters[col].delete(val);
+}
+function applyLastActCustomRange() {
+  var from = document.getElementById('lastact-range-from');
+  var to   = document.getElementById('lastact-range-to');
+  var f = from ? from.value.trim() : '';
+  var t = to   ? to.value.trim()   : '';
+  // Xóa range cũ nếu có
+  [...colFilters.lastact].filter(x=>x&&x.startsWith('range:')).forEach(x=>colFilters.lastact.delete(x));
+  if (f !== '' || t !== '') {
+    colFilters.lastact.add('range:'+f+'-'+t);
+  }
+  applyFilters();
+}
+function clearLastActCustomRange() {
+  [...colFilters.lastact].filter(x=>x&&x.startsWith('range:')).forEach(x=>colFilters.lastact.delete(x));
+  renderColDdItems('lastact','');
+  applyFilters();
 }
 function applyColFilter(col) {
   const dd = document.getElementById('col-dd-'+col);
