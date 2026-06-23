@@ -417,7 +417,7 @@ th.col-filtered .th-filter-icon{opacity:1;color:var(--green);}
 #main-table th,#main-table td{overflow:hidden;}
 #main-table tbody tr:not(.vspacer){height:58px;}
 .vspacer td{padding:0!important;border:none!important;height:auto;}
-.col-name{width:185px;} .col-tier{width:92px;} .col-custstatus{width:155px;} .col-care{width:132px;}
+.col-name{width:185px;} .col-tier{width:92px;} .col-care{width:132px;}
 .col-zalo{width:112px;} .col-order{width:118px;} .col-product{width:150px;}
 .col-cs{width:150px;} .col-carecs{width:140px;} .col-source{width:120px;} .col-note{width:185px;} .col-sched{width:132px;}
 #cs-note-history { max-height: 320px; overflow-y: auto; }
@@ -699,11 +699,6 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
   <div id="col-dd-care-items" style="max-height:200px;overflow-y:auto"></div>
   <div class="col-dd-footer"><button class="col-dd-clear" onclick="clearColFilter('care')">Xóa lọc</button><button class="col-dd-apply" onclick="applyColFilter('care')">Áp dụng</button></div>
 </div>
-<div class="col-dropdown" id="col-dd-custstatus">
-  <input class="col-dd-search" placeholder="Tìm trạng thái KH..." oninput="renderColDdItems('custstatus',this.value)">
-  <div id="col-dd-custstatus-items" style="max-height:200px;overflow-y:auto"></div>
-  <div class="col-dd-footer"><button class="col-dd-clear" onclick="clearColFilter('custstatus')">Xóa lọc</button><button class="col-dd-apply" onclick="applyColFilter('custstatus')">Áp dụng</button></div>
-</div>
 <div class="col-dropdown" id="col-dd-zalo">
   <input class="col-dd-search" placeholder="Tìm trạng thái Zalo..." oninput="renderColDdItems('zalo',this.value)">
   <div id="col-dd-zalo-items" style="max-height:200px;overflow-y:auto"></div>
@@ -812,11 +807,6 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
   <div class="sb-scroll">
     <div class="fgroup" id="care-filters">
       <button class="section-btn active" onclick="setCareFilter('all',this)"><div class="fleft"><span>Tất cả</span></div><span class="fbadge" id="bc-all">0</span></button>
-    </div>
-    <div class="divider" style="margin:7px 0"></div>
-    <div class="sb-label" style="padding:0 10px 4px;font-weight:600">Trạng thái KH</div>
-    <div class="fgroup" id="custstatus-filters">
-      <button class="section-btn active" onclick="setCustStatusFilter('all',this)"><div class="fleft"><span>Tất cả</span></div><span class="fbadge" id="bcs-all">0</span></button>
     </div>
     <div class="divider" style="margin:7px 0"></div>
     <div class="sb-label">Zalo</div>
@@ -1003,7 +993,6 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
         <span class="ymf-label">📋 Cột hiển thị</span>
         <label class="col-toggle-chip"><input type="checkbox" checked onchange="toggleCol('name',this)"> Khách hàng</label>
         <label class="col-toggle-chip"><input type="checkbox" checked onchange="toggleCol('tier',this)"> Phân loại</label>
-        <label class="col-toggle-chip"><input type="checkbox" checked onchange="toggleCol('custstatus',this)"> Trạng thái KH</label>
         <label class="col-toggle-chip"><input type="checkbox" checked onchange="toggleCol('care',this)"> Tình trạng CS</label>
         <label class="col-toggle-chip"><input type="checkbox" checked onchange="toggleCol('zalo',this)"> Zalo</label>
         <label class="col-toggle-chip"><input type="checkbox" checked onchange="toggleCol('order',this)"> Đơn/DT</label>
@@ -1025,8 +1014,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
         <table id="main-table">
           <thead><tr>
             <th class="filterable col-name" id="th-name" onclick="openColDropdown('name',event)"><div class="th-inner">Khách hàng <span class="th-filter-icon">▼</span></div></th>
-            <th class="filterable col-tier" id="th-tier" onclick="openColDropdown('tier',event)"><div class="th-inner">Phân loại <span class="th-filter-icon">▼</span></div></th>
-            <th class="filterable col-custstatus" id="th-custstatus" onclick="openColDropdown('custstatus',event)"><div class="th-inner">Trạng thái KH <span class="th-filter-icon">▼</span></div></th>
+            <th class="filterable col-tier" id="th-tier"><div class="th-inner"><span id="tier-label-btn" onclick="openTierTooltip(event)" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px" title="Xem tiêu chí phân loại">Phân loại</span> <span class="th-filter-icon" onclick="openColDropdown('tier',event)" style="cursor:pointer">▼</span></div></th>
             <th class="filterable col-care" id="th-care" onclick="openColDropdown('care',event)"><div class="th-inner">Tình trạng CS <span class="th-filter-icon">▼</span></div></th>
             <th class="filterable col-zalo" id="th-zalo" onclick="openColDropdown('zalo',event)"><div class="th-inner">Zalo <span class="th-filter-icon">▼</span></div></th>
             <th class="col-order">Đơn / DT</th>
@@ -1120,26 +1108,65 @@ const RENEW_SOURCES = ['kh renew','kh renew mkt','kh giới thiệu','data đả
 // Thu thập TẤT CẢ các nguồn (không lọc bỏ nguồn nào)
 const VALID_SOURCES = null; // null = lấy tất cả
 const CARE_STATUS_DEFAULT = [
-  'Chốt','Phân vân','Tiềm năng','Hẹn gọi lại sau',
-  'Không liên hệ được','Nhận hộ/Sai số','Cúp ngang','Từ chối'
+  'Chốt','Phân vân/Tiềm năng','Hẹn gọi lại sau','Đang sd','Đang tạm ngưng',
+  'Knm/Máy bận','Kcnc/Không hiệu quả','Đặt hộ/Sai số','Cúp ngang',
+  'Bầu','Thuê bao','Chưa sử dụng','Chưa liên hệ'
 ];
 // CARE_STATUS động — admin có thể thêm/xóa, đồng bộ GSheets
 let CARE_STATUS = (loadLS('ome_care_status') || CARE_STATUS_DEFAULT).slice();
 
-// Trạng thái khách hàng (cố định, có sub-status)
-const CUSTOMER_STATUS_LIST = [
-  { value:'Không thể kết nối được',             label:'Không thể kết nối được',  parent:null,               color:'#dc2626' },
-  { value:'Đang sử dụng',                        label:'Đang sử dụng',             parent:null,               color:'#2563eb' },
-  { value:'Đang sử dụng - Không hiệu quả',      label:'└ Không hiệu quả',         parent:'Đang sử dụng',      color:'#ef4444' },
-  { value:'Đang sử dụng - Hiệu quả',            label:'└ Hiệu quả',               parent:'Đang sử dụng',      color:'#16a34a' },
-  { value:'Đang sử dụng - Chưa rõ tác dụng',   label:'└ Chưa rõ tác dụng',       parent:'Đang sử dụng',      color:'#ca8a04' },
-  { value:'Chưa dùng',                           label:'Chưa dùng',                parent:null,               color:'#9ca3af' },
-  { value:'Không còn sử dụng',                  label:'Không còn sử dụng',        parent:null,               color:'#6b7280' },
-  { value:'Không còn SD - Không hiệu quả',      label:'└ Không hiệu quả',         parent:'Không còn sử dụng', color:'#b91c1c' },
-  { value:'Không còn SD - Đã có kết quả tốt',  label:'└ Đã có kết quả tốt',      parent:'Không còn sử dụng', color:'#059669' },
-  { value:'Không còn SD - Đổi sang SP khác',    label:'└ Đổi sang SP khác',       parent:'Không còn sử dụng', color:'#7c3aed' },
-  { value:'Đang tạm ngưng',                      label:'Đang tạm ngưng',           parent:null,               color:'#d97706' },
+// ── TRẠNG THÁI KHÁCH HÀNG (phân cấp, động) ──
+// Cấu trúc: { label, value?, children? }
+// Trạng thái mẹ có children → chỉ hiển thị làm nhóm, không chọn được
+const CUSTOMER_STATUS_TREE_DEFAULT = [
+  { label: '1. Không thể kết nối', value: '1. Không thể kết nối' },
+  { label: '2. Đang sử dụng', children: [
+    { label: '2.1 Không hiệu quả', value: '2.1 Không hiệu quả' },
+    { label: '2.2 Hiệu quả', value: '2.2 Hiệu quả' },
+    { label: '2.3 Chưa rõ tác dụng', value: '2.3 Chưa rõ tác dụng' },
+  ]},
+  { label: '3. Chưa dùng', value: '3. Chưa dùng' },
+  { label: '4. Không còn sử dụng', children: [
+    { label: '4.1 Không hiệu quả', value: '4.1 Không hiệu quả' },
+    { label: '4.2 Đã có kết quả', value: '4.2 Đã có kết quả' },
+    { label: '4.3 Đã đổi sang sản phẩm khác', value: '4.3 Đã đổi sang sản phẩm khác' },
+  ]},
+  { label: '5. Đang tạm dừng', value: '5. Đang tạm dừng' },
+  { label: '6. Nhận hộ / Sai số', value: '6. Nhận hộ / Sai số' },
+  { label: '7. Ngang Cúp', value: '7. Ngang Cúp' },
+  { label: '8. Từ chối', value: '8. Từ chối' },
 ];
+let CUSTOMER_STATUS_TREE = JSON.parse(JSON.stringify(loadLS('ome_kh_status_tree') || CUSTOMER_STATUS_TREE_DEFAULT));
+
+// Flatten để dùng trong filter/badge — chỉ lấy các value thực (lá hoặc không có con)
+function _flatCustStatusValues() {
+  var out = [];
+  CUSTOMER_STATUS_TREE.forEach(function(node) {
+    if (node.children) {
+      node.children.forEach(function(child) { out.push(child.value); });
+    } else {
+      out.push(node.value);
+    }
+  });
+  return out;
+}
+
+// Build <option> HTML cho select Trạng thái KH
+function _buildCustStatusOptions(selected) {
+  var html = '<option value="">— Chọn —</option>';
+  CUSTOMER_STATUS_TREE.forEach(function(node) {
+    if (node.children) {
+      html += '<optgroup label="' + esc(node.label) + '">';
+      node.children.forEach(function(child) {
+        html += '<option value="' + esc(child.value) + '"' + (selected === child.value ? ' selected' : '') + '>' + esc(child.label) + '</option>';
+      });
+      html += '</optgroup>';
+    } else {
+      html += '<option value="' + esc(node.value) + '"' + (selected === node.value ? ' selected' : '') + '>' + esc(node.label) + '</option>';
+    }
+  });
+  return html;
+}
 const ZALO_STATUS = [
   'Đã kết bạn','Chưa kết bạn','Chưa đồng ý','Không nhận tn lạ',
   'Chặn','Hủy kết bạn','Không tìm thấy zl','ZL NHD/K có','Zalo ngừng hd'
@@ -1161,7 +1188,7 @@ let customerMap = {};
 let careData = loadLS('ome_care') || {};
 let schedules = loadLS('ome_sched') || [];
 let currentPhone = null;
-let currentTier = 'all', currentCare = 'all', currentZalo = 'all', currentBrand = 'all', currentCS = 'all', currentCustStatus = 'all';
+let currentTier = 'all', currentCare = 'all', currentZalo = 'all', currentBrand = 'all', currentCS = 'all';
 let schedOffset = 0;
 let currentDpTab = 'care';
 // ── NHÚNG SẴN GS URL Ở ĐÂY — admin điền 1 lần, nhân viên không cần làm gì ──
@@ -1191,12 +1218,25 @@ function _fmtActTime(ts){
   const d = new Date(t), p = n => String(n).padStart(2,'0');
   return { t, abs: `${p(d.getHours())}:${p(d.getMinutes())} ${p(d.getDate())}/${p(d.getMonth()+1)}`, full: d.toLocaleString('vi-VN') };
 }
+// So sánh ngày theo CALENDAR (không phải 24h rolling)
+function _startOfDay(ts) {
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+function _calendarDaysAgo(ts) {
+  // Số ngày calendar giữa ts và hôm nay (0 = hôm nay, 1 = hôm qua, ...)
+  const todayStart = _startOfDay(Date.now());
+  const thatStart  = _startOfDay(ts);
+  return Math.round((todayStart - thatStart) / 86400000);
+}
+function _isToday(ts) { return _calendarDaysAgo(ts) === 0; }
+
 function _relTime(t){
   const diff = Date.now() - t;
   if (diff < 60000) return 'vừa xong';
   const m = Math.floor(diff/60000); if (m < 60) return m + ' phút trước';
   const h = Math.floor(diff/3600000); if (h < 24) return h + ' giờ trước';
-  const dd = Math.floor(diff/86400000); if (dd < 30) return dd + ' ngày trước';
+  const dd = _calendarDaysAgo(t); if (dd < 30) return dd + ' ngày trước';
   return Math.floor(dd/30) + ' tháng trước';
 }
 
@@ -1224,7 +1264,7 @@ function _foldVi(str){
 }
 
 // Column filters
-let colFilters = { name: new Set(), tier: new Set(), care: new Set(), zalo: new Set(), product: new Set(), cs: new Set(), careCS: new Set(), source: new Set(), sched: new Set(), lastact: new Set(), tacdong: new Set(), custStatus: new Set() };
+let colFilters = { name: new Set(), tier: new Set(), care: new Set(), zalo: new Set(), product: new Set(), cs: new Set(), careCS: new Set(), source: new Set(), sched: new Set(), lastact: new Set(), tacdong: new Set() };
 let _colDdActive = null;
 
 // Advanced filters state
@@ -1406,7 +1446,7 @@ async function syncFromGS(opts) {
       if ((typeof _careQueue !== 'undefined' && (_careQueue.has(_normPh) || _careQueue.has(_ph2))) ||
           (typeof _careWriting !== 'undefined' && (_careWriting.has(_normPh) || _careWriting.has(_ph2)))) { count++; continue; }
       careData[_normPh] = {
-        status: row.status||'', zalo: row.zalo||'', cs: row.cs||'', note: row.note||'', custStatus: row.custStatus||'',
+        status: row.status||'', zalo: row.zalo||'', cs: row.cs||'', note: row.note||'',
         schedGoi: row.schedGoi||'', schedGoiNote: row.schedGoiNote||'',
         schedSP: row.schedSP||'', schedSPNote: row.schedSPNote||'',
         schedCS: row.schedCS||'', schedCSNote: row.schedCSNote||'',
@@ -1481,7 +1521,7 @@ async function pushCareToGS(phone) {
   const myScheds = schedules.filter(x => x.phone === phone);
   const row = {
     phone,
-    status: care.status||'', zalo: care.zalo||'', cs: care.cs||'', note: care.note||'', custStatus: care.custStatus||'',
+    status: care.status||'', zalo: care.zalo||'', cs: care.cs||'', note: care.note||'',
     schedules: JSON.stringify(myScheds),
     schedGoi: care.schedGoi||'', schedGoiNote: care.schedGoiNote||'',
     schedSP: care.schedSP||'', schedSPNote: care.schedSPNote||'',
@@ -1752,7 +1792,6 @@ function buildCustomers() {
   _computeLastActionDates();
   updateStats();
   updateSidebarCareFilters();
-  updateSidebarCustStatusFilters();
   updateSidebarBadges();
   updateBrandList();
   updateCSStaffList();
@@ -1830,7 +1869,6 @@ function updateCampaignFilter() {
 
 function setTier(t,el) { currentTier=t; currentCare='all'; currentZalo='all'; currentBrand='all'; activateBtn('.fi',el); resetSubFilters(); applyFilters(); }
 function setCareFilter(t,el) { currentCare=t; activateBtn('#care-filters .section-btn',el); applyFilters(); }
-function setCustStatusFilter(t,el) { currentCustStatus=t; activateBtn('#custstatus-filters .section-btn',el); applyFilters(); }
 function setZaloFilter(t,el) { currentZalo=t; activateBtn('#zalo-filters .section-btn',el); applyFilters(); }
 function setBrand(b,el) { currentBrand=b; activateBtn('.bitem',el); applyFilters(); }
 function clearDateFilter(){
@@ -1896,7 +1934,6 @@ function applyFilters() {
     if (!_inUserScope(c)) return false;            // V9: phân quyền theo vai trò
     if (currentTier !== 'all' && c.tier !== currentTier) return false;
     if (currentCare !== 'all' && c.careStatus !== currentCare) return false;
-    if (currentCustStatus !== 'all' && (c.custStatus||'') !== currentCustStatus) return false;
     if (currentZalo !== 'all') {
       if (currentZalo === 'block') { if (!['Chặn','Hủy kết bạn'].includes(c.zaloStatus)) return false; }
       else if (c.zaloStatus !== currentZalo) return false;
@@ -1923,7 +1960,6 @@ function applyFilters() {
     if (colFilters.name.size > 0 && !colFilters.name.has(c.name)) return false;
     if (colFilters.tier.size > 0 && !colFilters.tier.has(c.tier)) return false;
     if (colFilters.care.size > 0 && !colFilters.care.has(c.careStatus || '')) return false;
-    if (colFilters.custStatus && colFilters.custStatus.size > 0 && !colFilters.custStatus.has(c.custStatus || '')) return false;
     if (colFilters.zalo.size > 0 && !colFilters.zalo.has(c.zaloStatus || '')) return false;
     if (colFilters.product.size > 0 && ![...colFilters.product].some(p=>c.brands.includes(p))) return false;
     if (colFilters.source.size > 0 && ![...colFilters.source].some(src=>c.sources.includes(src))) return false;
@@ -1954,7 +1990,7 @@ function applyFilters() {
     // Column filter: lần tác động (lastact — số ngày trước)
     if (colFilters.lastact.size > 0) {
       const la = c._lastActionDate;
-      const daysAgo = la ? Math.floor((Date.now() - la) / 86400000) : null;
+      const daysAgo = la ? _calendarDaysAgo(la) : null;
       const matchLA = [...colFilters.lastact].some(v => {
         if (v === 'Chưa tác động') return !la;
         if (!la) return false;
@@ -1974,7 +2010,7 @@ function applyFilters() {
     if (colFilters.tacdong.size > 0) {
       const _upd = (typeof careData !== 'undefined' && careData[c.phone]) ? careData[c.phone].updated : '';
       const _tdTs = _upd ? new Date(_upd).getTime() : (c._lastActionDate || null);
-      const tdAgo = _tdTs ? Math.floor((Date.now() - _tdTs) / 86400000) : null;
+      const tdAgo = _tdTs ? _calendarDaysAgo(_tdTs) : null;
       const tdH = _tdTs ? Math.floor((Date.now() - _tdTs) / 3600000) : null;
       const matchTD = [...colFilters.tacdong].some(v => {
         if (v === 'Chưa có') return !_tdTs;
@@ -2103,6 +2139,8 @@ function _rowHtml(c) {
   const tb = tierBadge(c.tier);
   const cb = careBadge(c.careStatus);
   const zb = zaloBadge(c.zaloStatus);
+  const khSt = (careData[c.phone] && careData[c.phone].khStatus) || '';
+  const khb = khSt ? custStatusBadge(khSt) : '';
   const brandTags = c.brands.slice(0,3).map(b=>`<span class="btag">${esc(b)}</span>`).join('');
   const extra = c.brands.length>3?`<span class="btag">+${c.brands.length-3}</span>`:'';
   const csNames = [...new Set(c.orders.map(o=>o.cs).filter(Boolean))];   // CS phụ trách = người lên đơn
@@ -2135,7 +2173,7 @@ function _rowHtml(c) {
   const lastActDate = c._lastActionDate; // precomputed in buildCustomers
   let lastActHtml;
   if (lastActDate) {
-    const daysAgo = Math.floor((Date.now() - lastActDate) / 86400000);
+    const daysAgo = _calendarDaysAgo(lastActDate);
     const color = daysAgo <= 3 ? 'var(--green)' : daysAgo <= 14 ? 'var(--tn)' : 'var(--hint)';
     const label = daysAgo === 0 ? 'Hôm nay' : daysAgo === 1 ? 'Hôm qua' : `${daysAgo} ngày trước`;
     lastActHtml = `<span style="color:${color};font-size:11px" title="${new Date(lastActDate).toLocaleDateString('vi-VN')}">${label}</span>`;
@@ -2149,21 +2187,16 @@ function _rowHtml(c) {
   let tacdongHtml;
   if (_af) {
     const _rel = _relTime(_af.t);
-    const _recent = (Date.now() - _af.t) < 86400000;
+    const _recent = _isToday(_af.t);
     const _col = _recent ? 'var(--green)' : 'var(--muted)';
     tacdongHtml = `<span style="color:${_col};font-size:11px;white-space:nowrap" title="${_af.full} • ${_rel}">${_af.abs}</span>`;
   } else {
     tacdongHtml = `<span style="color:var(--hint);font-size:11px">—</span>`;
   }
-  const _csi = CUSTOMER_STATUS_LIST.find(x=>x.value===(c.custStatus||''));
-  const custStatusHtml = _csi
-    ? `<span style="display:inline-flex;align-items:center;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:600;background:${_csi.color}22;color:${_csi.color};border:1px solid ${_csi.color}55;white-space:nowrap">${esc(_csi.label.replace(/^└ /,''))}</span>`
-    : '<span style="color:var(--hint);font-size:11px">—</span>';
   return `<tr onclick="openDp('${esc(c.phone)}')">
     <td class="col-name"><div class="cname">${esc(c.name)}</div><div class="cphone" style="display:flex;align-items:center;gap:4px">${c.phone}<button onclick="event.stopPropagation();copyPhone('${esc(c.phone)}')" title="Copy SĐT" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 2px;color:var(--hint);line-height:1;opacity:.6" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.6'">📋</button></div></td>
     <td class="col-tier">${tb}</td>
-    <td class="col-custstatus">${custStatusHtml}</td>
-    <td class="col-care">${cb}</td>
+    <td class="col-care">${cb}${khb ? '<br>'+khb : ''}</td>
     <td class="col-zalo">${zb}</td>
     <td class="col-order"><span style="font-weight:600">${c.totalOrders}</span><span style="color:var(--muted);font-size:11px"> / ${fmtVND(c.totalRevenue)}</span></td>
     <td class="col-product"><div class="btags">${brandTags}${extra}</div></td>
@@ -2352,7 +2385,8 @@ function openDp(phone) {
     <button onclick="openEditPhone('${esc(c.phone)}')" title="Sửa số điện thoại" style="background:none;border:1px solid var(--border-md);border-radius:4px;padding:1px 5px;cursor:pointer;font-size:11px;color:var(--muted);line-height:1.4" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">✏️</button>
     ${tierBadge(c.tier)}
     ${careBadge(c.careStatus)}
-    ${zaloBadge(c.zaloStatus)}`;
+    ${zaloBadge(c.zaloStatus)}
+    ${custStatusBadge((careData[c.phone]||{}).khStatus||'')}`;
   renderDpTab('care');
   document.getElementById('dp-overlay').classList.add('open');
 }
@@ -2395,7 +2429,7 @@ function renderCareTab(c) {
         <div class="form-label">Tình trạng CS</div>
         <select class="form-select" id="cs-status">
           <option value="">— Chọn —</option>
-          ${CARE_STATUS.map(x=>`<option value="${x}" ${(care.status||c.careStatus)===x?'selected':''}>${x}</option>`).join('')}
+          ${CARE_STATUS.map((x,i)=>`<option value="${x}" ${(care.status||c.careStatus)===x?'selected':''}>${(i+1)}. ${x}</option>`).join('')}
         </select>
       </div>
       <div>
@@ -2409,11 +2443,13 @@ function renderCareTab(c) {
     <div class="form-row-2">
       <div>
         <div class="form-label">Trạng thái KH</div>
-        <select class="form-select" id="cs-custstatus">
-          <option value="">— Chọn —</option>
-          ${CUSTOMER_STATUS_LIST.map(x=>`<option value="${x.value}" ${(care.custStatus||c.custStatus||'')===x.value?'selected':''} style="${x.parent?'padding-left:14px;color:#555':''}">${x.label}</option>`).join('')}
+        <select class="form-select" id="cs-kh-status">
+          ${_buildCustStatusOptions(care.khStatus||'')}
         </select>
       </div>
+      <div></div>
+    </div>
+    <div class="form-row-2">
       <div>
         <div class="form-label">CS chăm sóc</div>
         <div class="cs-assign-combo" style="position:relative">
@@ -2427,8 +2463,6 @@ function renderCareTab(c) {
           <div class="cs-assign-list" id="cs-assign-list"></div>
         </div>
       </div>
-    </div>
-    <div class="form-row-2">
       <div>
         <div class="form-label">Số điện thoại</div>
         <div style="display:flex;gap:4px;align-items:center">
@@ -2699,23 +2733,22 @@ function saveCare(phone) {
   const newZalo   = document.getElementById('cs-zalo').value;
   const newNote   = document.getElementById('cs-note') ? document.getElementById('cs-note').value : (existing.note||'');
   const newCS     = document.getElementById('cs-assign').value;
-  const newCustStatus = document.getElementById('cs-custstatus') ? document.getElementById('cs-custstatus').value : (existing.custStatus||'');
+  const newKhStatus = (document.getElementById('cs-kh-status') ? document.getElementById('cs-kh-status').value : '') || existing.khStatus || '';
   // V9 audit: ghi lại thay đổi trạng thái / CS / Zalo
-  if ((existing.status||'') !== newStatus)         logAudit('status', phone, existing.status||'(trống)', newStatus||'(trống)');
-  if ((existing.cs||'') !== newCS)                 logAudit('cs', phone, existing.cs||'(trống)', newCS||'(trống)');
-  if ((existing.zalo||'') !== newZalo)             logAudit('status', phone, 'Zalo: '+(existing.zalo||'(trống)'), 'Zalo: '+(newZalo||'(trống)'));
-  if ((existing.custStatus||'') !== newCustStatus) logAudit('status', phone, 'Trạng thái KH: '+(existing.custStatus||'(trống)'), 'Trạng thái KH: '+(newCustStatus||'(trống)'));
-  careData[phone] = { ...existing, status: newStatus, zalo: newZalo, note: newNote, cs: newCS, custStatus: newCustStatus };
+  if ((existing.status||'') !== newStatus) logAudit('status', phone, existing.status||'(trống)', newStatus||'(trống)');
+  if ((existing.cs||'') !== newCS)         logAudit('cs', phone, existing.cs||'(trống)', newCS||'(trống)');
+  if ((existing.zalo||'') !== newZalo)     logAudit('status', phone, 'Zalo: '+(existing.zalo||'(trống)'), 'Zalo: '+(newZalo||'(trống)'));
+  if ((existing.khStatus||'') !== newKhStatus) logAudit('status', phone, 'KH: '+(existing.khStatus||'(trống)'), 'KH: '+(newKhStatus||'(trống)'));
+  careData[phone] = { ...existing, status: newStatus, zalo: newZalo, note: newNote, cs: newCS, khStatus: newKhStatus };
   _touchCare(phone);
   saveLS('ome_care', careData);
   _invalidateFilterCache();
   const c = allCustomers.find(x=>x.phone===phone);
   if (c) {
-    c.careStatus  = careData[phone].status;
-    c.zaloStatus  = careData[phone].zalo;
-    c.careNote    = careData[phone].note;
-    c.careCS      = careData[phone].cs;
-    c.custStatus  = careData[phone].custStatus;
+    c.careStatus=careData[phone].status;
+    c.zaloStatus=careData[phone].zalo;
+    c.careNote=careData[phone].note;
+    c.careCS=careData[phone].cs;
   }
   updateStats(); updateSidebarBadges();
   // Cập nhật _lastActionDate cho KH vừa lưu
@@ -2729,7 +2762,8 @@ function saveCare(phone) {
     <button onclick="openEditPhone('${esc(phone)}')" title="Sửa số điện thoại" style="background:none;border:1px solid var(--border-md);border-radius:4px;padding:1px 5px;cursor:pointer;font-size:11px;color:var(--muted);line-height:1.4" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">✏️</button>
     ${tierBadge(c?c.tier:'Chưa bán lại được')}
     ${careBadge(careData[phone].status)}
-    ${zaloBadge(careData[phone].zalo)}`;
+    ${zaloBadge(careData[phone].zalo)}
+    ${custStatusBadge(careData[phone].khStatus)}`;
   if (gsUrl) { queueCareSync(phone); toast('✓ Đã lưu'); }
   else toast('✓ Đã lưu tình trạng (local)');
   // Ghi tên CS chăm sóc xuống OrderData cột N (chỉ khi CS chăm sóc thay đổi)
@@ -2894,7 +2928,6 @@ function rebuildCareOnCustomers() {
     c.zaloStatus = care.zalo  || c._rawZalo  || '';
     c.careNote   = care.note  || c._rawNote  || '';
     c.careCS     = care.cs    || _latestOrderCS(c.orders);
-    c.custStatus = care.custStatus || '';
     if (!c.csSet) c.csSet = new Set(c.orders.map(o=>o.cs).filter(Boolean));
   }
 }
@@ -2916,12 +2949,6 @@ function updateSidebarBadges() {
   // Dynamic badges cho từng tình trạng trong CARE_STATUS
   CARE_STATUS.forEach(function(st, i) {
     txt('bc-cs-' + i, fmt(cnt(c => c.careStatus === st)));
-  });
-  // Trạng thái KH badges
-  txt('bcs-all', fmt(base.length));
-  CUSTOMER_STATUS_LIST.forEach(function(st, i) {
-    const el = document.getElementById('bcs-' + i);
-    if (el) el.textContent = fmt(cnt(c => (c.custStatus||'') === st.value));
   });
   // Zalo badges (cố định)
   txt('bz-kb',fmt(cnt(c=>c.zaloStatus==='Đã kết bạn')));
@@ -3260,7 +3287,7 @@ function exportCSV() {
 
 function clearData() {
   if(!confirm('Xóa toàn bộ dữ liệu Excel đã nạp?\n(Lịch hẹn và trạng thái CS được giữ lại)')) return;
-  customerMap={}; allCustomers=[]; loadedFiles=[]; currentTier='all'; currentCare='all'; currentZalo='all'; currentBrand='all'; currentCS='all'; currentCustStatus='all';
+  customerMap={}; allCustomers=[]; loadedFiles=[]; currentTier='all'; currentCare='all'; currentZalo='all'; currentBrand='all'; currentCS='all';
   document.getElementById('data-view').style.display='none';
   document.getElementById('empty-view').style.display='flex';
   document.getElementById('clearbtn').style.display='none';
@@ -3281,7 +3308,14 @@ function tierBadge(tier) {
 function careBadge(st) {
   if(!st) return '<span class="badge bo">Chưa CS</span>';
   const map={'Chốt':'cs-chot','Phân vân/Tiềm năng':'cs-pv','Hẹn gọi lại sau':'cs-hen','Đang sd':'cs-sd','Đang tạm ngưng':'cs-ngung','Knm/Máy bận':'cs-knm','Kcnc/Không hiệu quả':'cs-kcnc'};
-  return `<span class="badge ${map[st]||'bo'}">${st}</span>`;
+  // Hiển thị số thứ tự nếu có trong CARE_STATUS
+  var idx = CARE_STATUS.indexOf(st);
+  var label = (idx >= 0) ? ((idx+1) + '. ' + st) : st;
+  return `<span class="badge ${map[st]||'bo'}">${label}</span>`;
+}
+function custStatusBadge(st) {
+  if(!st) return '';
+  return `<span class="badge bo" style="background:#f0ebff;color:#6d28d9;border-color:#c4b5fd">${st}</span>`;
 }
 function zaloBadge(st) {
   if(!st) return '<span class="badge bo">—</span>';
@@ -3457,7 +3491,7 @@ function loadLS(k){try{const v=localStorage.getItem(k);return v?JSON.parse(v):nu
 function saveLS(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
 
 // Column visibility state
-const colVisible = { name:true, tier:true, custstatus:true, care:true, zalo:true, order:true, product:true, cs:true, source:false, note:true, sched:true, lastact:true, tacdong:true, carecs:true };
+const colVisible = { name:true, tier:true, care:true, zalo:true, order:true, product:true, cs:true, source:false, note:true, sched:true, lastact:true, tacdong:true, carecs:true };
 
 function toggleCol(col, cb) {
   colVisible[col] = cb.checked;
@@ -3502,7 +3536,6 @@ function renderColDdItems(col, query) {
   if (col==='name') values = [...new Set(allCustomers.map(c=>c.name))].sort((a,b)=>a.localeCompare(b,'vi'));
   else if (col==='tier') values = ['VIP','Thân thiết','Tiềm năng','Chưa bán lại được'];
   else if (col==='care') values = ['', ...CARE_STATUS];
-  else if (col==='custstatus') values = ['', ...CUSTOMER_STATUS_LIST.map(x=>x.value)];
   else if (col==='zalo') values = ['', ...ZALO_STATUS];
   else if (col==='product') values = [...new Set(allCustomers.flatMap(c=>c.brands).filter(Boolean))].sort();
   else if (col==='cs') values = [...new Set(allCustomers.flatMap(c=>[...new Set(c.orders.map(o=>o.cs)),c.careCS]).filter(Boolean))].sort();
@@ -4522,7 +4555,7 @@ function renderMyDataTab() {
       // Last action display
       let lastActHtml = '';
       if (c && c._lastActionDate && c._lastActionDate > 1) {
-        const daysAgo = Math.floor((Date.now() - c._lastActionDate) / 86400000);
+        const daysAgo = _calendarDaysAgo(c._lastActionDate);
         const color = daysAgo <= 3 ? 'var(--green)' : daysAgo <= 14 ? 'var(--tn)' : 'var(--hint)';
         const label = daysAgo === 0 ? 'Hôm nay' : daysAgo === 1 ? 'Hôm qua' : `${daysAgo} ngày trước`;
         lastActHtml = `<span style="font-size:10px;color:${color}">⚡ ${label}</span>`;
@@ -4546,7 +4579,11 @@ function renderMyDataTab() {
   body.innerHTML = html;
 }
 
-function careBadgeText(st) { return st || 'Chưa CS'; }
+function careBadgeText(st) {
+  if (!st) return 'Chưa CS';
+  var idx = CARE_STATUS.indexOf(st);
+  return (idx >= 0) ? ((idx+1) + '. ' + st) : st;
+}
 
 function toggleMyDataDone(phone, csName, isDone) {
   // Update in all batches for this CS
@@ -4786,7 +4823,7 @@ var SH_USER   = 'Users';
 
 var CARE_HEADERS = ['phone','status','zalo','cs','note','schedules',
   'schedGoi','schedGoiNote','schedSP','schedSPNote',
-  'schedCS','schedCSNote','schedHen','schedHenNote','updated','custStatus'];
+  'schedCS','schedCSNote','schedHen','schedHenNote','updated'];
 var ORDER_HEADERS = ['phone','name','date','year','month','cs','source','revenue',
   'product','productDetail','status','zalo','note','careCS'];
 var TEAM_HEADERS = ['id','name','leader','members','color'];
@@ -4821,7 +4858,7 @@ function readCare_(sh) {
       schedGoi: vals[i][6]||'', schedGoiNote: vals[i][7]||'',
       schedSP: vals[i][8]||'', schedSPNote: vals[i][9]||'',
       schedCS: vals[i][10]||'', schedCSNote: vals[i][11]||'',
-      schedHen: vals[i][12]||'', schedHenNote: vals[i][13]||'', updated: vals[i][14]||'', custStatus: vals[i][15]||''
+      schedHen: vals[i][12]||'', schedHenNote: vals[i][13]||'', updated: vals[i][14]||''
     });
   }
   return out;
@@ -5048,7 +5085,7 @@ function saveBatchCare_(rows) {
 function careRow_(r) {
   return [r.phone||'', r.status||'', r.zalo||'', r.cs||'', r.note||'', r.schedules||'',
     r.schedGoi||'', r.schedGoiNote||'', r.schedSP||'', r.schedSPNote||'',
-    r.schedCS||'', r.schedCSNote||'', r.schedHen||'', r.schedHenNote||'', new Date().toISOString(), r.custStatus||''];
+    r.schedCS||'', r.schedCSNote||'', r.schedHen||'', r.schedHenNote||'', new Date().toISOString()];
 }
 
 // saveOrders: chi them dong moi (chong trung theo phone|year|month|revenue), setValues batch
@@ -6512,6 +6549,7 @@ function _renderAuthHeader(){
   var loggedIn = !!_authAccount;
   var html = '';
   if (isAdmin) html += '<button class="btn sm" title="Quản lý tình trạng CS" onclick="openCareStatusModal()">⚙ Tình trạng CS</button>';
+  if (isAdmin) html += '<button class="btn sm" title="Quản lý trạng thái KH" onclick="openKhStatusModal()">⚙ Trạng thái KH</button>';
   if (isAdmin) html += '<button class="btn sm" title="Quản lý tài khoản đăng nhập" onclick="openAcctModal()">🔑 Tài khoản</button>';
   if (loggedIn) html += '<button class="btn sm" title="Đăng xuất" onclick="doLogout()">⎋ Đăng xuất</button>';
   box.innerHTML = html;
@@ -6690,7 +6728,7 @@ function renderCareStatusList() {
   el.innerHTML = _careStatusDraft.map(function(st, i) {
     return '<div class="cs-status-row" data-index="' + i + '" draggable="true">' +
       '<span class="cs-status-drag" title="Kéo để sắp xếp">☰</span>' +
-      '<span class="cs-status-label">' + esc(st) + '</span>' +
+      '<span class="cs-status-label"><span style="color:var(--hint);font-size:10px;margin-right:4px;font-weight:600">' + (i+1) + '.</span>' + esc(st) + '</span>' +
       '<button class="btn danger sm" style="margin-left:auto;padding:2px 7px" onclick="removeCareStatusItem(' + i + ')">✕</button>' +
     '</div>';
   }).join('');
@@ -6813,27 +6851,10 @@ function updateSidebarCareFilters() {
       var active = existing === st ? 'active' : '';
       var sid = 'bc-cs-' + i;
       return '<button class="section-btn ' + active + '" onclick="setCareFilter(\'' + esc(st).replace(/'/g,"\\'") + '\',this)">' +
-        '<div class="fleft"><span class="fdot" style="background:' + color + '"></span><span>' + esc(st) + '</span></div>' +
+        '<div class="fleft"><span class="fdot" style="background:' + color + '"></span><span><span style="color:var(--hint);font-size:10px;margin-right:2px">' + (i+1) + '.</span>' + esc(st) + '</span></div>' +
         '<span class="fbadge" id="' + sid + '">0</span></button>';
     }).join('');
   // Cập nhật badge count
-  updateSidebarBadges();
-}
-
-// Render sidebar customer status filters dynamically
-function updateSidebarCustStatusFilters() {
-  var container = document.getElementById('custstatus-filters');
-  if (!container) return;
-  var existing = currentCustStatus;
-  container.innerHTML =
-    '<button class="section-btn ' + (currentCustStatus==='all'?'active':'') + '" onclick="setCustStatusFilter(\'all\',this)"><div class="fleft"><span>Tất cả</span></div><span class="fbadge" id="bcs-all">0</span></button>' +
-    CUSTOMER_STATUS_LIST.map(function(st, i) {
-      var active = existing === st.value ? 'active' : '';
-      var indent = st.parent ? 'padding-left:14px;font-size:11px;' : '';
-      return '<button class="section-btn ' + active + '" style="' + indent + '" onclick="setCustStatusFilter(\'' + esc(st.value).replace(/'/g,"\\'") + '\',this)">' +
-        '<div class="fleft"><span class="fdot" style="background:' + st.color + '"></span><span>' + esc(st.label) + '</span></div>' +
-        '<span class="fbadge" id="bcs-' + i + '">0</span></button>';
-    }).join('');
   updateSidebarBadges();
 }
 </script>
@@ -6845,6 +6866,372 @@ function updateSidebarCustStatusFilters() {
 .cs-status-drag:active{cursor:grabbing;}
 .cs-status-label{font-size:12px;flex:1;}
 </style>
+
+
+<!-- ── TRẠNG THÁI KH MANAGER MODAL ── -->
+<div class="modal-overlay" id="kh-status-modal" style="display:none;align-items:flex-start;justify-content:center;padding-top:40px;z-index:700">
+<div class="modal" style="width:560px;max-width:96vw;max-height:84vh;display:flex;flex-direction:column;overflow:hidden">
+  <div class="modal-hdr" style="flex-shrink:0">
+    <div class="modal-title">⚙ Quản lý Trạng thái KH</div>
+    <div class="modal-sub">Thêm nhóm (trạng thái mẹ) hoặc mục con. Kéo thả ☰ để sắp xếp. Đồng bộ GSheets.</div>
+  </div>
+  <div class="modal-body" style="padding:14px 18px;flex:1;overflow-y:auto">
+    <div id="kh-status-tree-list" style="margin-bottom:14px"></div>
+    <!-- Add controls -->
+    <div style="border:1px solid var(--border);border-radius:var(--rsm);padding:10px 12px;background:var(--surface2)">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--hint);margin-bottom:8px">Thêm mới</div>
+      <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+        <input id="khs-new-label" class="form-input" placeholder="Nhập tên trạng thái..." style="flex:1"
+          onkeydown="if(event.key==='Enter')addKhStatusItem()">
+        <select id="khs-parent-sel" class="form-select" style="width:180px">
+          <option value="">— Thêm vào gốc (nhóm/lá) —</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn primary sm" onclick="addKhStatusItem(false)">+ Thêm trạng thái</button>
+        <button class="btn secondary sm" onclick="addKhStatusItem(true)">+ Thêm nhóm (có con)</button>
+      </div>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--hint)">
+      Trạng thái mẹ (nhóm) → chỉ làm tiêu đề, không chọn được. Trạng thái con / lá → chọn được. Xóa nhóm sẽ xóa cả các con.
+    </div>
+  </div>
+  <div class="modal-footer" style="flex-shrink:0;display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <button class="btn danger sm" onclick="resetKhStatusToDefault()">↺ Khôi phục mặc định</button>
+    <div style="display:flex;gap:8px">
+      <button class="btn" onclick="closeKhStatusModal()">Đóng</button>
+      <button class="btn primary" id="khs-save-btn" onclick="saveKhStatusTree()">💾 Lưu</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<style>
+.khs-group{margin-bottom:8px;}
+.khs-parent-row{display:flex;align-items:center;gap:7px;padding:6px 8px;background:var(--surface2);border:1px solid var(--border-md);border-radius:var(--rsm);font-weight:600;font-size:12px;cursor:default;}
+.khs-parent-row:hover{background:#e8e6e3;}
+.khs-children{padding-left:20px;margin-top:3px;display:flex;flex-direction:column;gap:3px;}
+.khs-child-row{display:flex;align-items:center;gap:7px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--rsm);background:var(--surface);font-size:12px;cursor:default;}
+.khs-child-row:hover{background:var(--surface2);}
+.khs-leaf-row{display:flex;align-items:center;gap:7px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--rsm);background:var(--surface);font-size:12px;margin-bottom:3px;cursor:default;}
+.khs-leaf-row:hover{background:var(--surface2);}
+.khs-drag{color:var(--hint);cursor:grab;font-size:13px;flex-shrink:0;user-select:none;}
+.khs-drag:active{cursor:grabbing;}
+.khs-icon{font-size:11px;flex-shrink:0;color:var(--hint);}
+.khs-lbl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.khs-group-badge{font-size:9px;padding:1px 6px;border-radius:10px;background:var(--vip-bg);color:var(--vip);border:1px solid var(--vip-b);flex-shrink:0;}
+</style>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  TRẠNG THÁI KH MANAGER
+// ═══════════════════════════════════════════════════════
+let _khStatusDraft = [];
+
+function openKhStatusModal() {
+  var isAdmin = (_authAccount && _authAccount.role === 'admin') || _bootstrapAdmin;
+  if (!isAdmin) { toast('Chỉ admin mới quản lý Trạng thái KH.'); return; }
+  _khStatusDraft = JSON.parse(JSON.stringify(CUSTOMER_STATUS_TREE));
+  _renderKhStatusTree();
+  _renderKhParentSel();
+  var m = document.getElementById('kh-status-modal');
+  if (m) m.style.display = 'flex';
+  // Update save button label
+  var btn = document.getElementById('khs-save-btn');
+  if (btn) btn.textContent = '💾 Lưu' + (gsUrl ? ' + Sync GSheets' : '');
+}
+
+function closeKhStatusModal() {
+  var m = document.getElementById('kh-status-modal');
+  if (m) m.style.display = 'none';
+}
+
+function _renderKhParentSel() {
+  var sel = document.getElementById('khs-parent-sel');
+  if (!sel) return;
+  var html = '<option value="">— Thêm vào gốc (nhóm/lá) —</option>';
+  _khStatusDraft.forEach(function(node, pi) {
+    if (node.children) {
+      html += '<option value="' + pi + '">Thêm vào: ' + esc(node.label) + '</option>';
+    }
+  });
+  sel.innerHTML = html;
+}
+
+function _renderKhStatusTree() {
+  var el = document.getElementById('kh-status-tree-list');
+  if (!el) return;
+  if (!_khStatusDraft.length) {
+    el.innerHTML = '<div style="color:var(--hint);font-size:12px;text-align:center;padding:12px">Chưa có trạng thái nào.</div>';
+    return;
+  }
+  var html = '';
+  _khStatusDraft.forEach(function(node, pi) {
+    if (node.children) {
+      // GROUP node
+      html += '<div class="khs-group" data-pi="' + pi + '">';
+      html += '<div class="khs-parent-row" draggable="true" data-drag-pi="' + pi + '">' +
+        '<span class="khs-drag" title="Kéo nhóm">☰</span>' +
+        '<span class="khs-icon">📁</span>' +
+        '<span class="khs-lbl">' + esc(node.label) + '</span>' +
+        '<span class="khs-group-badge">Nhóm · ' + node.children.length + ' con</span>' +
+        '<button class="btn sm" style="padding:2px 7px;font-size:10px" onclick="editKhLabel('+pi+',null)">✏️</button>' +
+        '<button class="btn danger sm" style="padding:2px 7px" onclick="removeKhNode('+pi+',null)">✕</button>' +
+      '</div>';
+      if (node.children.length) {
+        html += '<div class="khs-children" data-ci-wrap="' + pi + '">';
+        node.children.forEach(function(child, ci) {
+          html += '<div class="khs-child-row" draggable="true" data-drag-pi="' + pi + '" data-drag-ci="' + ci + '">' +
+            '<span class="khs-drag" title="Kéo sắp xếp">☰</span>' +
+            '<span class="khs-icon" style="color:#6d28d9">↳</span>' +
+            '<span class="khs-lbl">' + esc(child.label) + '</span>' +
+            '<button class="btn sm" style="padding:2px 7px;font-size:10px" onclick="editKhLabel('+pi+','+ci+')">✏️</button>' +
+            '<button class="btn danger sm" style="padding:2px 7px" onclick="removeKhNode('+pi+','+ci+')">✕</button>' +
+          '</div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    } else {
+      // LEAF node at root
+      html += '<div class="khs-leaf-row" draggable="true" data-drag-pi="' + pi + '" data-drag-ci="null">' +
+        '<span class="khs-drag" title="Kéo sắp xếp">☰</span>' +
+        '<span class="khs-icon">🔹</span>' +
+        '<span class="khs-lbl">' + esc(node.label) + '</span>' +
+        '<button class="btn sm" style="padding:2px 7px;font-size:10px" onclick="editKhLabel('+pi+',null,true)">✏️</button>' +
+        '<button class="btn danger sm" style="padding:2px 7px" onclick="removeKhNode('+pi+',null)">✕</button>' +
+      '</div>';
+    }
+  });
+  el.innerHTML = html;
+  _initKhDragSort(el);
+}
+
+function editKhLabel(pi, ci, isLeaf) {
+  var node = _khStatusDraft[pi];
+  var current = (ci !== null && ci !== undefined && node.children) ? node.children[ci].label : node.label;
+  var newLabel = prompt('Đổi tên:', current);
+  if (!newLabel || !newLabel.trim()) return;
+  newLabel = newLabel.trim();
+  if (ci !== null && ci !== undefined && node.children) {
+    node.children[ci].label = newLabel;
+    node.children[ci].value = newLabel;
+  } else {
+    node.label = newLabel;
+    if (!node.children) node.value = newLabel;
+  }
+  _renderKhStatusTree();
+  _renderKhParentSel();
+}
+
+function removeKhNode(pi, ci) {
+  var node = _khStatusDraft[pi];
+  if (ci !== null && ci !== undefined && node.children) {
+    if (!confirm('Xóa trạng thái con "' + node.children[ci].label + '"?')) return;
+    node.children.splice(ci, 1);
+    if (!node.children.length) {
+      // Nhóm rỗng → chuyển thành lá
+      _khStatusDraft[pi] = { label: node.label, value: node.label };
+    }
+  } else {
+    var msg = node.children && node.children.length
+      ? 'Xóa nhóm "' + node.label + '" và ' + node.children.length + ' trạng thái con?'
+      : 'Xóa "' + node.label + '"?';
+    if (!confirm(msg + '\n\nDữ liệu KH đang có trạng thái này vẫn giữ nguyên.')) return;
+    _khStatusDraft.splice(pi, 1);
+  }
+  _renderKhStatusTree();
+  _renderKhParentSel();
+}
+
+function addKhStatusItem(asGroup) {
+  var label = (document.getElementById('khs-new-label').value || '').trim();
+  if (!label) { toast('Nhập tên trạng thái trước.'); return; }
+  var parentSel = document.getElementById('khs-parent-sel');
+  var parentIdx = parentSel ? parentSel.value : '';
+
+  if (parentIdx !== '') {
+    // Thêm con vào nhóm đã có
+    var pi = parseInt(parentIdx);
+    if (!_khStatusDraft[pi].children) _khStatusDraft[pi].children = [];
+    _khStatusDraft[pi].children.push({ label: label, value: label });
+  } else if (asGroup) {
+    // Thêm nhóm mới ở gốc (không có value, chỉ có children rỗng)
+    _khStatusDraft.push({ label: label, children: [] });
+  } else {
+    // Thêm lá ở gốc
+    _khStatusDraft.push({ label: label, value: label });
+  }
+  document.getElementById('khs-new-label').value = '';
+  _renderKhStatusTree();
+  _renderKhParentSel();
+}
+
+function resetKhStatusToDefault() {
+  if (!confirm('Khôi phục trạng thái KH về mặc định? Dữ liệu KH vẫn giữ nguyên.')) return;
+  _khStatusDraft = JSON.parse(JSON.stringify(CUSTOMER_STATUS_TREE_DEFAULT));
+  _renderKhStatusTree();
+  _renderKhParentSel();
+}
+
+async function saveKhStatusTree() {
+  // Cập nhật runtime
+  CUSTOMER_STATUS_TREE.length = 0;
+  _khStatusDraft.forEach(function(n) { CUSTOMER_STATUS_TREE.push(n); });
+  // Lưu local
+  saveLS('ome_kh_status_tree', CUSTOMER_STATUS_TREE);
+  // Đồng bộ GSheets
+  if (gsUrl) {
+    try {
+      var r = await fetch(gsUrl, {
+        method: 'POST', redirect: 'follow',
+        body: JSON.stringify({ action: 'saveKhStatusTree', khStatusTree: CUSTOMER_STATUS_TREE })
+      });
+      var d = await r.json().catch(function(){ return {}; });
+      if (d && d.error) toast('Lưu local ✓ — GSheets: ' + d.error);
+      else toast('✓ Đã lưu và đồng bộ Trạng thái KH lên Google Sheets');
+    } catch(e) {
+      toast('✓ Đã lưu local — chưa đồng bộ GSheets: ' + e.message);
+    }
+  } else {
+    toast('✓ Đã lưu Trạng thái KH (local)');
+  }
+  closeKhStatusModal();
+  // Refresh dropdown trong form nếu đang mở
+  var sel = document.getElementById('cs-kh-status');
+  if (sel) {
+    var cur = sel.value;
+    sel.innerHTML = _buildCustStatusOptions(cur);
+  }
+}
+
+// ── Drag & drop sắp xếp trong modal KH ──
+function _initKhDragSort(container) {
+  var dragSrc = null, dragPi = null, dragCi = null;
+
+  function getRows(el) {
+    return Array.from(el.querySelectorAll('[draggable="true"]'));
+  }
+
+  container.querySelectorAll('[draggable="true"]').forEach(function(row) {
+    row.addEventListener('dragstart', function(e) {
+      dragSrc = row;
+      dragPi = row.dataset.dragPi !== undefined ? parseInt(row.dataset.dragPi) : null;
+      dragCi = (row.dataset.dragCi !== undefined && row.dataset.dragCi !== 'null' && row.dataset.dragCi !== '') ? parseInt(row.dataset.dragCi) : null;
+      e.dataTransfer.effectAllowed = 'move';
+      row.style.opacity = '0.4';
+    });
+    row.addEventListener('dragend', function() { row.style.opacity = ''; });
+    row.addEventListener('dragover', function(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+    row.addEventListener('drop', function(e) {
+      e.preventDefault();
+      if (dragSrc === row) return;
+      var toPi = row.dataset.dragPi !== undefined ? parseInt(row.dataset.dragPi) : null;
+      var toCi = (row.dataset.dragCi !== undefined && row.dataset.dragCi !== 'null' && row.dataset.dragCi !== '') ? parseInt(row.dataset.dragCi) : null;
+
+      // Root-level reorder (both are root rows)
+      if (dragCi === null && toCi === null && dragPi !== null && toPi !== null) {
+        var moved = _khStatusDraft.splice(dragPi, 1)[0];
+        _khStatusDraft.splice(toPi, 0, moved);
+        _renderKhStatusTree();
+        _renderKhParentSel();
+        return;
+      }
+      // Child reorder within same parent
+      if (dragCi !== null && toCi !== null && dragPi === toPi) {
+        var parent = _khStatusDraft[dragPi];
+        if (parent && parent.children) {
+          var movedChild = parent.children.splice(dragCi, 1)[0];
+          parent.children.splice(toCi, 0, movedChild);
+          _renderKhStatusTree();
+          return;
+        }
+      }
+    });
+  });
+}
+</script>
+
+
+<!-- ── TIER TOOLTIP ── -->
+<div id="tier-tooltip" style="
+  display:none;position:fixed;z-index:800;
+  background:var(--surface);border:1px solid var(--border-md);
+  border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,0.18);
+  width:310px;max-width:94vw;font-size:12px;overflow:hidden;
+">
+  <div style="padding:11px 14px 8px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+    <div style="font-size:13px;font-weight:700;color:var(--text)">🏅 Tiêu chí phân loại KH</div>
+    <button onclick="closeTierTooltip()" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--hint);line-height:1;padding:0 2px">&times;</button>
+  </div>
+  <div style="padding:10px 14px 4px;display:flex;flex-direction:column;gap:7px">
+    <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;border-radius:7px;background:var(--vip-bg);border:1px solid var(--vip-b)">
+      <span style="font-size:16px;flex-shrink:0;margin-top:1px">👑</span>
+      <div>
+        <div style="font-weight:700;color:var(--vip);margin-bottom:2px">VIP</div>
+        <div style="color:var(--muted);line-height:1.6">Có <strong>≥ 10 đơn Renew</strong> từ nguồn mua lại</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;border-radius:7px;background:var(--tt-bg);border:1px solid var(--tt-b)">
+      <span style="font-size:16px;flex-shrink:0;margin-top:1px">⭐</span>
+      <div>
+        <div style="font-weight:700;color:var(--tt);margin-bottom:2px">Thân thiết</div>
+        <div style="color:var(--muted);line-height:1.6">Có <strong>5 – 9 đơn Renew</strong> từ nguồn mua lại</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;border-radius:7px;background:var(--tn-bg);border:1px solid var(--tn-b)">
+      <span style="font-size:16px;flex-shrink:0;margin-top:1px">🌱</span>
+      <div>
+        <div style="font-weight:700;color:var(--tn);margin-bottom:2px">Tiềm năng</div>
+        <div style="color:var(--muted);line-height:1.6">Có <strong>≥ 1 đơn Renew</strong> và có ít nhất 1 đơn từ <strong>tháng 1/2025</strong> trở đi</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;border-radius:7px;background:var(--surface2);border:1px solid var(--border)">
+      <span style="font-size:16px;flex-shrink:0;margin-top:1px">🔘</span>
+      <div>
+        <div style="font-weight:700;color:var(--muted);margin-bottom:2px">Chưa bán lại được</div>
+        <div style="color:var(--muted);line-height:1.6">Chưa có đơn Renew hoặc chưa đủ điều kiện trên</div>
+      </div>
+    </div>
+  </div>
+  <div style="padding:8px 14px 11px">
+    <div style="font-size:10px;color:var(--hint);background:var(--surface2);border-radius:6px;padding:6px 9px;line-height:1.7">
+      📌 <strong>Nguồn Renew</strong> gồm: <em>kh renew, kh renew mkt, kh giới thiệu, data đảo renew</em>.<br>
+      Phân loại tự động dựa trên dữ liệu đơn hàng đã nạp.
+    </div>
+  </div>
+</div>
+
+<script>
+function openTierTooltip(e) {
+  e.stopPropagation();
+  var tt = document.getElementById('tier-tooltip');
+  if (!tt) return;
+  var btn = document.getElementById('tier-label-btn');
+  var rect = btn ? btn.getBoundingClientRect() : { left: e.clientX, bottom: e.clientY };
+  tt.style.display = 'block';
+  // Position: below label, aligned left; clamp to viewport
+  var left = rect.left;
+  var top  = rect.bottom + 6;
+  if (left + 310 > window.innerWidth - 8) left = window.innerWidth - 318;
+  if (left < 8) left = 8;
+  tt.style.left = left + 'px';
+  tt.style.top  = top + 'px';
+  // Close on outside click
+  setTimeout(function() {
+    document.addEventListener('click', _closeTierOnOutside, { once: true });
+  }, 0);
+}
+function closeTierTooltip() {
+  var tt = document.getElementById('tier-tooltip');
+  if (tt) tt.style.display = 'none';
+  document.removeEventListener('click', _closeTierOnOutside);
+}
+function _closeTierOnOutside(e) {
+  var tt = document.getElementById('tier-tooltip');
+  if (tt && !tt.contains(e.target)) tt.style.display = 'none';
+}
+</script>
 
 </body>
 </html>
