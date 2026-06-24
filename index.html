@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OME CS Portal v9.7</title>
+<title>OME CS Portal v9.9</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -306,7 +306,12 @@ textarea.form-ta{resize:vertical;min-height:58px;}
 .hist-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;}
 .hist-date{font-size:11px;color:var(--muted);}
 .hist-price{font-size:12px;font-weight:600;color:var(--green);}
-.hist-prod{font-size:11px;color:var(--muted);line-height:1.5;}
+.hist-prod{font-size:11px;color:var(--muted);line-height:1.5;position:relative;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;word-break:break-word;}
+.hist-prod.expandable{cursor:pointer;padding-right:15px;}
+.hist-prod.expandable::after{content:'⌄';position:absolute;right:1px;top:1px;color:var(--green);font-weight:700;line-height:1;}
+.hist-prod.expandable:hover{color:var(--text);}
+.hist-prod.expanded{display:block;overflow:visible;-webkit-line-clamp:none;}
+.hist-prod.expanded::after{content:'⌃';}
 .hist-tags{display:flex;gap:3px;flex-wrap:wrap;margin-top:3px;}
 .htag{font-size:9px;padding:1px 5px;background:var(--surface2);border-radius:3px;color:var(--hint);}
 
@@ -747,7 +752,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 <header>
   <div class="logo">
     <div class="logo-mark"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">v9.7</span>
+    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">v9.9</span>
   </div>
   <div class="hdr-r">
     <span class="fstatus" id="fstatus">Chưa có dữ liệu</span>
@@ -1216,19 +1221,71 @@ function _flatCustStatusValues() {
 
 // Build <option> HTML cho select Trạng thái KH
 function _buildCustStatusOptions(selected) {
+  // Dang optgroup: nhom me lam tieu de, option con hien "Me - Con" (de khi chon xong o select hien du me-con)
   var html = '<option value="">— Chọn —</option>';
   CUSTOMER_STATUS_TREE.forEach(function(node) {
     if (node.children) {
       html += '<optgroup label="' + esc(node.label) + '">';
       node.children.forEach(function(child) {
-        html += '<option value="' + esc(child.value) + '"' + (selected === child.value ? ' selected' : '') + '>' + esc(child.label) + '</option>';
+        if (!child.value) return;
+        html += '<option value="' + esc(child.value) + '"' + (selected === child.value ? ' selected' : '') + '>' + esc(node.label + ' - ' + (child.label || child.value)) + '</option>';
       });
       html += '</optgroup>';
-    } else {
-      html += '<option value="' + esc(node.value) + '"' + (selected === node.value ? ' selected' : '') + '>' + esc(node.label) + '</option>';
+    } else if (node.value) {
+      html += '<option value="' + esc(node.value) + '"' + (selected === node.value ? ' selected' : '') + '>' + esc(node.label || node.value) + '</option>';
     }
   });
   return html;
+}
+
+// Build <option> cho select Tinh trang CS — CUNG dang optgroup + "Me - Con" nhu Trang thai KH
+function _buildCareStatusOptions(selected) {
+  var html = '<option value="">— Chọn —</option>';
+  CARE_STATUS_TREE.forEach(function(node) {
+    if (node.children) {
+      html += '<optgroup label="' + esc(node.label) + '">';
+      node.children.forEach(function(child) {
+        if (!child.value) return;
+        html += '<option value="' + esc(child.value) + '"' + (selected === child.value ? ' selected' : '') + '>' + esc(node.label + ' - ' + (child.label || child.value)) + '</option>';
+      });
+      html += '</optgroup>';
+    } else if (node.value) {
+      html += '<option value="' + esc(node.value) + '"' + (selected === node.value ? ' selected' : '') + '>' + esc(node.label || node.value) + '</option>';
+    }
+  });
+  return html;
+}
+
+// Tra nhan day du "Me - Con" cho 1 value la (Tinh trang CS); la o goc (khong me) -> tra label
+function careStatusFullLabel(val) {
+  if (!val) return '';
+  for (var i = 0; i < CARE_STATUS_TREE.length; i++) {
+    var node = CARE_STATUS_TREE[i];
+    if (node.children) {
+      for (var j = 0; j < node.children.length; j++) {
+        if (node.children[j].value === val) return node.label + ' - ' + (node.children[j].label || val);
+      }
+    } else if ((node.value || node.label) === val) {
+      return node.label || val;
+    }
+  }
+  return val;
+}
+
+// Tra nhan day du "Me - Con" cho 1 value la (Trang thai KH)
+function custStatusFullLabel(val) {
+  if (!val) return '';
+  for (var i = 0; i < CUSTOMER_STATUS_TREE.length; i++) {
+    var node = CUSTOMER_STATUS_TREE[i];
+    if (node.children) {
+      for (var j = 0; j < node.children.length; j++) {
+        if (node.children[j].value === val) return node.label + ' - ' + (node.children[j].label || val);
+      }
+    } else if ((node.value || node.label) === val) {
+      return node.label || val;
+    }
+  }
+  return val;
 }
 const ZALO_STATUS = [
   'Đã kết bạn','Chưa kết bạn','Chưa đồng ý','Không nhận tn lạ',
@@ -2501,7 +2558,7 @@ function renderDpTab(tab) {
   if (!c || !body) return;
   if (tab==='care') body.innerHTML = renderCareTab(c);
   else if (tab==='schedule') body.innerHTML = renderSchedTabHtml(c);
-  else if (tab==='history') body.innerHTML = renderHistTab(c);
+  else if (tab==='history') { body.innerHTML = renderHistTab(c); _initHistExpand(); }
   else body.innerHTML = renderInfoTab(c);
   // Đồng bộ highlight tab (KH mới luôn render lại đúng nội dung, không còn dính dữ liệu KH trước)
   const _order = ['care','schedule','history','info'];
@@ -2517,7 +2574,7 @@ function switchDpTab(tab, el) {
   const body = document.getElementById('dp-body');
   if (tab==='care') body.innerHTML = renderCareTab(c);
   else if (tab==='schedule') body.innerHTML = renderSchedTabHtml(c);
-  else if (tab==='history') body.innerHTML = renderHistTab(c);
+  else if (tab==='history') { body.innerHTML = renderHistTab(c); _initHistExpand(); }
   else body.innerHTML = renderInfoTab(c);
 }
 
@@ -2531,8 +2588,7 @@ function renderCareTab(c) {
       <div>
         <div class="form-label">Tình trạng CS</div>
         <select class="form-select" id="cs-status">
-          <option value="">— Chọn —</option>
-          ${CARE_STATUS.map((x,i)=>`<option value="${x}" ${(care.status||c.careStatus)===x?'selected':''}>${(i+1)}. ${x}</option>`).join('')}
+          ${_buildCareStatusOptions(care.status||c.careStatus||'')}
         </select>
       </div>
       <div>
@@ -2695,7 +2751,7 @@ function renderHistTab(c) {
           <span class="hist-date">${formatDate(o.date,o.year,o.month)}</span>
           <span class="hist-price">${fmtVND(o.revenue)}</span>
         </div>
-        ${o.productDetail?`<div class="hist-prod">${esc(o.productDetail.substring(0,130))}${o.productDetail.length>130?'…':''}</div>`:''}
+        ${o.productDetail?`<div class="hist-prod" onclick="_toggleHistProd(this)" title="Bấm để xem đầy đủ sản phẩm">${esc(o.productDetail)}</div>`:''}
         <div class="hist-tags">
           <span class="htag" style="${isRenew?'background:var(--green-bg);color:var(--green);':''}">${isRenew?'✓ ':''}${esc(o.source)}</span>
           ${o.cs?`<span class="htag">👤 ${esc(o.cs)}</span>`:''}
@@ -2706,6 +2762,23 @@ function renderHistTab(c) {
       </div>`;
     }).join('')}
   </div>`;
+}
+
+// Mở rộng / thu gọn phần "sản phẩm chi tiết" của 1 đơn trong Lịch sử đơn
+function _toggleHistProd(el){ if (el) el.classList.toggle('expanded'); }
+// Sau khi render Lịch sử đơn: chỉ gắn nút mở rộng (mũi tên) cho dòng SP bị cắt
+function _initHistExpand(){
+  var run = function(){
+    try{
+      var nodes = document.querySelectorAll('#dp-body .hist-prod');
+      for (var i=0;i<nodes.length;i++){
+        var el = nodes[i];
+        el.classList.remove('expandable','expanded');
+        if (el.scrollHeight > el.clientHeight + 1) el.classList.add('expandable');
+      }
+    }catch(e){}
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run); else run();
 }
 
 function renderInfoTab(c) {
@@ -3411,14 +3484,14 @@ function tierBadge(tier) {
 function careBadge(st) {
   if(!st) return '<span class="badge bo">Chưa CS</span>';
   const map={'Chốt':'cs-chot','Phân vân/Tiềm năng':'cs-pv','Hẹn gọi lại sau':'cs-hen','Đang sd':'cs-sd','Đang tạm ngưng':'cs-ngung','Knm/Máy bận':'cs-knm','Kcnc/Không hiệu quả':'cs-kcnc'};
-  // Hiển thị số thứ tự nếu có trong CARE_STATUS
-  var idx = CARE_STATUS.indexOf(st);
-  var label = (idx >= 0) ? ((idx+1) + '. ' + st) : st;
+  // Hiện "Mẹ - Con" cho tình trạng đã chọn
+  var label = careStatusFullLabel(st) || st;
   return `<span class="badge ${map[st]||'bo'}">${label}</span>`;
 }
 function custStatusBadge(st) {
   if(!st) return '';
-  return `<span class="badge bo" style="background:#f0ebff;color:#6d28d9;border-color:#c4b5fd">${st}</span>`;
+  var label = custStatusFullLabel(st) || st;
+  return `<span class="badge bo" style="background:#f0ebff;color:#6d28d9;border-color:#c4b5fd">${label}</span>`;
 }
 function zaloBadge(st) {
   if(!st) return '<span class="badge bo">—</span>';
@@ -4800,8 +4873,7 @@ function renderMyDataTab() {
 
 function careBadgeText(st) {
   if (!st) return 'Chưa CS';
-  var idx = CARE_STATUS.indexOf(st);
-  return (idx >= 0) ? ((idx+1) + '. ' + st) : st;
+  return careStatusFullLabel(st) || st;
 }
 
 function toggleMyDataDone(phone, csName, isDone) {
