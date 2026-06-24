@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OME CS Portal v9.9</title>
+<title>OME CS Portal v10.0</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -752,7 +752,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 <header>
   <div class="logo">
     <div class="logo-mark"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">v9.9</span>
+    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">v10.0</span>
   </div>
   <div class="hdr-r">
     <span class="fstatus" id="fstatus">Chưa có dữ liệu</span>
@@ -1363,14 +1363,20 @@ function _relTime(t){
 // ── Phạm vi theo CS đang chọn ở "Lọc theo CS" ──
 let _csFilterMode = 'both';   // 'both' | 'seller' (CS phụ trách) | 'care' (CS chăm sóc)
 function _csScope(){ const el = document.getElementById('cs-staff-filter'); return el ? (el.value || 'all') : 'all'; }
+// Khớp theo chế độ lọc CS đang chọn (phụ trách / chăm sóc / cả hai) — DÙNG CHUNG cho danh sách, thống kê, xuất CSV
+function _csModeMatch(inSeller, inCare, inAssign){
+  if (_csFilterMode === 'seller') return !!inSeller;          // chỉ CS phụ trách (người lên đơn)
+  if (_csFilterMode === 'care')   return !!inCare;            // chỉ CS chăm sóc (người đang chăm)
+  return !!(inSeller || inCare || inAssign);                  // 'both': phụ trách HOẶC chăm sóc HOẶC được chia
+}
 function _inCSScope(c){
   const csF = _csScope();
   if (csF === 'all') return true;
   const inSeller = !!(c.csSet && c.csSet.has(csF));   // CS phụ trách = người lên đơn
   const inCare   = (c.careCS === csF);                // CS chăm sóc = người đang chăm
-  if (_csFilterMode === 'seller') return inSeller;
-  if (_csFilterMode === 'care')   return inCare;
-  return inSeller || inCare;                          // 'both'
+  const allH = (typeof _assignAllIndex !== 'undefined') ? _assignAllIndex[c.phone] : null;
+  const inAssign = allH ? allH.has(csF) : false;      // KH được chia chiến dịch cho CS này
+  return _csModeMatch(inSeller, inCare, inAssign);
 }
 // Tập KH dùng để đếm cho sidebar/stats: theo vai trò + theo CS đang chọn ở dropdown
 function scopedCustomers(){
@@ -2060,13 +2066,13 @@ function applyFilters() {
     }
     if (currentBrand !== 'all' && !c.brands.includes(currentBrand)) return false;
     if (csF !== 'all') {
-      // Bao gồm: KH trong đơn hàng của CS, KH careCS là CS này, VÀ KH được chia chiến dịch cho CS này
+      // Lọc theo CS đang chọn + ĐÚNG chế độ (Phụ trách / Chăm sóc / Cả hai)
       const _inOrders = c.csSet.has(csF);
       const _inCare   = c.careCS === csF;
-      // Tra cứu O(1) qua _assignAllIndex: KH có trong bất kỳ chiến dịch nào của CS không
+      // Tra cứu O(1) qua _assignAllIndex: KH có trong chiến dịch nào của CS không (chỉ tính ở chế độ "Cả hai")
       const _allH = (typeof _assignAllIndex !== 'undefined') ? _assignAllIndex[c.phone] : null;
       const _inAssign = _allH ? _allH.has(csF) : false;
-      if (!_inOrders && !_inCare && !_inAssign) return false;
+      if (!_csModeMatch(_inOrders, _inCare, _inAssign)) return false;
     }
     if (q && !c.nameLower.includes(q) && !c.phone.includes(q)) return false;
 
@@ -3450,7 +3456,7 @@ function exportCSV() {
     if(currentTier!=='all'&&c.tier!==currentTier) return false;
     if(currentCare!=='all'&&c.careStatus!==currentCare) return false;
     if(currentBrand!=='all'&&!c.brands.includes(currentBrand)) return false;
-    if(csF!=='all'){const cs=new Set(c.orders.map(o=>o.cs).filter(Boolean));if(!cs.has(csF)&&c.careCS!==csF) return false;}
+    if(csF!=='all'){const cs=new Set(c.orders.map(o=>o.cs).filter(Boolean));const _aH=(typeof _assignAllIndex!=='undefined')?_assignAllIndex[c.phone]:null;if(!_csModeMatch(cs.has(csF), c.careCS===csF, _aH?_aH.has(csF):false)) return false;}
     if(q&&!c.name.toLowerCase().includes(q)&&!c.phone.includes(q)) return false;
     return true;
   });
