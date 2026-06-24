@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OME CS Portal v10.0</title>
+<title>OME CS Portal v10.1</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -752,7 +752,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 <header>
   <div class="logo">
     <div class="logo-mark"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">v10.0</span>
+    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">v10.1</span>
   </div>
   <div class="hdr-r">
     <span class="fstatus" id="fstatus">Chưa có dữ liệu</span>
@@ -7338,14 +7338,11 @@ function _refreshCareStatusUI() {
   }
   // 3. Column dropdown care
   renderColDdItems('care', '');
-  // 4. Detail panel select (nếu đang mở)
+  // 4. Detail panel select (nếu đang mở) — DÙNG optgroup "Mẹ - Con" giống Trạng thái KH (không đánh số phẳng nữa)
   var sel = document.getElementById('cs-status');
   if (sel) {
     var cur = sel.value;
-    sel.innerHTML = '<option value="">— Chọn —</option>' +
-      CARE_STATUS.map(function(x, i) {
-        return '<option value="' + esc(x) + '"' + (cur === x ? ' selected' : '') + '>' + (i+1) + '. ' + esc(x) + '</option>';
-      }).join('');
+    sel.innerHTML = _buildCareStatusOptions(cur);
   }
   // 5. Reapply filters để badge count đúng
   if (typeof allCustomers !== 'undefined' && allCustomers.length) {
