@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OME CS Portal v9.6</title>
+<title>OME CS Portal v9.7</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -134,6 +134,7 @@ select.srt{padding:4px 8px;border:1px solid var(--border);border-radius:var(--rs
 .rp-dismiss{background:none;border:none;color:var(--hint);cursor:pointer;font-size:14px;line-height:1;padding:1px 4px;}
 .rp-dismiss:hover{color:var(--red);}
 .rp-chia{border-color:#0891b2;background:rgba(8,145,178,0.07);}
+.rp-owner{font-size:10.5px;margin-top:2px;color:var(--blue);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .reminder-bell{position:fixed;right:16px;bottom:16px;width:52px;height:52px;border-radius:50%;background:var(--green);color:#fff;border:none;box-shadow:0 4px 16px rgba(0,0,0,0.28);cursor:pointer;font-size:21px;z-index:550;display:none;align-items:center;justify-content:center;}
 .reminder-bell .rb-count{position:absolute;top:-3px;right:-3px;background:var(--red);color:#fff;font-size:10px;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px;font-weight:700;}
 .assign-modal-overlay.open{display:flex;}
@@ -746,7 +747,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 <header>
   <div class="logo">
     <div class="logo-mark"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">v9.6</span>
+    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">v9.7</span>
   </div>
   <div class="hdr-r">
     <span class="fstatus" id="fstatus">Chưa có dữ liệu</span>
@@ -2958,7 +2959,7 @@ function saveCareSchedules(phone) {
       // Remove existing sched of same type for this phone (avoid duplicates)
       const idx = schedules.findIndex(x=>x.phone===phone&&x.type===f.type&&!x.done);
       if (idx >= 0) schedules.splice(idx, 1);
-      schedules.push({id:Date.now()+'_'+f.type, phone, type:f.type, date:d, note:careData[phone][f.noteKey]||'', done:false});
+      schedules.push(Object.assign({id:Date.now()+'_'+f.type, phone, type:f.type, date:d, note:careData[phone][f.noteKey]||'', done:false}, _remOwnerStamp()));
     }
   }
   saveLS('ome_care', careData);
@@ -2978,7 +2979,7 @@ function quickSched(phone) {
   const date = document.getElementById('qs-date').value;
   const note = document.getElementById('qs-note').value.trim();
   if (!date) { toast('Vui lòng chọn ngày'); return; }
-  schedules.push({id: Date.now()+'_'+Math.random().toString(36).slice(2), phone, type, date, note, done:false});
+  schedules.push(Object.assign({id: Date.now()+'_'+Math.random().toString(36).slice(2), phone, type, date, note, done:false}, _remOwnerStamp()));
   saveLS('ome_sched', schedules);
   _touchCare(phone); saveLS('ome_care', careData);
   logAudit('sched', phone, '', `Thêm lịch "${schedTypeLabel(type)}" · ${date}`);
@@ -2992,7 +2993,7 @@ function addSched(phone) {
   const date = document.getElementById('new-sdate').value;
   const note = document.getElementById('new-snote').value.trim();
   if (!date) { toast('Vui lòng chọn ngày'); return; }
-  schedules.push({id: Date.now()+'_'+Math.random().toString(36).slice(2), phone, type, date, note, done:false});
+  schedules.push(Object.assign({id: Date.now()+'_'+Math.random().toString(36).slice(2), phone, type, date, note, done:false}, _remOwnerStamp()));
   saveLS('ome_sched', schedules);
   _touchCare(phone); saveLS('ome_care', careData);
   logAudit('sched', phone, '', `Thêm lịch "${schedTypeLabel(type)}" · ${date}`);
@@ -3449,24 +3450,58 @@ function _dismissChiaAlert(id){ var d=_remLoadDismissed(); d[id]='off'; _remSave
 function dismissAllReminders(){ var d=_remLoadDismissed(); _dueReminders().forEach(function(r){ d[r.id]=_remDateStr(); }); _remSaveDismissed(d); renderReminderPanel(); }
 function toggleReminderPanel(){ _reminderPanelOpen = !_reminderPanelOpen; renderReminderPanel(); }
 
-// Lịch hẹn đến hạn / quá hạn (chưa hoàn thành), trong phạm vi CS đang đăng nhập, chưa tắt hôm nay
+// ── Người đặt lịch hẹn (theo tài khoản đăng nhập) ─────────────────
+// Định danh duy nhất của tài khoản đang đăng nhập (để lọc riêng tư)
+function _remAcctId(){
+  if (typeof _authAccount !== 'undefined' && _authAccount && _authAccount.username)
+    return String(_authAccount.username).trim().toLowerCase();
+  if (typeof currentUser !== 'undefined' && currentUser && currentUser.name)
+    return String(currentUser.name).trim().toLowerCase();
+  return '';
+}
+// Tên hiển thị của người đặt (để in lên thẻ nhắc hẹn) — ưu tiên tên tài khoản đăng nhập
+function _remAcctName(){
+  if (typeof _authAccount !== 'undefined' && _authAccount && _authAccount.name)
+    return _authAccount.name;
+  if (typeof currentUser !== 'undefined' && currentUser && currentUser.name)
+    return currentUser.name;
+  return 'Admin';
+}
+// Dấu "người đặt" gắn vào mỗi lịch khi tạo
+function _remOwnerStamp(){ return { owner: _remAcctName(), ownerUser: _remAcctId() }; }
+// Lịch này có thông tin người đặt chưa? (dữ liệu cũ trước bản v9.7 thì chưa có)
+function _remHasOwner(x){ return !!(x && (x.ownerUser || x.owner)); }
+// Lịch này có phải do tài khoản hiện tại đặt không?
+//   true  = đúng của mình   |   false = của người khác   |   null = lịch cũ chưa gắn người đặt
+function _remOwnedByMe(x){
+  if (!_remHasOwner(x)) return null;
+  var me = _remAcctId();
+  if (x.ownerUser) return String(x.ownerUser).trim().toLowerCase() === me;
+  var myName = (typeof currentUser!=='undefined' && currentUser && currentUser.name) ? String(currentUser.name).trim().toLowerCase() : '';
+  return String(x.owner).trim().toLowerCase() === myName;
+}
+
+// Lịch hẹn đến hạn / quá hạn (chưa hoàn thành), CHỈ của tài khoản đang đăng nhập, chưa tắt hôm nay
 function _dueReminders(){
   if (typeof schedules === 'undefined') return [];
   var today = _remDateStr(); var dism = _remLoadDismissed(); var out = [];
   var seen = new Set(); // tránh trùng lặp phone+type+date
 
-  // 1. Từ mảng schedules[]
+  // 1. Từ mảng schedules[] — chỉ hiện lịch do CHÍNH tài khoản đang đăng nhập đặt
   for (var i=0;i<schedules.length;i++){
     var x = schedules[i];
     if (!x || x.done || !x.date || x.date > today) continue;
     var id = _remId(x);
-    if (dism[id] === today) continue;
+    var key = x.phone+'|'+x.type+'|'+x.date;
+    seen.add(key); // luôn đánh dấu để careData không hiện lặp lại lịch này
+    var mine = _remOwnedByMe(x);
+    if (mine === false) continue;                 // lịch của tài khoản khác → ẩn
+    if (dism[id] === today) continue;             // đã tắt hôm nay
     var c = (typeof customerMap!=='undefined' && customerMap[x.phone]) ||
             (typeof allCustomers!=='undefined' ? allCustomers.find(function(k){return k.phone===x.phone;}) : null);
-    if (c && typeof _inUserScope==='function' && !_inUserScope(c)) continue;
-    var key = x.phone+'|'+x.type+'|'+x.date;
-    seen.add(key);
-    out.push({ id:id, phone:x.phone, type:x.type, date:x.date, note:x.note||'', name: c?c.name:x.phone, schedId: x.id });
+    // Lịch cũ chưa gắn người đặt (mine === null) → giữ logic phân quyền theo vai trò như trước
+    if (mine === null && c && typeof _inUserScope==='function' && !_inUserScope(c)) continue;
+    out.push({ id:id, phone:x.phone, type:x.type, date:x.date, note:x.note||'', name: c?c.name:x.phone, schedId: x.id, owner: x.owner||'', ownerUser: x.ownerUser||'' });
   }
 
   // 2. Từ careData quick-sched (schedGoi/SP/CS/Hen) — chỉ nếu có ngày và đến hạn
@@ -3494,7 +3529,7 @@ function _dueReminders(){
         var cid = 'care:'+ph+'|'+fm.field+'|'+d;
         if (dism[cid] === today) continue;
         seen.add(key2);
-        out.push({ id:cid, phone:ph, type:fm.type, date:d, note:care[fm.noteField]||'', name: cc?cc.name:ph, careField: fm.field });
+        out.push({ id:cid, phone:ph, type:fm.type, date:d, note:care[fm.noteField]||'', name: cc?cc.name:ph, careField: fm.field, owner:'', ownerUser:'' });
       }
     }
   }
@@ -3551,7 +3586,8 @@ function renderReminderPanel(){
     html += '<div class="rp-card"><div class="rp-card-main" onclick="openDp(\''+esc(rm.phone)+'\')">'+
       '<div class="rp-type" style="background:'+st.color+'">'+esc(st.label)+'</div>'+
       '<div class="rp-cust">'+esc(rm.name)+'</div>'+
-      '<div class="rp-note" style="color:'+(over?'var(--red)':'var(--muted)')+'">'+(over?'⚠ Quá hạn · ':'📅 ')+fmtDate(rm.date)+(rm.note?(' · '+esc(rm.note)):'')+'</div></div>'+
+      '<div class="rp-note" style="color:'+(over?'var(--red)':'var(--muted)')+'">'+(over?'⚠ Quá hạn · ':'📅 ')+fmtDate(rm.date)+(rm.note?(' · '+esc(rm.note)):'')+'</div>'+
+      (rm.owner?('<div class="rp-owner">👤 '+esc(rm.owner)+'</div>'):'')+'</div>'+
       '<div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">'+
       '<button class="rp-hbtn" style="background:var(--green);color:#fff;font-size:10px;padding:2px 7px" title="Đánh dấu hoàn thành" onclick="'+doneAction+'">✓ Done</button>'+
       '<button class="rp-dismiss" title="Tắt hôm nay" onclick="event.stopPropagation();_dismissReminder(\''+rm.id+'\')">✕</button>'+
