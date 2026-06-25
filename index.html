@@ -2811,53 +2811,19 @@ function renderCareTab(c) {
     </div>
     <button class="save-btn" style="background:var(--blue);border-color:var(--blue)" onclick="saveCareSchedules('${esc(c.phone)}')">💾 Lưu lịch hẹn ${gsUrl?'+ Sync GSheets':''}</button>
   </div>
-  <div class="dp-section" style="border:1.5px solid var(--orange,#e8a04a);border-radius:8px;padding:12px">
-    <div class="dp-stitle" style="color:var(--orange,#e8a04a)">📦 Thêm đơn hàng thủ công</div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Dùng khi data nguồn Đảo/Renew bị mất sản phẩm hoặc doanh thu</div>
-    ${(()=>{
-      const allBrands = [...new Set(allCustomers.flatMap(c2=>c2.brands).filter(Boolean))].sort();
-      const allDetails = [...new Set(allCustomers.flatMap(c2=>c2.orders.map(o=>o.productDetail)).filter(Boolean))].sort();
-      return `<datalist id="mo-product-list">${allBrands.map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
-      <datalist id="mo-detail-list">${allDetails.map(d=>`<option value="${esc(d)}">`).join('')}</datalist>`;
-    })()}
-    <div class="form-row-2" style="margin-bottom:6px">
-      <div>
-        <div class="form-label">Sản phẩm <span style="color:var(--hint);font-weight:400">(chọn hoặc tự điền)</span></div>
-        <input class="form-input" id="mo-product" list="mo-product-list" placeholder="Chọn hoặc gõ tên sản phẩm...">
-      </div>
-      <div>
-        <div class="form-label">Doanh thu (VNĐ)</div>
-        <input class="form-input" id="mo-revenue" type="number" min="0" placeholder="0">
-      </div>
-    </div>
-    <div class="form-row-2" style="margin-bottom:6px">
-      <div>
-        <div class="form-label">Ngày đặt</div>
-        <input class="form-input" type="date" id="mo-date" value="${today}">
-      </div>
-      <div>
-        <div class="form-label">Nguồn</div>
-        <select class="form-select" id="mo-source">
-          <option value="Data Đảo renew">Data Đảo renew</option>
-          <option value="Renew">Renew</option>
-          <option value="Facebook">Facebook</option>
-          <option value="Zalo">Zalo</option>
-          <option value="Telesale">Telesale</option>
-          <option value="Giới thiệu">Giới thiệu</option>
-          <option value="Khác">Khác</option>
-        </select>
-      </div>
-    </div>
-    <div style="margin-bottom:6px">
-      <div class="form-label">Sản phẩm chi tiết <span style="color:var(--hint);font-weight:400">(chọn hoặc tự điền)</span></div>
-      <input class="form-input" id="mo-detail" list="mo-detail-list" placeholder="Ví dụ: Make9 x2, W15 x1...">
-    </div>
-    <label style="display:flex;align-items:center;gap:7px;margin-bottom:8px;cursor:pointer;font-size:12px;color:var(--text)">
-      <input type="checkbox" id="mo-auto-sched" style="width:15px;height:15px;cursor:pointer" checked>
-      <span>Tự động thêm lịch chăm sóc <b>+7 ngày · +14 ngày · +1 tháng · +2 tháng</b></span>
-    </label>
-    <button class="save-btn" style="width:100%;background:var(--orange,#e8a04a);border-color:var(--orange,#e8a04a)" onclick="addManualOrder('${esc(c.phone)}')">+ Thêm đơn hàng${gsUrl?' + Sync GSheets':''}</button>
-  </div>`;
+  ${(()=>{
+    const daoOrders = c.orders.filter(o => _isDataDaoRenew(o.source));
+    if (!daoOrders.length) return '';
+    const excluded = _daoSchedExcluded(c.phone);
+    return `<div class="dp-section" style="border:1.5px solid var(--orange,#e8a04a);border-radius:8px;padding:10px 12px">
+      <div class="dp-stitle" style="color:var(--orange,#e8a04a);margin-bottom:6px">⚡ Lịch tự động Data Đảo</div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text)">
+        <input type="checkbox" id="dao-sched-exclude" style="width:15px;height:15px;cursor:pointer" ${excluded?'checked':''} onchange="_toggleDaoSchedExclude('${esc(c.phone)}',this.checked)">
+        <span>Bỏ lịch tự động cho khách này <span style="color:var(--muted)">(tích nếu không cần chăm sóc)</span></span>
+      </label>
+    </div>`;
+  })()}`;
+}
 }
 
 function renderSchedTabHtml(c) {
@@ -3494,6 +3460,28 @@ function _checkAndRenewBdaySchedules() {
 // ── Auto lịch chăm sóc cho đơn Data Đảo renew trong tháng ──
 var DATA_DAO_SOURCES = ['data đảo renew','data dao renew'];
 
+function _daoSchedExcluded(phone) {
+  var ex = loadLS('ome_dao_exclude') || {};
+  return !!ex[phone];
+}
+function _toggleDaoSchedExclude(phone, exclude) {
+  var ex = loadLS('ome_dao_exclude') || {};
+  if (exclude) {
+    ex[phone] = true;
+    // Xóa lịch auto đã tạo cho khách này
+    schedules = schedules.filter(function(x){ return !(x.phone===phone && x.autoDao); });
+    saveLS('ome_sched', schedules);
+    if (typeof updateSchedBadges==='function') updateSchedBadges();
+    if (typeof renderScheduleTab==='function') renderScheduleTab();
+    if (typeof renderOverdueTab==='function') renderOverdueTab();
+  } else {
+    delete ex[phone];
+    // Tạo lại lịch auto
+    if (typeof checkDataDaoRenewSchedules==='function') checkDataDaoRenewSchedules();
+  }
+  saveLS('ome_dao_exclude', ex);
+}
+
 function _isDataDaoRenew(src) {
   return DATA_DAO_SOURCES.some(function(k){ return (src||'').toLowerCase().includes(k); });
 }
@@ -3525,7 +3513,9 @@ function checkDataDaoRenewSchedules() {
 
   if (typeof allCustomers === 'undefined') return;
 
+  var daoExclude = loadLS('ome_dao_exclude') || {};
   allCustomers.forEach(function(c) {
+    if (daoExclude[c.phone]) return; // Khách đã bị bỏ lịch auto
     c.orders.forEach(function(o) {
       if (!_isDataDaoRenew(o.source)) return;
 
