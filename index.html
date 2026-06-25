@@ -2463,6 +2463,16 @@ function _renderVirtualWindow(force) {
 // ═══════════════════════════════════════════════════════
 function schedNav(dir) { if(dir===0) schedOffset=0; else schedOffset+=dir; renderScheduleTab(); }
 
+function _schedCsFilter(it) {
+  if (!currentCS || currentCS === 'all') return true;
+  const cs = (it.owner || it.ownerUser || '').toLowerCase();
+  return cs === currentCS.toLowerCase();
+}
+function _schedCsTag(it) {
+  const name = it.owner || it.ownerUser || '';
+  if (!name) return '';
+  return `<span style="font-size:10px;color:var(--blue);font-weight:600;margin-left:4px;white-space:nowrap">${esc(name)}</span>`;
+}
 function renderScheduleTab() {
   const base = new Date(); base.setHours(0,0,0,0);
   const grid = document.getElementById('sched-grid');
@@ -2472,7 +2482,7 @@ function renderScheduleTab() {
   for (let d=0; d<7; d++) {
     const day = new Date(base); day.setDate(base.getDate() + schedOffset*7 + d);
     const dayStr = day.toISOString().slice(0,10);
-    const items = schedules.filter(x => x.date===dayStr && !x.done);
+    const items = schedules.filter(x => x.date===dayStr && !x.done && _schedCsFilter(x));
     const isToday = dayStr === base.toISOString().slice(0,10);
     const dayName = day.toLocaleDateString('vi-VN',{weekday:'long',day:'2-digit',month:'2-digit'});
     html += `<div class="sched-day">
@@ -2490,6 +2500,7 @@ function renderScheduleTab() {
           <div class="sched-type">${st.label}</div>
           <div class="sched-name">${c?esc(c.name):it.phone}</div>
           <div class="sched-phone">${it.phone}</div>
+          ${_schedCsTag(it)}
           <div class="sched-note">${esc(it.note||'')}</div>
           <button onclick="event.stopPropagation();markDone('${it.id}')" style="background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:2px 7px;font-size:10px;cursor:pointer;color:var(--muted);white-space:nowrap;margin-left:auto">✓ Xong</button>
         </div>`;
@@ -2502,7 +2513,7 @@ function renderScheduleTab() {
 
 function renderOverdueTab() {
   const today = new Date().toISOString().slice(0,10);
-  const items = schedules.filter(x => x.date < today && !x.done).sort((a,b)=>a.date.localeCompare(b.date));
+  const items = schedules.filter(x => x.date < today && !x.done && _schedCsFilter(x)).sort((a,b)=>a.date.localeCompare(b.date));
   txt('tb-over', fmt(items.length));
   txt('s-over', fmt(items.length));
   const grid = document.getElementById('overdue-grid');
@@ -2520,6 +2531,7 @@ function renderOverdueTab() {
         <div class="sched-type">${st.label}</div>
         <div class="sched-name">${c?esc(c.name):it.phone}</div>
         <div class="sched-phone">${it.phone}</div>
+        ${_schedCsTag(it)}
         <div class="sched-note">${esc(it.note||'')}</div>
         <button onclick="event.stopPropagation();markDone('${it.id}')" style="background:var(--red-bg);border:1px solid var(--red-b);border-radius:3px;padding:2px 7px;font-size:10px;cursor:pointer;color:var(--red);white-space:nowrap;margin-left:auto">✓ Xong</button>
       </div>`;
