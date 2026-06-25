@@ -2465,7 +2465,9 @@ function schedNav(dir) { if(dir===0) schedOffset=0; else schedOffset+=dir; rende
 
 function _schedCsFilter(it) {
   if (!currentCS || currentCS === 'all') return true;
-  const cs = (it.owner || it.ownerUser || '').toLowerCase();
+  const c = allCustomers.find(x => x.phone === it.phone);
+  if (!c) return false;
+  const cs = (c.cs || '').toLowerCase();
   return cs === currentCS.toLowerCase();
 }
 function _schedCsTag(it) {
