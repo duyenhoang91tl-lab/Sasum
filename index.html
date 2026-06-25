@@ -1458,7 +1458,7 @@ let advFilters = {
 // ═══════════════════════════════════════════════════════
 //  APPS SCRIPT CODE
 // ═══════════════════════════════════════════════════════
-const GS_SCRIPT = '// ═══════════════════════════════════════════════════════════════\n//  OME CS Portal – Google Apps Script v4\n//  Dán toàn bộ nội dung này vào Apps Script rồi Triển khai mới\n// ═══════════════════════════════════════════════════════════════\n\nfunction testScript() {\n  var ss = SpreadsheetApp.getActiveSpreadsheet();\n  var sh1 = ss.getSheetByName(\'CareData\') || ss.insertSheet(\'CareData\');\n  var sh2 = ss.getSheetByName(\'OrderData\') || ss.insertSheet(\'OrderData\');\n  Logger.log(\'CareData: \' + sh1.getLastRow() + \' dong, OrderData: \' + sh2.getLastRow() + \' dong\');\n}\n\nfunction doGet(e) {\n  try {\n    var ss = SpreadsheetApp.getActiveSpreadsheet();\n    var result = { rows: [], orders: [] };\n\n    var sh = ss.getSheetByName(\'CareData\');\n    if (sh) {\n      var vals = sh.getDataRange().getValues();\n      for (var i = 1; i < vals.length; i++) {\n        if (!vals[i][0]) continue;\n        result.rows.push({\n          phone        : vals[i][0],\n          status       : vals[i][1]  || \'\',\n          zalo         : vals[i][2]  || \'\',\n          cs           : vals[i][3]  || \'\',\n          note         : vals[i][4]  || \'\',\n          schedules    : vals[i][5]  || \'\',\n          schedGoi     : vals[i][6]  || \'\',\n          schedGoiNote : vals[i][7]  || \'\',\n          schedSP      : vals[i][8]  || \'\',\n          schedSPNote  : vals[i][9]  || \'\',\n          schedCS      : vals[i][10] || \'\',\n          schedCSNote  : vals[i][11] || \'\',\n          schedHen     : vals[i][12] || \'\',\n          schedHenNote : vals[i][13] || \'\',\n          updated      : vals[i][14] || \'\'\n        });\n      }\n    }\n\n    var sh2 = (e.parameter && e.parameter.noOrders) ? null : ss.getSheetByName(\'OrderData\');\n    if (sh2) {\n      var ov = sh2.getDataRange().getValues();\n      for (var j = 1; j < ov.length; j++) {\n        if (!ov[j][0]) continue;\n        result.orders.push({\n          phone        : ov[j][0],\n          name         : ov[j][1]  || \'\',\n          date         : ov[j][2]  || \'\',\n          year         : ov[j][3]  || \'\',\n          month        : ov[j][4]  || \'\',\n          cs           : ov[j][5]  || \'\',\n          source       : ov[j][6]  || \'\',\n          revenue      : ov[j][7]  || 0,\n          product      : ov[j][8]  || \'\',\n          productDetail: ov[j][9]  || \'\',\n          status       : ov[j][10] || \'\',\n          zalo         : ov[j][11] || \'\',\n          note         : ov[j][12] || \'\'\n        });\n      }\n    }\n\n    return ContentService\n      .createTextOutput(JSON.stringify(result))\n      .setMimeType(ContentService.MimeType.JSON);\n  } catch(err) {\n    return ContentService\n      .createTextOutput(JSON.stringify({ error: err.message }))\n      .setMimeType(ContentService.MimeType.JSON);\n  }\n}\n\nfunction doPost(e) {\n  if (!e || !e.postData) {\n    Logger.log(\'doPost phai duoc goi qua HTTP POST. Hay dung ham testScript() de test.\');\n    return;\n  }\n\n  try {\n    var ss   = SpreadsheetApp.getActiveSpreadsheet();\n    var data = JSON.parse(e.postData.contents);\n    var action = data.action;\n\n    if (action === \'save\') {\n      var sh = ss.getSheetByName(\'CareData\') || ss.insertSheet(\'CareData\');\n      var rows = data.rows;\n      sh.clearContents();\n      sh.appendRow([\n        \'phone\',\'status\',\'zalo\',\'cs\',\'note\',\'schedules\',\n        \'schedGoi\',\'schedGoiNote\',\'schedSP\',\'schedSPNote\',\n        \'schedCS\',\'schedCSNote\',\'schedHen\',\'schedHenNote\',\'updated\'\n      ]);\n      for (var i = 0; i < rows.length; i++) {\n        var r = rows[i];\n        sh.appendRow([\n          r.phone        || \'\',\n          r.status       || \'\',\n          r.zalo         || \'\',\n          r.cs           || \'\',\n          r.note         || \'\',\n          r.schedules    || \'\',\n          r.schedGoi     || \'\',\n          r.schedGoiNote || \'\',\n          r.schedSP      || \'\',\n          r.schedSPNote  || \'\',\n          r.schedCS      || \'\',\n          r.schedCSNote  || \'\',\n          r.schedHen     || \'\',\n          r.schedHenNote || \'\',\n          new Date().toISOString()\n        ]);\n      }\n      return ContentService\n        .createTextOutput(JSON.stringify({ ok: true, written: rows.length }))\n        .setMimeType(ContentService.MimeType.JSON);\n    }\n\n    if (action === \'saveSingle\') {\n      var sh = ss.getSheetByName(\'CareData\') || ss.insertSheet(\'CareData\');\n      var r    = data.row;\n      var vals = sh.getDataRange().getValues();\n      var found = false;\n\n      for (var i = 1; i < vals.length; i++) {\n        if (vals[i][0] === r.phone) {\n          sh.getRange(i + 1, 2, 1, 13).setValues([[\n            r.status       || \'\',\n            r.zalo         || \'\',\n            r.cs           || \'\',\n            r.note         || \'\',\n            r.schedules    || \'\',\n            r.schedGoi     || \'\',\n            r.schedGoiNote || \'\',\n            r.schedSP      || \'\',\n            r.schedSPNote  || \'\',\n            r.schedCS      || \'\',\n            r.schedCSNote  || \'\',\n            r.schedHen     || \'\',\n            r.schedHenNote || \'\'\n          ]]);\n          sh.getRange(i + 1, 15).setValue(new Date().toISOString());\n          found = true;\n          break;\n        }\n      }\n\n      if (!found) {\n        if (sh.getLastRow() === 0) {\n          sh.appendRow([\n            \'phone\',\'status\',\'zalo\',\'cs\',\'note\',\'schedules\',\n            \'schedGoi\',\'schedGoiNote\',\'schedSP\',\'schedSPNote\',\n            \'schedCS\',\'schedCSNote\',\'schedHen\',\'schedHenNote\',\'updated\'\n          ]);\n        }\n        sh.appendRow([\n          r.phone        || \'\',\n          r.status       || \'\',\n          r.zalo         || \'\',\n          r.cs           || \'\',\n          r.note         || \'\',\n          r.schedules    || \'\',\n          r.schedGoi     || \'\',\n          r.schedGoiNote || \'\',\n          r.schedSP      || \'\',\n          r.schedSPNote  || \'\',\n          r.schedCS      || \'\',\n          r.schedCSNote  || \'\',\n          r.schedHen     || \'\',\n          r.schedHenNote || \'\',\n          new Date().toISOString()\n        ]);\n      }\n\n      return ContentService\n        .createTextOutput(JSON.stringify({ ok: true, found: found }))\n        .setMimeType(ContentService.MimeType.JSON);\n    }\n\n    if (action === \'saveOrders\') {\n      var sh3 = ss.getSheetByName(\'OrderData\') || ss.insertSheet(\'OrderData\');\n      var orders = data.orders;\n\n      if (sh3.getLastRow() === 0) {\n        sh3.appendRow([\n          \'phone\',\'name\',\'date\',\'year\',\'month\',\'cs\',\'source\',\'revenue\',\n          \'product\',\'productDetail\',\'status\',\'zalo\',\'note\'\n        ]);\n      }\n\n      // Doc cac dong hien co, build set key de chong trung\n      var existing = sh3.getDataRange().getValues();\n      var existingKeys = {};\n      for (var i = 1; i < existing.length; i++) {\n        var row = existing[i];\n        if (!row[0]) continue;\n        var key = row[0] + \'|\' + row[3] + \'|\' + row[4] + \'|\' + row[7];\n        existingKeys[key] = true;\n      }\n\n      // Chi them dong moi (theo phone+year+month+revenue), khong xoa dong cu\n      var toAppend = [];\n      for (var k = 0; k < orders.length; k++) {\n        var o = orders[k];\n        var key = (o.phone||\'\') + \'|\' + (o.year||\'\') + \'|\' + (o.month||\'\') + \'|\' + (o.revenue||0);\n        if (existingKeys[key]) continue;\n        existingKeys[key] = true;\n        toAppend.push([\n          o.phone || \'\', o.name || \'\', o.date || \'\', o.year || \'\', o.month || \'\',\n          o.cs || \'\', o.source || \'\', o.revenue || 0, o.product || \'\',\n          o.productDetail || \'\', o.status || \'\', o.zalo || \'\', o.note || \'\'\n        ]);\n      }\n\n      if (toAppend.length) {\n        sh3.getRange(sh3.getLastRow() + 1, 1, toAppend.length, 13).setValues(toAppend);\n      }\n\n      return ContentService\n        .createTextOutput(JSON.stringify({ ok: true, written: toAppend.length, skipped: orders.length - toAppend.length }))\n        .setMimeType(ContentService.MimeType.JSON);\n    }\n\n    return ContentService\n      .createTextOutput(JSON.stringify({ error: \'Unknown action: \' + action }))\n      .setMimeType(ContentService.MimeType.JSON);\n\n  } catch(err) {\n    return ContentService\n      .createTextOutput(JSON.stringify({ error: err.message }))\n      .setMimeType(ContentService.MimeType.JSON);\n  }\n}\n';
+const GS_SCRIPT = '// ═══════════════════════════════════════════════════════════════\n//  OME CS Portal – Google Apps Script v4\n//  Dán toàn bộ nội dung này vào Apps Script rồi Triển khai mới\n// ═══════════════════════════════════════════════════════════════\n\nfunction testScript() {\n  var ss = SpreadsheetApp.getActiveSpreadsheet();\n  var sh1 = ss.getSheetByName(\'CareData\') || ss.insertSheet(\'CareData\');\n  var sh2 = ss.getSheetByName(\'OrderData\') || ss.insertSheet(\'OrderData\');\n  Logger.log(\'CareData: \' + sh1.getLastRow() + \' dong, OrderData: \' + sh2.getLastRow() + \' dong\');\n}\n\nfunction doGet(e) {\n  try {\n    var ss = SpreadsheetApp.getActiveSpreadsheet();\n    var result = { rows: [], orders: [] };\n\n    var sh = ss.getSheetByName(\'CareData\');\n    if (sh) {\n      var vals = sh.getDataRange().getValues();\n      for (var i = 1; i < vals.length; i++) {\n        if (!vals[i][0]) continue;\n        result.rows.push({\n          phone        : vals[i][0],\n          status       : vals[i][1]  || \'\',\n          zalo         : vals[i][2]  || \'\',\n          cs           : vals[i][3]  || \'\',\n          note         : vals[i][4]  || \'\',\n          schedules    : vals[i][5]  || \'\',\n          schedGoi     : vals[i][6]  || \'\',\n          schedGoiNote : vals[i][7]  || \'\',\n          schedSP      : vals[i][8]  || \'\',\n          schedSPNote  : vals[i][9]  || \'\',\n          schedCS      : vals[i][10] || \'\',\n          schedCSNote  : vals[i][11] || \'\',\n          schedHen     : vals[i][12] || \'\',\n          schedHenNote : vals[i][13] || \'\',\n          updated      : vals[i][14] || \'\'\n        });\n      }\n    }\n\n    var sh2 = (e.parameter && e.parameter.noOrders) ? null : ss.getSheetByName(\'OrderData\');\n    if (sh2) {\n      var ov = sh2.getDataRange().getValues();\n      for (var j = 1; j < ov.length; j++) {\n        if (!ov[j][0]) continue;\n        result.orders.push({\n          phone        : ov[j][0],\n          name         : ov[j][1]  || \'\',\n          date         : ov[j][2]  || \'\',\n          year         : ov[j][3]  || \'\',\n          month        : ov[j][4]  || \'\',\n          cs           : ov[j][5]  || \'\',\n          source       : ov[j][6]  || \'\',\n          revenue      : ov[j][7]  || 0,\n          product      : ov[j][8]  || \'\',\n          productDetail: ov[j][9]  || \'\',\n          status       : ov[j][10] || \'\',\n          zalo         : ov[j][11] || \'\',\n          note         : ov[j][12] || \'\'\n        });\n      }\n    }\n\n    return ContentService\n      .createTextOutput(JSON.stringify(result))\n      .setMimeType(ContentService.MimeType.JSON);\n  } catch(err) {\n    return ContentService\n      .createTextOutput(JSON.stringify({ error: err.message }))\n      .setMimeType(ContentService.MimeType.JSON);\n  }\n}\n\nfunction doPost(e) {\n  if (!e || !e.postData) {\n    Logger.log(\'doPost phai duoc goi qua HTTP POST. Hay dung ham testScript() de test.\');\n    return;\n  }\n\n  try {\n    var ss   = SpreadsheetApp.getActiveSpreadsheet();\n    var data = JSON.parse(e.postData.contents);\n    var action = data.action;\n\n    if (action === \'save\') {\n      var sh = ss.getSheetByName(\'CareData\') || ss.insertSheet(\'CareData\');\n      var rows = data.rows;\n      sh.clearContents();\n      sh.appendRow([\n        \'phone\',\'status\',\'zalo\',\'cs\',\'note\',\'schedules\',\n        \'schedGoi\',\'schedGoiNote\',\'schedSP\',\'schedSPNote\',\n        \'schedCS\',\'schedCSNote\',\'schedHen\',\'schedHenNote\',\'updated\'\n      ]);\n      for (var i = 0; i < rows.length; i++) {\n        var r = rows[i];\n        sh.appendRow([\n          r.phone        || \'\',\n          r.status       || \'\',\n          r.zalo         || \'\',\n          r.cs           || \'\',\n          r.note         || \'\',\n          r.schedules    || \'\',\n          r.schedGoi     || \'\',\n          r.schedGoiNote || \'\',\n          r.schedSP      || \'\',\n          r.schedSPNote  || \'\',\n          r.schedCS      || \'\',\n          r.schedCSNote  || \'\',\n          r.schedHen     || \'\',\n          r.schedHenNote || \'\',\n          new Date().toISOString()\n        ]);\n      }\n      return ContentService\n        .createTextOutput(JSON.stringify({ ok: true, written: rows.length }))\n        .setMimeType(ContentService.MimeType.JSON);\n    }\n\n    if (action === \'saveSingle\') {\n      var sh = ss.getSheetByName(\'CareData\') || ss.insertSheet(\'CareData\');\n      var r    = data.row;\n      var vals = sh.getDataRange().getValues();\n      var found = false;\n\n      for (var i = 1; i < vals.length; i++) {\n        if (vals[i][0] === r.phone) {\n          sh.getRange(i + 1, 2, 1, 13).setValues([[\n            r.status       || \'\',\n            r.zalo         || \'\',\n            r.cs           || \'\',\n            r.note         || \'\',\n            r.schedules    || \'\',\n            r.schedGoi     || \'\',\n            r.schedGoiNote || \'\',\n            r.schedSP      || \'\',\n            r.schedSPNote  || \'\',\n            r.schedCS      || \'\',\n            r.schedCSNote  || \'\',\n            r.schedHen     || \'\',\n            r.schedHenNote || \'\'\n          ]]);\n          sh.getRange(i + 1, 15).setValue(new Date().toISOString());\n          found = true;\n          break;\n        }\n      }\n\n      if (!found) {\n        if (sh.getLastRow() === 0) {\n          sh.appendRow([\n            \'phone\',\'status\',\'zalo\',\'cs\',\'note\',\'schedules\',\n            \'schedGoi\',\'schedGoiNote\',\'schedSP\',\'schedSPNote\',\n            \'schedCS\',\'schedCSNote\',\'schedHen\',\'schedHenNote\',\'updated\'\n          ]);\n        }\n        sh.appendRow([\n          r.phone        || \'\',\n          r.status       || \'\',\n          r.zalo         || \'\',\n          r.cs           || \'\',\n          r.note         || \'\',\n          r.schedules    || \'\',\n          r.schedGoi     || \'\',\n          r.schedGoiNote || \'\',\n          r.schedSP      || \'\',\n          r.schedSPNote  || \'\',\n          r.schedCS      || \'\',\n          r.schedCSNote  || \'\',\n          r.schedHen     || \'\',\n          r.schedHenNote || \'\',\n          new Date().toISOString()\n        ]);\n      }\n\n      return ContentService\n        .createTextOutput(JSON.stringify({ ok: true, found: found }))\n        .setMimeType(ContentService.MimeType.JSON);\n    }\n\n    if (action === \'saveOrders\') {\n      var sh3 = ss.getSheetByName(\'OrderData\') || ss.insertSheet(\'OrderData\');\n      var orders = data.orders;\n\n      if (sh3.getLastRow() === 0) {\n        sh3.appendRow([\n          \'phone\',\'name\',\'date\',\'year\',\'month\',\'cs\',\'source\',\'revenue\',\n          \'product\',\'productDetail\',\'status\',\'zalo\',\'note\'\n        ]);\n      }\n\n      // Doc cac dong hien co, build set key de chong trung\n      var existing = sh3.getDataRange().getValues();\n      var existingKeys = {};\n      for (var i = 1; i < existing.length; i++) {\n        var row = existing[i];\n        if (!row[0]) continue;\n        var key = row[0] + \'|\' + row[3] + \'|\' + row[4] + \'|\' + row[7];\n        existingKeys[key] = true;\n      }\n\n      // Chi them dong moi (theo phone+year+month+revenue), khong xoa dong cu\n      var toAppend = [];\n      for (var k = 0; k < orders.length; k++) {\n        var o = orders[k];\n        var key = (o.phone||\'\') + \'|\' + (o.year||\'\') + \'|\' + (o.month||\'\') + \'|\' + (o.revenue||0);\n        if (existingKeys[key]) continue;\n        existingKeys[key] = true;\n        toAppend.push([\n          o.phone || \'\', o.name || \'\', o.date || \'\', o.year || \'\', o.month || \'\',\n          o.cs || \'\', o.source || \'\', o.revenue || 0, o.product || \'\',\n          o.productDetail || \'\', o.status || \'\', o.zalo || \'\', o.note || \'\'\n        ]);\n      }\n\n      if (toAppend.length) {\n        sh3.getRange(sh3.getLastRow() + 1, 1, toAppend.length, 13).setValues(toAppend);\n      }\n\n      return ContentService\n        .createTextOutput(JSON.stringify({ ok: true, written: toAppend.length, skipped: orders.length - toAppend.length }))\n        .setMimeType(ContentService.MimeType.JSON);\n    }\n\n    if (action === \'patchOrder\') {\n      var sh4 = ss.getSheetByName(\'OrderData\');\n      if (!sh4) return ContentService.createTextOutput(JSON.stringify({ error: \'OrderData sheet not found\' })).setMimeType(ContentService.MimeType.JSON);\n      var pVals = sh4.getDataRange().getValues();\n      var updated = false;\n      for (var pi = 1; pi < pVals.length; pi++) {\n        var pr = pVals[pi];\n        if (!pr[0]) continue;\n        var phoneMatch = String(pr[0]) === String(data.phone);\n        var yearMatch  = String(pr[3]) === String(data.oldYear);\n        var monthMatch = String(pr[4]) === String(data.oldMonth);\n        var revMatch   = Number(pr[7]) === Number(data.oldRevenue);\n        if (phoneMatch && yearMatch && monthMatch && revMatch) {\n          if (data.newDate)    sh4.getRange(pi+1,3).setValue(data.newDate);\n          if (data.newYear)    sh4.getRange(pi+1,4).setValue(data.newYear);\n          if (data.newMonth)   sh4.getRange(pi+1,5).setValue(data.newMonth);\n          if (data.newRevenue !== undefined) sh4.getRange(pi+1,8).setValue(data.newRevenue);\n          if (data.newProduct) sh4.getRange(pi+1,9).setValue(data.newProduct);\n          if (data.newDetail)  sh4.getRange(pi+1,10).setValue(data.newDetail);\n          updated = true;\n          break;\n        }\n      }\n      if (!updated) {\n        // Khong tim thay → append row moi\n        sh4.appendRow([data.phone||\'\', \'\', data.newDate||\'\', data.newYear||\'\', data.newMonth||\'\',\n          \'\', \'\', data.newRevenue||0, data.newProduct||\'\', data.newDetail||\'\', \'\', \'\', \'\']);\n      }\n      return ContentService\n        .createTextOutput(JSON.stringify({ ok: true, updated: updated }))\n        .setMimeType(ContentService.MimeType.JSON);\n    }\n\n    return ContentService\n      .createTextOutput(JSON.stringify({ error: \'Unknown action: \' + action }))\n      .setMimeType(ContentService.MimeType.JSON);\n\n  } catch(err) {\n    return ContentService\n      .createTextOutput(JSON.stringify({ error: err.message }))\n      .setMimeType(ContentService.MimeType.JSON);\n  }\n}\n';
 
 // ═══════════════════════════════════════════════════════
 //  DATA PROCESSING
@@ -2892,15 +2892,30 @@ function renderHistTab(c) {
     const db=b.date instanceof Date?b.date.getTime():(b.year||0)*10000+(b.month||0)*100;
     return db-da;
   });
-  return `<div class="dp-section">
+  const allBrands   = [...new Set(allCustomers.flatMap(cx=>cx.brands).filter(Boolean))].sort();
+  const allDetails  = [...new Set(allCustomers.flatMap(cx=>cx.orders.map(o=>o.productDetail)).filter(Boolean))].sort();
+  const dlBrands    = `<datalist id="hedit-product-list">${allBrands.map(b=>`<option value="${esc(b)}">`).join('')}</datalist>`;
+  const dlDetails   = `<datalist id="hedit-detail-list">${allDetails.map(d=>`<option value="${esc(d)}">`).join('')}</datalist>`;
+
+  return `<div class="dp-section">${dlBrands}${dlDetails}
     <div class="dp-stitle">Lịch sử đặt hàng (${sorted.length} đơn — ${fmtVND(c.totalRevenue)} tổng · <span style="color:var(--green)">${c.renewOrders} Renew</span>)</div>
-    ${sorted.slice(0,60).map(o=>{
-      const isRenew = RENEW_SOURCES.includes(s(o.source).toLowerCase());
+    ${sorted.slice(0,60).map((o,si)=>{
+      const isRenew   = RENEW_SOURCES.includes(s(o.source).toLowerCase());
+      const isMissing = !o.revenue || !o.product;
+      const realIdx   = c.orders.indexOf(o);
+      const eid       = `hedit_${c.phone}_${realIdx}`;
+      const dateStr   = o.date instanceof Date && !isNaN(o.date)
+        ? o.date.toISOString().slice(0,10)
+        : (o.year && o.month ? `${o.year}-${String(o.month).padStart(2,'0')}-01` : '');
       return `
-      <div class="hist-item" style="${isRenew?'border-left:3px solid var(--green);padding-left:8px':''}">
+      <div class="hist-item" id="hi_${eid}" style="${isRenew?'border-left:3px solid var(--green);padding-left:8px':''}${isMissing?'border-color:var(--orange,#e8a04a);background:rgba(232,160,74,.06)':''}">
         <div class="hist-top">
           <span class="hist-date">${formatDate(o.date,o.year,o.month)}</span>
-          <span class="hist-price">${fmtVND(o.revenue)}</span>
+          <span class="hist-price" style="${isMissing?'color:var(--orange,#e8a04a)':''}">${fmtVND(o.revenue)}</span>
+          <button onclick="_histEditToggle('${eid}')" title="Sửa đơn này"
+            style="border:none;background:${isMissing?'var(--orange,#e8a04a)':'var(--surface2)'};color:${isMissing?'#fff':'var(--hint)'};border-radius:4px;padding:1px 7px;font-size:11px;cursor:pointer;margin-left:6px">
+            ${isMissing?'⚠ Cập nhật':'✏'}
+          </button>
         </div>
         ${o.productDetail?`<div class="hist-prod" onclick="_toggleHistProd(this)" title="Bấm để xem đầy đủ sản phẩm">${esc(o.productDetail)}</div>`:''}
         <div class="hist-tags">
@@ -2910,6 +2925,33 @@ function renderHistTab(c) {
           ${o.zalo?`<span class="htag">Zalo: ${esc(o.zalo)}</span>`:''}
           ${o.note?`<span class="htag">📝 ${esc(o.note.substring(0,35))}</span>`:''}
         </div>
+        <div id="${eid}" style="display:none;margin-top:8px;padding:10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:700;color:var(--orange,#e8a04a);margin-bottom:6px">✏ Cập nhật đơn gốc</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+            <div>
+              <div class="form-label">Sản phẩm</div>
+              <input class="form-input" id="${eid}_product" list="hedit-product-list" value="${esc(o.product||'')}" placeholder="Chọn hoặc gõ...">
+            </div>
+            <div>
+              <div class="form-label">Doanh thu (VNĐ)</div>
+              <input class="form-input" id="${eid}_revenue" type="number" min="0" value="${o.revenue||0}">
+            </div>
+          </div>
+          <div style="margin-bottom:6px">
+            <div class="form-label">Sản phẩm chi tiết</div>
+            <input class="form-input" id="${eid}_detail" list="hedit-detail-list" value="${esc(o.productDetail||'')}" placeholder="Make9 x2, W15 x1...">
+          </div>
+          <div style="margin-bottom:8px">
+            <div class="form-label">Ngày đặt</div>
+            <input class="form-input" id="${eid}_date" type="date" value="${dateStr}">
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="save-btn" style="flex:1;background:var(--orange,#e8a04a);border-color:var(--orange,#e8a04a);padding:6px"
+              onclick="_histEditSave('${esc(c.phone)}',${realIdx},'${eid}')">💾 Lưu cập nhật</button>
+            <button onclick="_histEditToggle('${eid}')"
+              style="border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">Hủy</button>
+          </div>
+        </div>
       </div>`;
     }).join('')}
   </div>`;
@@ -2917,6 +2959,70 @@ function renderHistTab(c) {
 
 // Mở rộng / thu gọn phần "sản phẩm chi tiết" của 1 đơn trong Lịch sử đơn
 function _toggleHistProd(el){ if (el) el.classList.toggle('expanded'); }
+
+function _histEditToggle(eid) {
+  const el = document.getElementById(eid);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function _histEditSave(phone, orderIdx, eid) {
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c || !c.orders[orderIdx]) { toast('Không tìm thấy đơn hàng'); return; }
+
+  const o          = c.orders[orderIdx];
+  const oldRevenue = o.revenue || 0;
+  const oldYear    = o.year;
+  const oldMonth   = o.month;
+  const oldDateStr = o.date instanceof Date && !isNaN(o.date) ? o.date.toISOString().slice(0,10) : '';
+
+  const newProduct = (document.getElementById(eid+'_product')?.value||'').trim();
+  const newRevenue = parseFloat(document.getElementById(eid+'_revenue')?.value||0)||0;
+  const newDetail  = (document.getElementById(eid+'_detail')?.value||'').trim();
+  const newDateStr = document.getElementById(eid+'_date')?.value || '';
+
+  // Cập nhật in-memory
+  if (newProduct)  o.product       = guessProduct(newDetail||newProduct) || newProduct;
+  if (newDetail)   o.productDetail = newDetail;
+  o.revenue = newRevenue;
+  if (newDateStr) {
+    const nd  = new Date(newDateStr + 'T00:00:00');
+    o.date    = nd;
+    o.year    = nd.getFullYear();
+    o.month   = nd.getMonth() + 1;
+  }
+
+  // Recompute totals
+  c.totalRevenue = c.orders.reduce((s,x)=>s+(x.revenue||0),0);
+  c.brands = new Set(c.orders.map(x=>x.product).filter(Boolean));
+  c.renewOrders = c.orders.filter(x=>RENEW_SOURCES.includes(s(x.source).toLowerCase())).length;
+
+  logAudit('order_edit', phone, '', `Sửa đơn: ${oldDateStr||oldYear+'/'+oldMonth} · ${oldRevenue}→${newRevenue} · ${newProduct}`);
+
+  // Sync GSheets — patchOrder
+  if (gsUrl) {
+    show('loverlay');
+    try {
+      const payload = {
+        action: 'patchOrder',
+        phone, oldYear, oldMonth, oldRevenue,
+        newRevenue, newProduct: o.product, newDetail: o.productDetail,
+        newDate: newDateStr,
+        newYear: o.year, newMonth: o.month
+      };
+      const r = await fetch(gsUrl, { method:'POST', redirect:'follow', body: JSON.stringify(payload) });
+      const txt = await r.text();
+      let d2; try { d2=JSON.parse(txt); } catch(e){ d2={}; }
+      hide('loverlay');
+      if (d2.error) toast('Lỗi GSheets: '+d2.error);
+      else toast('✓ Đã cập nhật đơn' + (d2.updated ? ' · Synced GSheets' : ' (GSheets không tìm thấy dòng, đã thêm mới)'));
+    } catch(e) { hide('loverlay'); toast('Lỗi kết nối GSheets'); }
+  } else {
+    toast('✓ Đã cập nhật đơn (chưa cấu hình GSheets)');
+  }
+
+  renderTable();
+  openDetail(phone, 'hist');
+}
 // Sau khi render Lịch sử đơn: chỉ gắn nút mở rộng (mũi tên) cho dòng SP bị cắt
 function _initHistExpand(){
   var run = function(){
@@ -5900,6 +6006,7 @@ function doPost(e) {
     if (action === 'saveSingle')  return saveSingleCare_(data.row);
     if (action === 'saveBatch')   return saveBatchCare_(data.rows);
     if (action === 'saveOrders')  return saveOrders_(data.orders);
+    if (action === 'patchOrder')  return patchOrder_(data);
     if (action === 'replaceOrders') return replaceOrders_(data.orders, data);
     if (action === 'setOrderCareCS') return setOrderCareCS_(data.phone, data.careCS);
     if (action === 'setOrderCareCSBatch') return setOrderCareCSBatch_(data.updates);
@@ -5997,6 +6104,33 @@ function saveOrders_(orders) {
 
 // replaceOrders: DONG BO 2 CHIEU — lam OrderData KHOP CHINH XAC voi du lieu gui len
 // (them don moi + cap nhat don sua + XOA don khong con). Ghi theo lo de chiu duoc 350k+ dong.
+function patchOrder_(data) {
+  var orders = loadLS('ome_orders') || [];
+  var updated = false;
+  for (var i = 0; i < orders.length; i++) {
+    var o = orders[i];
+    if (String(o.phone) !== String(data.phone)) continue;
+    if (String(o.year)  !== String(data.oldYear))  continue;
+    if (String(o.month) !== String(data.oldMonth)) continue;
+    if (Number(o.revenue) !== Number(data.oldRevenue)) continue;
+    if (data.newRevenue !== undefined) o.revenue = data.newRevenue;
+    if (data.newProduct) o.product = data.newProduct;
+    if (data.newDetail)  o.productDetail = data.newDetail;
+    if (data.newDate)    o.date = data.newDate;
+    if (data.newYear)    o.year = data.newYear;
+    if (data.newMonth)   o.month = data.newMonth;
+    updated = true;
+    break;
+  }
+  if (!updated && data.phone) {
+    orders.push({ phone:data.phone, year:data.newYear||data.oldYear, month:data.newMonth||data.oldMonth,
+      date:data.newDate||'', revenue:data.newRevenue||0, product:data.newProduct||'',
+      productDetail:data.newDetail||'' });
+  }
+  saveLS('ome_orders', orders);
+  return { ok:true, updated };
+}
+
 function replaceOrders_(orders, data) {
   orders = orders || [];
   var allowEmpty = data && data.allowEmpty === true;
