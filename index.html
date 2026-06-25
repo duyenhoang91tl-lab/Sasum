@@ -583,6 +583,12 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 .rank-badge.rank-1{background:#fef3c7;color:#b45309;} .rank-badge.rank-2{background:#e5e7eb;color:#4b5563;} .rank-badge.rank-3{background:#fde4d0;color:#9a3412;}
 .dash-panel{background:transparent;}
 .dash-panel .dash-table{margin-top:2px;}
+.dash-widget-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media(max-width:880px){.dash-widget-grid{grid-template-columns:1fr;}}
+.dash-widget{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;min-width:0;}
+.dash-widget:hover{border-color:var(--border-md);}
+.dash-widget[draggable=true]{cursor:default;}
+.dash-widget[draggable=true]:active{cursor:grabbing;}
 .team-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
 .team-name-input{font-size:14px;font-weight:700;border:1px solid transparent;background:transparent;color:var(--text);padding:3px 6px;border-radius:var(--rsm);flex:1;outline:none;}
 .team-name-input:hover:not(:disabled),.team-name-input:focus{border-color:var(--border-md);background:var(--surface);}
@@ -6496,127 +6502,364 @@ function _computeTeamStats(csStats){
     return agg;
   });
 }
+// ═══════════════════════════════════════════════════════
+//  DASHBOARD PIVOT — drag-drop widgets + saved templates
+// ═══════════════════════════════════════════════════════
+
+var _dashTemplates = [];   // [{name, widgets:[{type,cfg}]}]
+var _dashActiveIdx = 0;    // index vào _dashTemplates
+var _dashDragSrc   = null; // widget index đang kéo
+
+var _DASH_WIDGET_DEFS = [
+  { type:'kpi',        label:'📊 KPI Tổng quan',        full:true  },
+  { type:'tier',       label:'🏷 Phân hạng khách',      full:false },
+  { type:'top_rev',    label:'🏆 Top CS doanh thu',     full:false },
+  { type:'top_close',  label:'🎯 Top tỉ lệ chốt',      full:false },
+  { type:'team',       label:'🏢 Theo Team',            full:false },
+  { type:'cs_detail',  label:'👤 Chi tiết CS',          full:true  },
+  { type:'pivot',      label:'📐 Pivot tùy chỉnh',      full:true  },
+];
+
+var _DEFAULT_DASH_WIDGETS = [
+  {type:'kpi'}, {type:'tier'}, {type:'top_rev'},
+  {type:'top_close'}, {type:'team'}, {type:'cs_detail'},
+  {type:'pivot', cfg:{row:'month', col:'cs', metric:'revenue'}}
+];
+
+function _dashLoad() {
+  try {
+    var saved = localStorage.getItem('ome_dash_templates');
+    if (saved) { var p = JSON.parse(saved); _dashTemplates = p.templates||[]; _dashActiveIdx = p.active||0; }
+  } catch(e){}
+  if (!_dashTemplates.length) {
+    _dashTemplates = [{ name:'Mặc định', widgets: JSON.parse(JSON.stringify(_DEFAULT_DASH_WIDGETS)) }];
+    _dashActiveIdx = 0;
+  }
+  if (_dashActiveIdx >= _dashTemplates.length) _dashActiveIdx = 0;
+}
+function _dashSave() {
+  try { localStorage.setItem('ome_dash_templates', JSON.stringify({templates:_dashTemplates, active:_dashActiveIdx})); } catch(e){}
+}
+function _dashWidgets() { return _dashTemplates[_dashActiveIdx] ? _dashTemplates[_dashActiveIdx].widgets : []; }
+
+// ── helpers ─────────────────────────────────────────────
+function _dbar(pct, color){
+  return '<div class="dash-bar"><div class="dash-bar-fill" style="width:'+Math.min(100,pct||0)+'%;background:'+(color||'var(--green)')+'"></div></div>';
+}
+function _drank(arr, valFn, subFn){
+  if (!arr||!arr.length) return '<tr><td colspan="3" style="color:var(--muted);text-align:center;padding:14px">Chưa có dữ liệu</td></tr>';
+  return arr.map(function(s,i){
+    var m=i===0?'rank-1':(i===1?'rank-2':(i===2?'rank-3':''));
+    return '<tr><td><span class="rank-badge '+m+'">'+(i+1)+'</span> '+esc(s.name)+'</td>'+
+           '<td style="text-align:right;font-weight:700">'+valFn(s)+'</td>'+
+           '<td style="color:var(--muted);font-size:11px">'+(subFn?subFn(s):'')+'</td></tr>';
+  }).join('');
+}
+function _dkpi(label,val,sub){
+  return '<div class="kpi-card"><div class="kpi-val">'+val+'</div><div class="kpi-label">'+label+'</div>'+(sub?'<div class="kpi-sub">'+sub+'</div>':'')+'</div>';
+}
+function _dfmtV(v){ return typeof fmtVND==='function'?fmtVND(v):fmt(v); }
+
+// ── pivot engine ─────────────────────────────────────────
+function _dashPivot(list, rowKey, colKey, metric) {
+  var ROW_KEYS = {
+    'month':    function(o){ return o.year&&o.month ? (o.year+'-'+String(o.month).padStart(2,'0')) : '—'; },
+    'cs':       function(o){ return o.cs||'—'; },
+    'product':  function(o){ return o.product||'—'; },
+    'source':   function(o){ return o.source||'—'; },
+    'tier':     function(o,c){ return c.tier||'—'; },
+  };
+  var COL_KEYS = {
+    'cs':       function(o){ return o.cs||'—'; },
+    'month':    function(o){ return o.year&&o.month ? (o.year+'-'+String(o.month).padStart(2,'0')) : '—'; },
+    'product':  function(o){ return o.product||'—'; },
+    'source':   function(o){ return o.source||'—'; },
+    'tier':     function(o,c){ return c.tier||'—'; },
+  };
+  var MET = {
+    'revenue': function(o){ return +(o.revenue)||0; },
+    'orders':  function(){ return 1; },
+    'kh':      function(){ return 0; }, // handled separately
+  };
+
+  var rFn = ROW_KEYS[rowKey] || ROW_KEYS['month'];
+  var cFn = COL_KEYS[colKey] || COL_KEYS['cs'];
+  var mFn = MET[metric] || MET['revenue'];
+
+  var rows={}, cols={}, data={}, colTotals={}, rowTotals={};
+  var khByCell={};  // for kh metric: unique phones
+
+  list.forEach(function(c){
+    c.orders.forEach(function(o){
+      var r=rFn(o,c), cl=cFn(o,c);
+      rows[r]=true; cols[cl]=true;
+      var k=r+'|'+cl;
+      if (metric==='kh'){
+        if(!khByCell[k]) khByCell[k]=new Set();
+        khByCell[k].add(c.phone);
+      } else {
+        data[k]=(data[k]||0)+mFn(o,c);
+        colTotals[cl]=(colTotals[cl]||0)+mFn(o,c);
+        rowTotals[r]=(rowTotals[r]||0)+mFn(o,c);
+      }
+    });
+    if (metric==='kh'){
+      // also ensure row/col from tier if needed
+    }
+  });
+
+  if (metric==='kh'){
+    Object.keys(khByCell).forEach(function(k){
+      var v=khByCell[k].size;
+      data[k]=v;
+      var parts=k.split('|'); var r=parts[0],cl=parts.slice(1).join('|');
+      rowTotals[r]=(rowTotals[r]||0)+v;
+      colTotals[cl]=(colTotals[cl]||0)+v;
+    });
+  }
+
+  var rowArr = Object.keys(rows).sort();
+  var colArr = Object.keys(cols).sort();
+  if (colArr.length > 12) colArr = colArr.slice(0,12); // cap columns
+
+  var fmtCell = metric==='revenue' ? _dfmtV : fmt;
+
+  var grand=0; Object.values(rowTotals).forEach(function(v){grand+=v;});
+
+  var html='<div style="overflow-x:auto"><table class="dash-table" style="font-size:11px;min-width:100%">'+
+    '<thead><tr><th style="white-space:nowrap">'+_dashDimLabel(rowKey)+'</th>'+
+    colArr.map(function(c){ return '<th style="text-align:right;white-space:nowrap">'+esc(c)+'</th>'; }).join('')+
+    '<th style="text-align:right;background:var(--surface2)">Tổng</th></tr></thead><tbody>';
+
+  rowArr.forEach(function(r){
+    html+='<tr><td style="font-weight:600;white-space:nowrap">'+esc(r)+'</td>';
+    colArr.forEach(function(cl){
+      var v=data[r+'|'+cl]||0;
+      html+='<td style="text-align:right">'+(v?fmtCell(v):'—')+'</td>';
+    });
+    html+='<td style="text-align:right;font-weight:700;background:var(--surface2)">'+fmtCell(rowTotals[r]||0)+'</td></tr>';
+  });
+
+  html+='<tr style="border-top:2px solid var(--border)"><td style="font-weight:700">Tổng</td>';
+  colArr.forEach(function(cl){ html+='<td style="text-align:right;font-weight:700">'+fmtCell(colTotals[cl]||0)+'</td>'; });
+  html+='<td style="text-align:right;font-weight:700;background:var(--green-bg);color:var(--green)">'+fmtCell(grand)+'</td></tr>';
+  html+='</tbody></table></div>';
+  return html;
+}
+function _dashDimLabel(k){
+  return {month:'Tháng',cs:'CS',product:'Sản phẩm',source:'Nguồn',tier:'Phân hạng'}[k]||k;
+}
+function _dashMetLabel(k){
+  return {revenue:'Doanh thu',orders:'Số đơn',kh:'Số KH'}[k]||k;
+}
+
+// ── render từng widget ────────────────────────────────────
+function _dashRenderWidget(w, idx, list, csArr, teamStats, totalKH) {
+  var t = w.type;
+  var cfg = w.cfg || {};
+  var def = _DASH_WIDGET_DEFS.find(function(d){ return d.type===t; }) || {};
+  var fullW = def.full ? 'grid-column:1/-1' : '';
+
+  var inner = '';
+  if (t==='kpi') {
+    var totalRev=list.reduce(function(s,c){return s+(+c.totalRevenue||0);},0);
+    var totalOrders=list.reduce(function(s,c){return s+(+c.totalOrders||0);},0);
+    var friended=list.filter(function(c){return c.zaloStatus==='Đã kết bạn';}).length;
+    var notFriended=list.filter(function(c){return c.zaloStatus&&c.zaloStatus!=='Đã kết bạn';}).length;
+    var closed=list.filter(function(c){return c.careStatus==='Chốt';}).length;
+    var schedAll=typeof schedules!=='undefined'?schedules:[];
+    var overdue=schedAll.filter(function(it){try{return typeof isOverdue==='function'&&isOverdue(it);}catch(e){return false;}}).length;
+    inner='<div class="kpi-grid">'+
+      _dkpi('Khách hàng',fmt(totalKH))+
+      _dkpi('Doanh thu',_dfmtV(totalRev))+
+      _dkpi('Tổng đơn',fmt(totalOrders))+
+      _dkpi('Đã chốt',fmt(closed),totalKH?Math.round(closed/totalKH*100)+'% KH':'')+
+      _dkpi('Đã kết bạn Zalo',fmt(friended))+
+      _dkpi('Chưa kết bạn',fmt(notFriended))+
+      _dkpi('Lịch chăm sóc',fmt(schedAll.length))+
+      _dkpi('Quá hạn',fmt(overdue))+
+    '</div>';
+
+  } else if (t==='tier') {
+    var tiers={'VIP':0,'Thân thiết':0,'Tiềm năng':0,'Chưa bán lại được':0};
+    list.forEach(function(c){if(tiers[c.tier]!=null)tiers[c.tier]++;else tiers[c.tier]=(tiers[c.tier]||0)+1;});
+    var tierColors={'VIP':'var(--vip)','Thân thiết':'var(--tt)','Tiềm năng':'var(--tn)','Chưa bán lại được':'var(--muted)'};
+    inner='<table class="dash-table">';
+    Object.keys(tiers).forEach(function(t2){
+      var pct=totalKH?Math.round(tiers[t2]/totalKH*100):0;
+      inner+='<tr><td style="width:130px">'+esc(t2)+'</td><td>'+_dbar(pct,tierColors[t2]||'var(--green)')+'</td>'+
+        '<td style="text-align:right;width:78px;font-weight:700">'+fmt(tiers[t2])+'<span style="color:var(--muted);font-weight:400;font-size:11px"> · '+pct+'%</span></td></tr>';
+    });
+    inner+='</table>';
+
+  } else if (t==='top_rev') {
+    var topRev=csArr.slice().sort(function(a,b){return b.revenue-a.revenue;}).slice(0,8);
+    inner='<table class="dash-table">'+_drank(topRev,function(s){return _dfmtV(s.revenue);},function(s){return fmt(s.orders)+' đơn';})+'</table>';
+
+  } else if (t==='top_close') {
+    var topClose=csArr.filter(function(s){return s.held>=5;}).sort(function(a,b){return b.closeRate-a.closeRate;}).slice(0,8);
+    inner='<table class="dash-table">'+_drank(topClose,function(s){return s.closeRate+'%';},function(s){return s.closed+'/'+s.held+' KH';})+'</table>';
+
+  } else if (t==='team') {
+    var topTeam=teamStats.slice().sort(function(a,b){return b.revenue-a.revenue;});
+    inner='<table class="dash-table">';
+    if(!topTeam.length){inner+='<tr><td style="color:var(--muted)">Chưa có team nào</td></tr>';}
+    topTeam.forEach(function(tm){
+      inner+='<tr><td><span class="rank-badge" style="background:'+(tm.color||'var(--green)')+';color:#fff">●</span> '+esc(tm.name)+
+        '<div style="color:var(--muted);font-size:11px">'+tm.members.length+' CS · chốt '+tm.closeRate+'%</div></td>'+
+        '<td style="text-align:right;font-weight:700">'+_dfmtV(tm.revenue)+'</td>'+
+        '<td style="text-align:right;color:var(--muted);font-size:11px">'+fmt(tm.orders)+' đơn</td></tr>';
+    });
+    inner+='</table>';
+
+  } else if (t==='cs_detail') {
+    var detail=csArr.slice().sort(function(a,b){return b.revenue-a.revenue;});
+    inner='<div style="overflow-x:auto"><table class="dash-table"><thead><tr>'+
+      '<th>CS</th><th style="text-align:right">Giữ</th><th style="text-align:right">Chốt</th>'+
+      '<th style="text-align:right">Tỉ lệ</th><th style="text-align:right">Kết bạn</th>'+
+      '<th style="text-align:right">Doanh thu</th><th style="text-align:right">Đơn</th></tr></thead><tbody>';
+    if(!detail.length){inner+='<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:14px">Chưa có dữ liệu</td></tr>';}
+    detail.forEach(function(s){
+      inner+='<tr><td style="font-weight:600">'+esc(s.name)+'</td>'+
+        '<td style="text-align:right">'+fmt(s.held)+'</td><td style="text-align:right">'+fmt(s.closed)+'</td>'+
+        '<td style="text-align:right">'+s.closeRate+'%</td><td style="text-align:right">'+fmt(s.friend)+'</td>'+
+        '<td style="text-align:right;font-weight:600">'+_dfmtV(s.revenue)+'</td>'+
+        '<td style="text-align:right">'+fmt(s.orders)+'</td></tr>';
+    });
+    inner+='</tbody></table></div>';
+
+  } else if (t==='pivot') {
+    var row=cfg.row||'month', col=cfg.col||'cs', met=cfg.metric||'revenue';
+    var dims=['month','cs','product','source','tier'];
+    var mets=['revenue','orders','kh'];
+    inner='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px">'+
+      '<span style="color:var(--muted)">Hàng:</span>'+
+      '<select style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface)" onchange="'+
+        '_dashWidgets()['+idx+'].cfg=_dashWidgets()['+idx+'].cfg||{};_dashWidgets()['+idx+'].cfg.row=this.value;_dashSave();renderDashboard()">'+
+        dims.map(function(d){return '<option value="'+d+'"'+(d===row?' selected':'')+'>'+_dashDimLabel(d)+'</option>';}).join('')+'</select>'+
+      '<span style="color:var(--muted)">Cột:</span>'+
+      '<select style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface)" onchange="'+
+        '_dashWidgets()['+idx+'].cfg=_dashWidgets()['+idx+'].cfg||{};_dashWidgets()['+idx+'].cfg.col=this.value;_dashSave();renderDashboard()">'+
+        dims.map(function(d){return '<option value="'+d+'"'+(d===col?' selected':'')+'>'+_dashDimLabel(d)+'</option>';}).join('')+'</select>'+
+      '<span style="color:var(--muted)">Metric:</span>'+
+      '<select style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface)" onchange="'+
+        '_dashWidgets()['+idx+'].cfg=_dashWidgets()['+idx+'].cfg||{};_dashWidgets()['+idx+'].cfg.metric=this.value;_dashSave();renderDashboard()">'+
+        mets.map(function(m){return '<option value="'+m+'"'+(m===met?' selected':'')+'>'+_dashMetLabel(m)+'</option>';}).join('')+'</select>'+
+    '</div>'+
+    _dashPivot(list, row, col, met);
+  }
+
+  return '<div class="dash-widget" style="'+fullW+'" draggable="true"'+
+    ' ondragstart="_dashDragSrc='+idx+';this.style.opacity=\'.4\'"'+
+    ' ondragend="this.style.opacity=\'1\'"'+
+    ' ondragover="event.preventDefault()"'+
+    ' ondrop="_dashDrop('+idx+')"'+
+    '>'+
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">'+
+      '<span style="cursor:grab;color:var(--hint);font-size:16px;line-height:1" title="Kéo để di chuyển">⠿</span>'+
+      '<span style="font-weight:700;font-size:13px;flex:1">'+(def.label||t)+'</span>'+
+      '<button onclick="_dashRemoveWidget('+idx+')" style="border:none;background:none;cursor:pointer;color:var(--hint);font-size:15px;line-height:1;padding:0" title="Xóa widget">✕</button>'+
+    '</div>'+
+    inner+
+  '</div>';
+}
+
+function _dashDrop(targetIdx) {
+  if (_dashDragSrc===null||_dashDragSrc===targetIdx) return;
+  var ws=_dashWidgets();
+  var moved=ws.splice(_dashDragSrc,1)[0];
+  ws.splice(targetIdx,0,moved);
+  _dashSave();
+  renderDashboard();
+}
+function _dashRemoveWidget(idx) {
+  _dashWidgets().splice(idx,1);
+  _dashSave();
+  renderDashboard();
+}
+function _dashAddWidget(type) {
+  var existing=_dashWidgets().find(function(w){return w.type===type;});
+  if (existing&&type!=='pivot') { toast('Widget này đã có trên dashboard'); return; }
+  var w={type:type};
+  if (type==='pivot') w.cfg={row:'month',col:'cs',metric:'revenue'};
+  _dashWidgets().push(w);
+  _dashSave();
+  renderDashboard();
+}
+function _dashSaveTemplate() {
+  var name=prompt('Đặt tên mẫu báo cáo:');
+  if (!name) return;
+  var snapshot={name:name, widgets:JSON.parse(JSON.stringify(_dashWidgets()))};
+  _dashTemplates.push(snapshot);
+  _dashActiveIdx=_dashTemplates.length-1;
+  _dashSave();
+  renderDashboard();
+  toast('✓ Đã lưu mẫu "'+name+'"');
+}
+function _dashDeleteTemplate() {
+  if (_dashTemplates.length<=1){toast('Phải giữ ít nhất 1 mẫu');return;}
+  if(!confirm('Xóa mẫu "'+_dashTemplates[_dashActiveIdx].name+'"?')) return;
+  _dashTemplates.splice(_dashActiveIdx,1);
+  _dashActiveIdx=Math.max(0,_dashActiveIdx-1);
+  _dashSave();
+  renderDashboard();
+}
+function _dashResetTemplate() {
+  if(!confirm('Khôi phục mẫu về mặc định?')) return;
+  _dashTemplates[_dashActiveIdx].widgets=JSON.parse(JSON.stringify(_DEFAULT_DASH_WIDGETS));
+  _dashSave();
+  renderDashboard();
+}
+
 function renderDashboard(){
+  _dashLoad();
   var wrap = document.getElementById('dash-wrap');
   if (!wrap) return;
-  var list = (typeof allCustomers !== 'undefined' ? allCustomers : []).filter(_inUserScope);
+  var list = (typeof allCustomers!=='undefined'?allCustomers:[]).filter(_inUserScope);
   var totalKH = list.length;
-  var totalRev = list.reduce(function(s,c){ return s + (+c.totalRevenue||0); }, 0);
-  var totalOrders = list.reduce(function(s,c){ return s + (+c.totalOrders||0); }, 0);
-  var friended = list.filter(function(c){ return c.zaloStatus==='Đã kết bạn'; }).length;
-  var notFriended = list.filter(function(c){ return c.zaloStatus && c.zaloStatus!=='Đã kết bạn'; }).length;
-  var closed = list.filter(function(c){ return c.careStatus==='Chốt'; }).length;
-  // lịch & quá hạn
-  var schedAll = (typeof schedules !== 'undefined' ? schedules : []);
-  var overdue = schedAll.filter(function(it){ try { return typeof isOverdue==='function' && isOverdue(it); } catch(e){ return false; } }).length;
-  var upcoming = schedAll.length;
-
-  // tier breakdown
-  var tiers = {'VIP':0,'Thân thiết':0,'Tiềm năng':0,'Chưa bán lại được':0};
-  list.forEach(function(c){ if(tiers[c.tier]!=null) tiers[c.tier]++; else tiers[c.tier]=(tiers[c.tier]||0)+1; });
-
   var csStats = _computeCSStats();
-  // chỉ giữ CS trong phạm vi xem (admin: tất cả)
-  var csArr = Object.keys(csStats).map(function(k){ return csStats[k]; });
-  if (currentUser.role !== 'admin'){
-    csArr = csArr.filter(function(s){
-      if (currentUser.role==='cs') return s.name===currentUser.name;
-      var team=null; for(var i=0;i<teams.length;i++){ if(teams[i].leader===currentUser.name||teams[i].name===currentUser.team){team=teams[i];break;} }
-      var ms=_teamMemberSet(team); return ms.has(s.name);
+  var csArr = Object.keys(csStats).map(function(k){return csStats[k];});
+  if (currentUser.role!=='admin'){
+    csArr=csArr.filter(function(s){
+      if(currentUser.role==='cs') return s.name===currentUser.name;
+      var team=null;for(var i=0;i<teams.length;i++){if(teams[i].leader===currentUser.name||teams[i].name===currentUser.team){team=teams[i];break;}}
+      var ms=_teamMemberSet(team);return ms.has(s.name);
     });
   }
-  csArr.forEach(function(s){ s.closeRate = s.held ? Math.round(s.closed/s.held*100) : 0; s.friendRate = s.held ? Math.round(s.friend/s.held*100) : 0; });
-  var topRev = csArr.slice().sort(function(a,b){ return b.revenue-a.revenue; }).slice(0,8);
-  var topClose = csArr.filter(function(s){return s.held>=5;}).sort(function(a,b){ return b.closeRate-a.closeRate; }).slice(0,8);
-  var teamStats = _computeTeamStats(csStats);
+  csArr.forEach(function(s){s.closeRate=s.held?Math.round(s.closed/s.held*100):0;s.friendRate=s.held?Math.round(s.friend/s.held*100):0;});
+  var teamStats=_computeTeamStats(csStats);
 
-  function kpi(label, val, sub){
-    return '<div class="kpi-card"><div class="kpi-val">'+val+'</div><div class="kpi-label">'+label+'</div>'+(sub?'<div class="kpi-sub">'+sub+'</div>':'')+'</div>';
-  }
-  function bar(pct, color){
-    return '<div class="dash-bar"><div class="dash-bar-fill" style="width:'+Math.min(100,pct)+'%;background:'+(color||'var(--green)')+'"></div></div>';
-  }
-  function rankRows(arr, valFn, subFn){
-    if (!arr.length) return '<tr><td colspan="3" style="color:var(--muted);text-align:center;padding:14px">Chưa có dữ liệu</td></tr>';
-    return arr.map(function(s,i){
-      var medal = i===0?'rank-1':(i===1?'rank-2':(i===2?'rank-3':''));
-      return '<tr><td><span class="rank-badge '+medal+'">'+(i+1)+'</span> '+esc(s.name)+'</td>'+
-             '<td style="text-align:right;font-weight:700">'+valFn(s)+'</td>'+
-             '<td style="color:var(--muted);font-size:11px">'+(subFn?subFn(s):'')+'</td></tr>';
-    }).join('');
-  }
+  var ws=_dashWidgets();
 
-  var html = '';
-  html += '<div class="dash-section-title">📊 Tổng quan'+(currentUser.role!=='admin'?' — '+_roleLabel(currentUser.role)+' '+esc(currentUser.name):'')+'</div>';
-  html += '<div class="kpi-grid">'+
-    kpi('Khách hàng', fmt(totalKH)) +
-    kpi('Doanh thu', (typeof fmtVND==='function'?fmtVND(totalRev):fmt(totalRev))) +
-    kpi('Tổng đơn', fmt(totalOrders)) +
-    kpi('Đã chốt', fmt(closed), totalKH?Math.round(closed/totalKH*100)+'% KH':'') +
-    kpi('Đã kết bạn Zalo', fmt(friended)) +
-    kpi('Chưa kết bạn', fmt(notFriended)) +
-    kpi('Lịch chăm sóc', fmt(upcoming)) +
-    kpi('Quá hạn', fmt(overdue)) +
+  // toolbar
+  var addMenu=_DASH_WIDGET_DEFS.map(function(d){
+    return '<button onclick="_dashAddWidget(\''+d.type+'\')" style="display:block;width:100%;text-align:left;padding:6px 14px;border:none;background:none;cursor:pointer;font-size:12px;white-space:nowrap" onmouseover="this.style.background=\'var(--surface2)\'" onmouseout="this.style.background=\'none\'">'+d.label+'</button>';
+  }).join('');
+
+  var tplSelect=_dashTemplates.map(function(t,i){
+    return '<option value="'+i+'"'+(i===_dashActiveIdx?' selected':'')+'>'+esc(t.name)+'</option>';
+  }).join('');
+
+  var toolbar='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border)">'+
+    '<span style="font-weight:700;font-size:13px;flex:1">📊 Dashboard'+(currentUser.role!=='admin'?' — '+esc(currentUser.name):'')+'</span>'+
+    '<div style="position:relative;display:inline-block">'+
+      '<button class="btn sm" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'block\'?\'none\':\'block\'">+ Thêm widget ▾</button>'+
+      '<div style="display:none;position:absolute;right:0;top:100%;margin-top:2px;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:99;min-width:180px;padding:4px 0">'+addMenu+'</div>'+
+    '</div>'+
+    '<select style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface)" onchange="_dashActiveIdx=+this.value;_dashSave();renderDashboard()" title="Chọn mẫu báo cáo">'+tplSelect+'</select>'+
+    '<button class="btn sm" onclick="_dashSaveTemplate()" title="Lưu mẫu mới">💾 Lưu mẫu</button>'+
+    '<button class="btn sm" onclick="_dashDeleteTemplate()" title="Xóa mẫu này" style="color:var(--red)">🗑</button>'+
+    '<button class="btn sm" onclick="_dashResetTemplate()" title="Khôi phục mặc định">↺ Reset</button>'+
   '</div>';
 
-  // tier breakdown
-  html += '<div class="dash-cols">';
-  html += '<div class="dash-panel"><div class="dash-section-title">Phân hạng khách</div><table class="dash-table">';
-  var tierColors = {'VIP':'var(--vip)','Thân thiết':'var(--tt)','Tiềm năng':'var(--tn)','Chưa bán lại được':'var(--muted)'};
-  Object.keys(tiers).forEach(function(t){
-    var pct = totalKH ? Math.round(tiers[t]/totalKH*100) : 0;
-    html += '<tr><td style="width:130px">'+esc(t)+'</td><td>'+bar(pct, tierColors[t]||'var(--green)')+'</td>'+
-            '<td style="text-align:right;width:78px;font-weight:700">'+fmt(tiers[t])+'<span style="color:var(--muted);font-weight:400;font-size:11px"> · '+pct+'%</span></td></tr>';
+  var grid='<div class="dash-widget-grid">';
+  ws.forEach(function(w,i){
+    grid+=_dashRenderWidget(w,i,list,csArr,teamStats,totalKH);
   });
-  html += '</table></div>';
+  if(!ws.length) grid+='<div style="grid-column:1/-1;color:var(--hint);text-align:center;padding:40px">Chưa có widget nào — bấm "+ Thêm widget" để bắt đầu</div>';
+  grid+='</div>';
 
-  // Top CS by revenue
-  html += '<div class="dash-panel"><div class="dash-section-title">🏆 Top CS theo doanh thu</div><table class="dash-table">'+
-    rankRows(topRev, function(s){ return typeof fmtVND==='function'?fmtVND(s.revenue):fmt(s.revenue); }, function(s){ return fmt(s.orders)+' đơn'; })+
-  '</table></div>';
-  html += '</div>';
-
-  // Top close rate + team
-  html += '<div class="dash-cols">';
-  html += '<div class="dash-panel"><div class="dash-section-title">🎯 Top tỉ lệ chốt (≥5 KH)</div><table class="dash-table">'+
-    rankRows(topClose, function(s){ return s.closeRate+'%'; }, function(s){ return s.closed+'/'+s.held+' KH'; })+
-  '</table></div>';
-
-  if (teams.length){
-    var topTeam = teamStats.slice().sort(function(a,b){ return b.revenue-a.revenue; });
-    html += '<div class="dash-panel"><div class="dash-section-title">🏢 Theo Team</div><table class="dash-table">';
-    if (!topTeam.length){ html += '<tr><td style="color:var(--muted)">Chưa có team</td></tr>'; }
-    topTeam.forEach(function(t){
-      html += '<tr><td><span class="rank-badge" style="background:'+(t.color||'var(--green)')+';color:#fff">●</span> '+esc(t.name)+
-              '<div style="color:var(--muted);font-size:11px">'+t.members.length+' CS · chốt '+t.closeRate+'%</div></td>'+
-              '<td style="text-align:right;font-weight:700">'+(typeof fmtVND==='function'?fmtVND(t.revenue):fmt(t.revenue))+'</td>'+
-              '<td style="text-align:right;color:var(--muted);font-size:11px">'+fmt(t.orders)+' đơn</td></tr>';
-    });
-    html += '</table></div>';
-  } else {
-    html += '<div class="dash-panel"><div class="dash-section-title">🏢 Theo Team</div>'+
-      '<div style="color:var(--muted);font-size:13px;padding:8px 2px">Chưa tạo team nào. Vào tab <b>Quản lý Team</b> để tạo.</div></div>';
-  }
-  html += '</div>';
-
-  // bảng chi tiết CS
-  html += '<div class="dash-panel" style="margin-top:14px"><div class="dash-section-title">Chi tiết theo CS</div>'+
-    '<table class="dash-table"><thead><tr><th>CS</th><th style="text-align:right">Đang giữ</th><th style="text-align:right">Đã chốt</th>'+
-    '<th style="text-align:right">Tỉ lệ chốt</th><th style="text-align:right">Kết bạn</th><th style="text-align:right">Doanh thu</th><th style="text-align:right">Đơn</th></tr></thead><tbody>';
-  var detail = csArr.slice().sort(function(a,b){ return b.revenue-a.revenue; });
-  if (!detail.length){ html += '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:14px">Chưa có dữ liệu CS</td></tr>'; }
-  detail.forEach(function(s){
-    html += '<tr><td style="font-weight:600">'+esc(s.name)+'</td>'+
-      '<td style="text-align:right">'+fmt(s.held)+'</td>'+
-      '<td style="text-align:right">'+fmt(s.closed)+'</td>'+
-      '<td style="text-align:right">'+s.closeRate+'%</td>'+
-      '<td style="text-align:right">'+fmt(s.friend)+'</td>'+
-      '<td style="text-align:right;font-weight:600">'+(typeof fmtVND==='function'?fmtVND(s.revenue):fmt(s.revenue))+'</td>'+
-      '<td style="text-align:right">'+fmt(s.orders)+'</td></tr>';
-  });
-  html += '</tbody></table></div>';
-
-  wrap.innerHTML = html;
+  wrap.innerHTML=toolbar+grid;
 }
 
 // ═══════════════════════════════════════════════════════
