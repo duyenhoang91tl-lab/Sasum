@@ -4460,10 +4460,12 @@ function loadLS(k){try{const v=localStorage.getItem(k);return v?JSON.parse(v):nu
 function saveLS(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
 
 // Column visibility state
-const colVisible = { name:true, tier:true, care:true, zalo:true, order:true, product:true, cs:true, source:false, note:true, sched:true, lastact:true, tacdong:true, carecs:true };
+const _colVisDefault = { name:true, tier:true, care:true, zalo:true, order:true, product:true, cs:true, source:false, note:true, sched:true, lastact:true, tacdong:true, carecs:true };
+const colVisible = Object.assign({}, _colVisDefault, loadLS('ome_col_visible') || {});
 
 function toggleCol(col, cb) {
   colVisible[col] = cb.checked;
+  saveLS('ome_col_visible', colVisible);
   reapplyColVisibility();
 }
 function reapplyColVisibility() {
@@ -4471,6 +4473,11 @@ function reapplyColVisibility() {
     const display = vis ? '' : 'none';
     document.querySelectorAll(`.col-${col}`).forEach(el => el.style.display = display);
   }
+  // Sync checkbox states với colVisible đã load từ localStorage
+  document.querySelectorAll('#col-toggle-bar input[type=checkbox]').forEach(cb => {
+    const col = cb.getAttribute('onchange')?.match(/toggleCol\('(\w+)'/)?.[1];
+    if (col && col in colVisible) cb.checked = colVisible[col];
+  });
 }
 
 let _lastActSortDir = 0; // 0=off, 1=asc(oldest first), -1=desc(newest first)
@@ -7642,7 +7649,7 @@ function _injectV9UI(){
 
 window.addEventListener('load', function(){
   // chạy sau cùng để chắc chắn mọi DOM/biến đã sẵn sàng
-  setTimeout(function(){ _injectV9UI(); _renderAuthHeader(); _authGate(); if (typeof startReminderChecks==='function') startReminderChecks(); if (typeof _checkAndRenewBdaySchedules==='function') _checkAndRenewBdaySchedules(); if (typeof checkDataDaoRenewSchedules==='function') checkDataDaoRenewSchedules(); }, 0);
+  setTimeout(function(){ _injectV9UI(); _renderAuthHeader(); _authGate(); if (typeof startReminderChecks==='function') startReminderChecks(); if (typeof _checkAndRenewBdaySchedules==='function') _checkAndRenewBdaySchedules(); if (typeof checkDataDaoRenewSchedules==='function') checkDataDaoRenewSchedules(); if (typeof reapplyColVisibility==='function') reapplyColVisibility(); }, 0);
 });
 
 // ═══════════════════════════════════════════════════════
