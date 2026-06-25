@@ -2136,7 +2136,11 @@ function applyFilters() {
     if (colFilters.tier.size > 0 && !colFilters.tier.has(c.tier)) return false;
     if (colFilters.care.size > 0 && !colFilters.care.has(c.careStatus || '')) return false;
     if (colFilters.zalo.size > 0 && !colFilters.zalo.has(c.zaloStatus || '')) return false;
-    if (colFilters.product.size > 0 && ![...colFilters.product].some(p=>c.brands.includes(p))) return false;
+    if (colFilters.product.size > 0) {
+      const wantBlank = colFilters.product.has('');
+      const hasMatch = [...colFilters.product].some(p=>p && c.brands.includes(p));
+      if (!hasMatch && !(wantBlank && c.brands.length === 0)) return false;
+    }
     if (colFilters.source.size > 0 && ![...colFilters.source].some(src=>c.sources.includes(src))) return false;
     if (colFilters.cs.size > 0) {
       if (![...colFilters.cs].some(n=>c.csSet.has(n))) return false;
@@ -4256,7 +4260,7 @@ function renderColDdItems(col, query) {
   else if (col==='tier') values = ['VIP','Thân thiết','Tiềm năng','Chưa bán lại được'];
   else if (col==='care') values = ['', ...CARE_STATUS];
   else if (col==='zalo') values = ['', ...ZALO_STATUS];
-  else if (col==='product') values = [...new Set(allCustomers.flatMap(c=>c.brands).filter(Boolean))].sort();
+  else if (col==='product') values = ['', ...[...new Set(allCustomers.flatMap(c=>c.brands).filter(Boolean))].sort()];
   else if (col==='cs') values = [...new Set(allCustomers.flatMap(c=>[...new Set(c.orders.map(o=>o.cs)),c.careCS]).filter(Boolean))].sort();
   else if (col==='careCS') values = [...new Set(allCustomers.map(c=>c.careCS).filter(Boolean))].sort();
   else if (col==='source') values = [...new Set(allCustomers.flatMap(c=>c.sources).filter(Boolean))].sort();
