@@ -2136,7 +2136,11 @@ function applyFilters() {
     if (colFilters.tier.size > 0 && !colFilters.tier.has(c.tier)) return false;
     if (colFilters.care.size > 0 && !colFilters.care.has(c.careStatus || '')) return false;
     if (colFilters.zalo.size > 0 && !colFilters.zalo.has(c.zaloStatus || '')) return false;
-    if (colFilters.product.size > 0 && ![...colFilters.product].some(p=>c.brands.includes(p))) return false;
+    if (colFilters.product.size > 0) {
+      const wantBlank = colFilters.product.has('');
+      const hasMatch = [...colFilters.product].some(p=>p && c.brands.includes(p));
+      if (!hasMatch && !(wantBlank && c.brands.length === 0)) return false;
+    }
     if (colFilters.source.size > 0 && ![...colFilters.source].some(src=>c.sources.includes(src))) return false;
     if (colFilters.cs.size > 0) {
       if (![...colFilters.cs].some(n=>c.csSet.has(n))) return false;
@@ -2790,10 +2794,16 @@ function renderCareTab(c) {
   <div class="dp-section" style="border:1.5px solid var(--orange,#e8a04a);border-radius:8px;padding:12px">
     <div class="dp-stitle" style="color:var(--orange,#e8a04a)">📦 Thêm đơn hàng thủ công</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Dùng khi data nguồn Đảo/Renew bị mất sản phẩm hoặc doanh thu</div>
+    ${(()=>{
+      const allBrands = [...new Set(allCustomers.flatMap(c2=>c2.brands).filter(Boolean))].sort();
+      const allDetails = [...new Set(allCustomers.flatMap(c2=>c2.orders.map(o=>o.productDetail)).filter(Boolean))].sort();
+      return `<datalist id="mo-product-list">${allBrands.map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
+      <datalist id="mo-detail-list">${allDetails.map(d=>`<option value="${esc(d)}">`).join('')}</datalist>`;
+    })()}
     <div class="form-row-2" style="margin-bottom:6px">
       <div>
-        <div class="form-label">Sản phẩm</div>
-        <input class="form-input" id="mo-product" placeholder="Tên sản phẩm...">
+        <div class="form-label">Sản phẩm <span style="color:var(--hint);font-weight:400">(chọn hoặc tự điền)</span></div>
+        <input class="form-input" id="mo-product" list="mo-product-list" placeholder="Chọn hoặc gõ tên sản phẩm...">
       </div>
       <div>
         <div class="form-label">Doanh thu (VNĐ)</div>
@@ -2819,8 +2829,8 @@ function renderCareTab(c) {
       </div>
     </div>
     <div style="margin-bottom:6px">
-      <div class="form-label">Ghi chú sản phẩm chi tiết</div>
-      <input class="form-input" id="mo-detail" placeholder="Ví dụ: Make9 x2, W15 x1...">
+      <div class="form-label">Sản phẩm chi tiết <span style="color:var(--hint);font-weight:400">(chọn hoặc tự điền)</span></div>
+      <input class="form-input" id="mo-detail" list="mo-detail-list" placeholder="Ví dụ: Make9 x2, W15 x1...">
     </div>
     <button class="save-btn" style="width:100%;background:var(--orange,#e8a04a);border-color:var(--orange,#e8a04a)" onclick="addManualOrder('${esc(c.phone)}')">+ Thêm đơn hàng${gsUrl?' + Sync GSheets':''}</button>
   </div>`;
@@ -4256,7 +4266,7 @@ function renderColDdItems(col, query) {
   else if (col==='tier') values = ['VIP','Thân thiết','Tiềm năng','Chưa bán lại được'];
   else if (col==='care') values = ['', ...CARE_STATUS];
   else if (col==='zalo') values = ['', ...ZALO_STATUS];
-  else if (col==='product') values = [...new Set(allCustomers.flatMap(c=>c.brands).filter(Boolean))].sort();
+  else if (col==='product') values = ['', ...[...new Set(allCustomers.flatMap(c=>c.brands).filter(Boolean))].sort()];
   else if (col==='cs') values = [...new Set(allCustomers.flatMap(c=>[...new Set(c.orders.map(o=>o.cs)),c.careCS]).filter(Boolean))].sort();
   else if (col==='careCS') values = [...new Set(allCustomers.map(c=>c.careCS).filter(Boolean))].sort();
   else if (col==='source') values = [...new Set(allCustomers.flatMap(c=>c.sources).filter(Boolean))].sort();
