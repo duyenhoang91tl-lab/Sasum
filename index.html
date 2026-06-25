@@ -2838,6 +2838,10 @@ function renderCareTab(c) {
       <div class="form-label">Sản phẩm chi tiết <span style="color:var(--hint);font-weight:400">(chọn hoặc tự điền)</span></div>
       <input class="form-input" id="mo-detail" list="mo-detail-list" placeholder="Ví dụ: Make9 x2, W15 x1...">
     </div>
+    <label style="display:flex;align-items:center;gap:7px;margin-bottom:8px;cursor:pointer;font-size:12px;color:var(--text)">
+      <input type="checkbox" id="mo-auto-sched" style="width:15px;height:15px;cursor:pointer" checked>
+      <span>Tự động thêm lịch chăm sóc <b>+7 ngày · +14 ngày · +1 tháng · +2 tháng</b></span>
+    </label>
     <button class="save-btn" style="width:100%;background:var(--orange,#e8a04a);border-color:var(--orange,#e8a04a)" onclick="addManualOrder('${esc(c.phone)}')">+ Thêm đơn hàng${gsUrl?' + Sync GSheets':''}</button>
   </div>`;
 }
@@ -3589,6 +3593,31 @@ async function addManualOrder(phone) {
   c.renewOrders = c.orders.filter(o=>RENEW_SOURCES.includes(s(o.source).toLowerCase())).length;
 
   logAudit('order_manual', phone, '', `Thêm đơn thủ công: ${product||detail} · ${revenue} · ${date}`);
+
+  // Tự động thêm lịch chăm sóc nếu CS tích checkbox
+  const autoSched = document.getElementById('mo-auto-sched');
+  if (autoSched && autoSched.checked) {
+    const MILESTONES = [
+      { days: 7,  label: 'CS +7 ngày' },
+      { days: 14, label: 'CS +14 ngày' },
+      { months: 1, label: 'CS +1 tháng' },
+      { months: 2, label: 'CS +2 tháng' },
+    ];
+    MILESTONES.forEach(function(m) {
+      const targetDate = m.months ? _addDateMonths(date, m.months) : _addDateDays(date, m.days);
+      const autoId = 'manual_' + phone + '_' + date + '_' + (m.days||('m'+m.months));
+      if (!schedules.find(x => x.id === autoId)) {
+        schedules.push(Object.assign({
+          id: autoId, phone, type: 'cs',
+          date: targetDate,
+          note: m.label + ' · Đơn ' + date + (product||detail ? ' · '+(product||detail) : ''),
+          done: false, autoManual: true
+        }, _remOwnerStamp()));
+      }
+    });
+    saveLS('ome_sched', schedules);
+    updateSchedBadges();
+  }
 
   if (gsUrl) {
     show('loverlay');
