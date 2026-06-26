@@ -1591,34 +1591,59 @@ async function syncFromGS(opts) {
   if (!gsUrl) { if (isManual) toast('Chưa kết nối Google Sheets'); return; }
   if (isManual) { txt('ltext', 'Đang tải từ Google Sheets...'); show('loverlay'); }
   try {
-    const url = pullOrders ? gsUrl : (gsUrl + (gsUrl.includes('?') ? '&' : '?') + 'noOrders=1');
-    const r = await fetch(url, { redirect: 'follow' });
-    const text = await r.text();
+    // ── Gọi riêng CareData (nhanh) và Orders (chậm hơn) ──
+    // Luôn gọi action=customers trước để đảm bảo có rows dù orders lỗi
+    const sepChar = gsUrl.includes('?') ? '&' : '?';
+    const careUrl = gsUrl + sepChar + 'action=customers';
+    const careR = await fetch(careUrl, { redirect: 'follow' });
+    const careText = await careR.text();
     let d;
-    try { d = JSON.parse(text); } catch(e) {
+    try { d = JSON.parse(careText); } catch(e) {
       if (isManual) { hide('loverlay'); toast('GAS trả về không phải JSON — kiểm tra quyền triển khai: Anyone'); }
+      else { console.warn('Auto-sync: GAS non-JSON'); _autoSyncFailCount = (_autoSyncFailCount||0)+1; if (_autoSyncFailCount>=3) showSyncErrorBanner(); }
       return;
     }
-    // ── Chỉ pull đơn hàng (OrderData, có thể rất lớn) khi local chưa có dữ liệu ──
+    if (d && d.error) {
+      const errMsg = 'GAS lỗi: ' + d.error;
+      if (isManual) { hide('loverlay'); toast('❌ ' + errMsg); }
+      else { console.warn('Auto-sync GAS error:', d.error); _autoSyncFailCount = (_autoSyncFailCount||0)+1; if (_autoSyncFailCount>=3) showSyncErrorBanner(); }
+      return;
+    }
+    d = d || {};
+
+    // ── Tải đơn hàng riêng nếu cần ──
     let orderCount = 0;
-    if (pullOrders && d.orders && d.orders.length) {
-      const rows = d.orders.map(o => ({
-        date: o.date ? new Date(o.date) : null,
-        year: parseNum(o.year), month: parseNum(o.month),
-        cs: o.cs||'', name: o.name||'', phone: o.phone||'',
-        source: o.source||'', revenue: _normRev(o.revenue),
-        product: o.product||'', productDetail: o.productDetail||'',
-        status: o.status||'', zalo: o.zalo||'', note: o.note||''
-      }));
-      if (rows.length) {
-        loadedFiles.push({name:'Google Sheets (đồng bộ)', rows:rows.length});
-        mergeRows(rows);
-        orderCount = rows.length;
+    if (pullOrders) {
+      try {
+        if (isManual) txt('ltext', 'Đang tải đơn hàng từ Google Sheets...');
+        const ordR = await fetch(gsUrl + sepChar + 'action=orders', { redirect: 'follow' });
+        const ordJson = await ordR.json();
+        if (ordJson && ordJson.orders && ordJson.orders.length) {
+          const rows = ordJson.orders.map(o => ({
+            date: o.date ? new Date(o.date) : null,
+            year: parseNum(o.year), month: parseNum(o.month),
+            cs: o.cs||'', name: o.name||'', phone: o.phone||'',
+            source: o.source||'', revenue: _normRev(o.revenue),
+            product: o.product||'', productDetail: o.productDetail||'',
+            status: o.status||'', zalo: o.zalo||'', note: o.note||''
+          }));
+          if (rows.length) {
+            loadedFiles.push({name:'Google Sheets (đồng bộ)', rows:rows.length});
+            mergeRows(rows);
+            orderCount = rows.length;
+          }
+        } else if (ordJson && ordJson.error) {
+          console.warn('Orders sync error from GAS:', ordJson.error);
+          if (isManual) toast('⚠ Lỗi tải đơn hàng: ' + ordJson.error);
+        }
+      } catch(orderErr) {
+        console.warn('Orders fetch error:', orderErr.message);
+        if (isManual) toast('⚠ Không tải được đơn hàng: ' + orderErr.message);
       }
     }
 
     let count = 0;
-    for (const row of d.rows) {
+    for (const row of (d.rows || [])) {
       if (!row.phone) continue;
       // Normalize phone từ GS (tránh mất số 0 đầu do Excel/GSheets lưu kiểu số)
       const _normPh = (typeof normPhone === 'function') ? (normPhone(row.phone) || String(row.phone)) : String(row.phone);
@@ -5968,7 +5993,7 @@ function doGet(e) {
     var action = (e && e.parameter && e.parameter.action) ? e.parameter.action : '';
 
     if (action === 'customers') {
-      return jsonOut_({ rows: readCare_(ss.getSheetByName(SH_CARE)) });
+      return jsonOut_({ rows: readCare_(ss.getSheetByName(SH_CARE)), careStatus: readCareStatus_(ss) });
     }
     if (action === 'orders') {
       return jsonOut_({ orders: readAllOrders_() });
