@@ -5826,6 +5826,16 @@ var SH_SET    = 'Settings';
 var SH_ASSIGN = 'AssignData';
 var SH_USER   = 'Users';
 
+// File GSheets rieng chua OrderData (tranh vuot gioi han 10M o)
+// Lay tu URL: docs.google.com/spreadsheets/d/ID/edit
+var ORDER_SS_ID = '1JVIFMIUgKdfTG1FEMDGoYjQ3Qll2ChkbSHHTjgieLPs';
+
+function getOrderSS_() {
+  return ORDER_SS_ID
+    ? SpreadsheetApp.openById(ORDER_SS_ID)
+    : SpreadsheetApp.getActiveSpreadsheet();
+}
+
 // Danh sach sheet OrderData theo nam (thu tu doc: cu -> moi)
 var ORDER_SHEETS = [
   { name: 'OrderData21_22', years: [21, 22, 2021, 2022] },
@@ -5856,6 +5866,13 @@ function getSheet_(name, headers) {
   if (sh.getLastRow() === 0 && headers) { sh.appendRow(headers); }
   return sh;
 }
+// Lay sheet OrderData tu file rieng
+function getOrderSheet_(name) {
+  var ss = getOrderSS_();
+  var sh = ss.getSheetByName(name);
+  if (!sh) { sh = ss.insertSheet(name); sh.appendRow(ORDER_HEADERS); }
+  return sh;
+}
 function jsonOut_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
@@ -5872,7 +5889,7 @@ function getOrderSheetName_(year) {
 
 // Doc tat ca cac sheet OrderData va gop lai
 function readAllOrders_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getOrderSS_();
   var out = [];
   for (var i = 0; i < ORDER_SHEETS.length; i++) {
     var sh = ss.getSheetByName(ORDER_SHEETS[i].name);
@@ -5985,7 +6002,7 @@ function doGet(e) {
       var shc = ss.getSheetByName(SH_CARE);
       var totalOrders = 0;
       for (var si = 0; si < ORDER_SHEETS.length; si++) {
-        var sho = ss.getSheetByName(ORDER_SHEETS[si].name);
+        var sho = getOrderSS_().getSheetByName(ORDER_SHEETS[si].name);
         if (sho) totalOrders += Math.max(0, sho.getLastRow() - 1);
       }
       return jsonOut_({
@@ -6097,7 +6114,7 @@ function careRow_(r) {
 // saveOrders: ghi don moi vao dung sheet theo nam, chong trung theo phone|year|month|revenue
 function saveOrders_(orders) {
   if (!orders || !orders.length) return jsonOut_({ ok: true, written: 0, skipped: 0 });
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getOrderSS_();
 
   // Nhom don theo sheet
   var groups = {};
@@ -6110,7 +6127,7 @@ function saveOrders_(orders) {
 
   var totalWritten = 0, totalSkipped = 0;
   for (var shName in groups) {
-    var sh = getSheet_(shName, ORDER_HEADERS);
+    var sh = getOrderSheet_(shName);
     var existing = sh.getDataRange().getValues();
     var keys = {};
     for (var i = 1; i < existing.length; i++) {
@@ -6138,7 +6155,7 @@ function saveOrders_(orders) {
 
 // patchOrder: tim va cap nhat 1 don theo phone|oldYear|oldMonth|oldRevenue
 function patchOrder_(data) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getOrderSS_();
   // Tim trong sheet cua nam cu truoc, neu khong thay tim toan bo
   var shName = getOrderSheetName_(data.oldYear);
   var sheetsToSearch = [shName];
@@ -6168,7 +6185,7 @@ function patchOrder_(data) {
   }
   // Khong tim thay → append vao sheet theo nam moi
   var newShName = getOrderSheetName_(data.newYear || data.oldYear);
-  var newSh = getSheet_(newShName, ORDER_HEADERS);
+  var newSh = getOrderSheet_(newShName);
   newSh.appendRow([data.phone||'', '', data.newDate||'', data.newYear||data.oldYear||'',
     data.newMonth||data.oldMonth||'', '', '', data.newRevenue||0,
     data.newProduct||'', data.newDetail||'', '', '', '', '']);
@@ -6180,12 +6197,12 @@ function replaceOrders_(orders, data) {
   orders = orders || [];
   var allowEmpty = data && data.allowEmpty === true;
   var force      = data && data.force === true;
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getOrderSS_();
 
   // Dem tong so dong hien tai
   var prev = 0;
   for (var si = 0; si < ORDER_SHEETS.length; si++) {
-    var sh0 = ss.getSheetByName(ORDER_SHEETS[si].name);
+    var sh0 = ss.getSheetByName(ORDER_SHEETS[si].name); // ss = getOrderSS_()
     if (sh0) prev += Math.max(0, sh0.getLastRow() - 1);
   }
 
@@ -6209,7 +6226,7 @@ function replaceOrders_(orders, data) {
 
   var totalWritten = 0;
   for (var shName in groups) {
-    var sh = getSheet_(shName, ORDER_HEADERS);
+    var sh = getOrderSheet_(shName);
     sh.clearContents();
     sh.getRange(1, 1, 1, ORDER_HEADERS.length).setValues([ORDER_HEADERS]);
     var grp = groups[shName];
@@ -6234,7 +6251,7 @@ function replaceOrders_(orders, data) {
 // setOrderCareCS: cap nhat cot careCS tren tat ca cac sheet
 function setOrderCareCS_(phone, careCS) {
   if (!phone) return jsonOut_({ error: 'thieu phone' });
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getOrderSS_();
   var totalUpdated = 0;
   for (var si = 0; si < ORDER_SHEETS.length; si++) {
     var sh = ss.getSheetByName(ORDER_SHEETS[si].name);
@@ -6254,7 +6271,7 @@ function setOrderCareCSBatch_(updates) {
   if (!updates.length) return jsonOut_({ ok: true, updated: 0 });
   var map = {};
   for (var u = 0; u < updates.length; u++) { if (updates[u] && updates[u].phone != null) map[String(updates[u].phone)] = (updates[u].careCS||''); }
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getOrderSS_();
   var changed = 0;
   for (var si = 0; si < ORDER_SHEETS.length; si++) {
     var sh = ss.getSheetByName(ORDER_SHEETS[si].name);
@@ -6390,11 +6407,12 @@ function testScript() {
   getSheet_(SH_SET, SET_HEADERS);
   getSheet_(SH_ASSIGN, ASSIGN_HEADERS);
   getSheet_(SH_USER, USER_HEADERS);
-  for (var i = 0; i < ORDER_SHEETS.length; i++) { getSheet_(ORDER_SHEETS[i].name, ORDER_HEADERS); }
+  var oss = getOrderSS_(); for (var i = 0; i < ORDER_SHEETS.length; i++) { var _s=oss.getSheetByName(ORDER_SHEETS[i].name)||oss.insertSheet(ORDER_SHEETS[i].name); if(_s.getLastRow()===0) _s.appendRow(ORDER_HEADERS); }
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var oss2 = getOrderSS_();
   var log = 'OK v10.0 - CareData:' + ss.getSheetByName(SH_CARE).getLastRow();
   for (var j = 0; j < ORDER_SHEETS.length; j++) {
-    var sh = ss.getSheetByName(ORDER_SHEETS[j].name);
+    var sh = oss2.getSheetByName(ORDER_SHEETS[j].name);
     log += ' | ' + ORDER_SHEETS[j].name + ':' + (sh ? sh.getLastRow() : 'missing');
   }
   Logger.log(log);
