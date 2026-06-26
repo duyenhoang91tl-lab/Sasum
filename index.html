@@ -5809,33 +5809,44 @@ switchTab = function(tab, el) {
 </div>
 <script type="text/plain" id="gas-code-v9">
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script v9.3  (toi uu cho 39.000+ KH)
-//  MOI v9.3: them cot "careCS" (CS cham soc) o OrderData cot N + action setOrderCareCS
-//  v9.2: them tai khoan dang nhap (sheet Users, action=users / saveUsers)
-//  v9.1: dong bo 2 chieu OrderData (action=replaceOrders) + action=count
-//  Dan TOAN BO file nay vao Apps Script roi: cap nhat Deployment (New version, giu nguyen link)
+//  OME CS Portal — Google Apps Script v10.0  (multi-sheet OrderData theo nam)
+//  MOI v10.0: OrderData tach thanh nhieu sheet theo nam:
+//    OrderData21_22 (2021+2022), OrderData23, OrderData24, OrderData25, OrderData26
+//  - doGet ?action=orders gop tat ca cac sheet lai
+//  - saveOrders / patchOrder / replaceOrders tu dong ghi vao sheet dung nam
+//  - setOrderCareCS / setOrderCareCSBatch quet tat ca cac sheet
 //  Type: Web app | Execute as: Me | Who has access: Anyone
 //  LUU Y: moi lan sua code phai Deploy lai (New deployment)
 // ═══════════════════════════════════════════════════════════════
 
 var SH_CARE   = 'CareData';
-var SH_ORDER  = 'OrderData';
 var SH_TEAM   = 'Teams';
 var SH_AUDIT  = 'AuditLog';
 var SH_SET    = 'Settings';
 var SH_ASSIGN = 'AssignData';
 var SH_USER   = 'Users';
 
-var CARE_HEADERS = ['phone','status','zalo','cs','note','schedules',
+// Danh sach sheet OrderData theo nam (thu tu doc: cu -> moi)
+var ORDER_SHEETS = [
+  { name: 'OrderData21_22', years: [21, 22, 2021, 2022] },
+  { name: 'OrderData23',    years: [23, 2023] },
+  { name: 'OrderData24',    years: [24, 2024] },
+  { name: 'OrderData25',    years: [25, 2025] },
+  { name: 'OrderData26',    years: [26, 2026] }
+];
+// Sheet mac dinh cho don khong xac dinh nam
+var SH_ORDER_DEFAULT = 'OrderData26';
+
+var CARE_HEADERS  = ['phone','status','zalo','cs','note','schedules',
   'schedGoi','schedGoiNote','schedSP','schedSPNote',
   'schedCS','schedCSNote','schedHen','schedHenNote','updated'];
 var ORDER_HEADERS = ['phone','name','date','year','month','cs','source','revenue',
   'product','productDetail','status','zalo','note','careCS'];
-var TEAM_HEADERS = ['id','name','leader','members','color'];
+var TEAM_HEADERS  = ['id','name','leader','members','color'];
 var AUDIT_HEADERS = ['timestamp','user','action','phone','oldValue','newValue'];
-var SET_HEADERS = ['key','value'];
-var ASSIGN_HEADERS = ['id','date','csName','label','phones','donePhones'];
-var USER_HEADERS = ['username','passHash','role','name','team','active'];
+var SET_HEADERS   = ['key','value'];
+var ASSIGN_HEADERS= ['id','date','csName','label','phones','donePhones'];
+var USER_HEADERS  = ['username','passHash','role','name','team','active'];
 
 // ---- helpers ----
 function getSheet_(name, headers) {
@@ -5845,10 +5856,29 @@ function getSheet_(name, headers) {
   if (sh.getLastRow() === 0 && headers) { sh.appendRow(headers); }
   return sh;
 }
-
 function jsonOut_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Tra ve ten sheet OrderData phu hop voi nam (so hoac chu)
+function getOrderSheetName_(year) {
+  var y = Number(year);
+  for (var i = 0; i < ORDER_SHEETS.length; i++) {
+    if (ORDER_SHEETS[i].years.indexOf(y) !== -1) return ORDER_SHEETS[i].name;
+  }
+  return SH_ORDER_DEFAULT;
+}
+
+// Doc tat ca cac sheet OrderData va gop lai
+function readAllOrders_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var out = [];
+  for (var i = 0; i < ORDER_SHEETS.length; i++) {
+    var sh = ss.getSheetByName(ORDER_SHEETS[i].name);
+    if (sh) out = out.concat(readOrders_(sh));
+  }
+  return out;
 }
 
 function readCare_(sh) {
@@ -5913,14 +5943,7 @@ function readUsers_(sh) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  doGet — TACH API theo ?action= de KHONG tai toan bo cung luc
-//  ?action=customers  -> chi CareData
-//  ?action=orders     -> chi OrderData
-//  ?action=teams      -> chi Teams
-//  ?action=audit      -> AuditLog (200 dong gan nhat)
-//  ?action=dashboard  -> so lieu tong hop (tinh san tren server)
-//  (khong co action)  -> { rows, orders }  (tuong thich ban cu)
-//  them &noOrders=1   -> bo qua OrderData
+//  doGet
 // ═══════════════════════════════════════════════════════════════
 function doGet(e) {
   try {
@@ -5931,7 +5954,7 @@ function doGet(e) {
       return jsonOut_({ rows: readCare_(ss.getSheetByName(SH_CARE)) });
     }
     if (action === 'orders') {
-      return jsonOut_({ orders: readOrders_(ss.getSheetByName(SH_ORDER)) });
+      return jsonOut_({ orders: readAllOrders_() });
     }
     if (action === 'teams') {
       return jsonOut_({ teams: readTeams_(ss.getSheetByName(SH_TEAM)) });
@@ -5959,22 +5982,24 @@ function doGet(e) {
       return jsonOut_({ assignHistory: readAssign_(ss.getSheetByName(SH_ASSIGN)) });
     }
     if (action === 'count') {
-      // Dem nhanh KHONG doc toan bo du lieu (dung cho man hinh xac nhan dong bo 2 chieu)
-      var sho = ss.getSheetByName(SH_ORDER);
       var shc = ss.getSheetByName(SH_CARE);
+      var totalOrders = 0;
+      for (var si = 0; si < ORDER_SHEETS.length; si++) {
+        var sho = ss.getSheetByName(ORDER_SHEETS[si].name);
+        if (sho) totalOrders += Math.max(0, sho.getLastRow() - 1);
+      }
       return jsonOut_({
-        orderRows: sho ? Math.max(0, sho.getLastRow() - 1) : 0,
+        orderRows: totalOrders,
         careRows:  shc ? Math.max(0, shc.getLastRow() - 1) : 0,
-        ver: 'v9.1'
+        ver: 'v10.0'
       });
     }
 
     // default — backward compatible
     var result = { rows: readCare_(ss.getSheetByName(SH_CARE)), orders: [] };
     if (!(e && e.parameter && e.parameter.noOrders)) {
-      result.orders = readOrders_(ss.getSheetByName(SH_ORDER));
+      result.orders = readAllOrders_();
     }
-    // Đính kèm careStatus cấu hình (nếu có)
     result.careStatus = readCareStatus_(ss);
     return jsonOut_(result);
   } catch (err) {
@@ -5982,76 +6007,58 @@ function doGet(e) {
   }
 }
 
-// So lieu dashboard tinh san o server (tranh tai 39k dong ve client chi de dem)
 function buildDashboard_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var care = readCare_(ss.getSheetByName(SH_CARE));
-  var orders = readOrders_(ss.getSheetByName(SH_ORDER));
-  var phones = {}, revenue = 0, friend = 0, closed = 0;
+  var care   = readCare_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH_CARE));
+  var orders = readAllOrders_();
+  var phones = {}, revenue = 0, friend = 0;
   for (var i = 0; i < care.length; i++) {
-    if (care[i].zalo === 'Da ket ban' || care[i].zalo === '\u0110\u00e3 k\u1ebft b\u1ea1n') friend++;
+    if (care[i].zalo === 'Da ket ban' || care[i].zalo === 'Đã kết bạn') friend++;
   }
   for (var j = 0; j < orders.length; j++) {
     phones[orders[j].phone] = true;
     revenue += Number(orders[j].revenue) || 0;
   }
-  return {
-    totalCustomers: Object.keys(phones).length,
-    totalOrders: orders.length,
-    totalRevenue: revenue,
-    careRows: care.length,
-    zaloFriends: friend
-  };
+  return { totalCustomers: Object.keys(phones).length, totalOrders: orders.length, totalRevenue: revenue, careRows: care.length, zaloFriends: friend };
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  doPost — ghi du lieu
+//  doPost
 // ═══════════════════════════════════════════════════════════════
 function doPost(e) {
-  if (!e || !e.postData) {
-    Logger.log('doPost phai goi qua HTTP POST. Dung testScript() de test.');
-    return;
-  }
+  if (!e || !e.postData) return;
   try {
-    var data = JSON.parse(e.postData.contents);
+    var data   = JSON.parse(e.postData.contents);
     var action = data.action;
-
-    if (action === 'save')       return saveAllCare_(data.rows);
-    if (action === 'saveSingle')  return saveSingleCare_(data.row);
-    if (action === 'saveBatch')   return saveBatchCare_(data.rows);
-    if (action === 'saveOrders')  return saveOrders_(data.orders);
-    if (action === 'patchOrder')  return patchOrder_(data);
-    if (action === 'replaceOrders') return replaceOrders_(data.orders, data);
-    if (action === 'setOrderCareCS') return setOrderCareCS_(data.phone, data.careCS);
+    if (action === 'save')               return saveAllCare_(data.rows);
+    if (action === 'saveSingle')          return saveSingleCare_(data.row);
+    if (action === 'saveBatch')           return saveBatchCare_(data.rows);
+    if (action === 'saveOrders')          return saveOrders_(data.orders);
+    if (action === 'patchOrder')          return patchOrder_(data);
+    if (action === 'replaceOrders')       return replaceOrders_(data.orders, data);
+    if (action === 'setOrderCareCS')      return setOrderCareCS_(data.phone, data.careCS);
     if (action === 'setOrderCareCSBatch') return setOrderCareCSBatch_(data.updates);
-    if (action === 'saveTeams')   return saveTeams_(data.teams);
-    if (action === 'saveUsers')   return saveUsers_(data.users);
-    if (action === 'saveAudit')   return saveAudit_(data.rows);
-    if (action === 'setSetting')        return setSetting_(data.key, data.value);
-    if (action === 'saveAssign')        return saveAssignEntry_(data.entry);
-    if (action === 'saveAssignHistory') return saveAssignHistory_(data.history);
-    if (action === 'saveCareStatus')    return saveCareStatus_(data.careStatus);
-
+    if (action === 'saveTeams')           return saveTeams_(data.teams);
+    if (action === 'saveUsers')           return saveUsers_(data.users);
+    if (action === 'saveAudit')           return saveAudit_(data.rows);
+    if (action === 'setSetting')          return setSetting_(data.key, data.value);
+    if (action === 'saveAssign')          return saveAssignEntry_(data.entry);
+    if (action === 'saveAssignHistory')   return saveAssignHistory_(data.history);
+    if (action === 'saveCareStatus')      return saveCareStatus_(data.careStatus);
     return jsonOut_({ error: 'Unknown action: ' + action });
   } catch (err) {
     return jsonOut_({ error: err.message });
   }
 }
 
-// save: ghi lai toan bo CareData — DUNG setValues 1 lan (khong appendRow trong vong lap)
 function saveAllCare_(rows) {
   var sh = getSheet_(SH_CARE, CARE_HEADERS);
   sh.clearContents();
   var matrix = [CARE_HEADERS];
-  for (var i = 0; i < rows.length; i++) {
-    var r = rows[i];
-    matrix.push(careRow_(r));
-  }
+  for (var i = 0; i < rows.length; i++) matrix.push(careRow_(rows[i]));
   sh.getRange(1, 1, matrix.length, CARE_HEADERS.length).setValues(matrix);
   return jsonOut_({ ok: true, written: rows.length });
 }
 
-// saveSingle: tim dong bang TextFinder tren cot A — KHONG quet 39k dong
 function saveSingleCare_(r) {
   var sh = getSheet_(SH_CARE, CARE_HEADERS);
   var last = sh.getLastRow();
@@ -6061,30 +6068,23 @@ function saveSingleCare_(r) {
     var cell = finder.findNext();
     if (cell) rowIdx = cell.getRow();
   }
-  if (rowIdx > 0) {
-    sh.getRange(rowIdx, 1, 1, CARE_HEADERS.length).setValues([careRow_(r)]);
-  } else {
-    sh.appendRow(careRow_(r));
-  }
+  if (rowIdx > 0) sh.getRange(rowIdx, 1, 1, CARE_HEADERS.length).setValues([careRow_(r)]);
+  else sh.appendRow(careRow_(r));
   return jsonOut_({ ok: true, found: rowIdx > 0 });
 }
 
-// saveBatch: cap nhat NHIEU dong CS 1 lan (gom 5 giay tu client).
-// Doc 1 lan -> sua trong bo nho -> ghi nguoc 1 lan = nhanh nhat cho lo nho.
 function saveBatchCare_(rows) {
   var sh = getSheet_(SH_CARE, CARE_HEADERS);
-  var data = sh.getDataRange().getValues();      // doc 1 lan
+  var data = sh.getDataRange().getValues();
   var index = {};
   for (var i = 1; i < data.length; i++) { if (data[i][0]) index[String(data[i][0])] = i; }
   var appended = 0, updated = 0;
   for (var k = 0; k < rows.length; k++) {
-    var r = rows[k];
-    var key = String(r.phone);
-    var rowArr = careRow_(r);
+    var r = rows[k]; var key = String(r.phone); var rowArr = careRow_(r);
     if (index[key] !== undefined) { data[index[key]] = rowArr; updated++; }
     else { data.push(rowArr); index[key] = data.length - 1; appended++; }
   }
-  sh.getRange(1, 1, data.length, CARE_HEADERS.length).setValues(data);  // ghi 1 lan
+  sh.getRange(1, 1, data.length, CARE_HEADERS.length).setValues(data);
   return jsonOut_({ ok: true, updated: updated, appended: appended });
 }
 
@@ -6094,137 +6094,184 @@ function careRow_(r) {
     r.schedCS||'', r.schedCSNote||'', r.schedHen||'', r.schedHenNote||'', new Date().toISOString()];
 }
 
-// saveOrders: chi them dong moi (chong trung theo phone|year|month|revenue), setValues batch
+// saveOrders: ghi don moi vao dung sheet theo nam, chong trung theo phone|year|month|revenue
 function saveOrders_(orders) {
-  var sh = getSheet_(SH_ORDER, ORDER_HEADERS);
-  var existing = sh.getDataRange().getValues();
-  var keys = {};
-  for (var i = 1; i < existing.length; i++) {
-    if (!existing[i][0]) continue;
-    keys[existing[i][0] + '|' + existing[i][3] + '|' + existing[i][4] + '|' + existing[i][7]] = true;
-  }
-  var toAppend = [];
+  if (!orders || !orders.length) return jsonOut_({ ok: true, written: 0, skipped: 0 });
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // Nhom don theo sheet
+  var groups = {};
   for (var k = 0; k < orders.length; k++) {
     var o = orders[k];
-    var key = (o.phone||'') + '|' + (o.year||'') + '|' + (o.month||'') + '|' + (o.revenue||0);
-    if (keys[key]) continue;
-    keys[key] = true;
-    toAppend.push([o.phone||'', o.name||'', o.date||'', o.year||'', o.month||'', o.cs||'',
-      o.source||'', o.revenue||0, o.product||'', o.productDetail||'', o.status||'', o.zalo||'', o.note||'', o.careCS||'']);
+    var shName = getOrderSheetName_(o.year);
+    if (!groups[shName]) groups[shName] = [];
+    groups[shName].push(o);
   }
-  if (toAppend.length) sh.getRange(sh.getLastRow() + 1, 1, toAppend.length, ORDER_HEADERS.length).setValues(toAppend);
-  return jsonOut_({ ok: true, written: toAppend.length, skipped: orders.length - toAppend.length });
+
+  var totalWritten = 0, totalSkipped = 0;
+  for (var shName in groups) {
+    var sh = getSheet_(shName, ORDER_HEADERS);
+    var existing = sh.getDataRange().getValues();
+    var keys = {};
+    for (var i = 1; i < existing.length; i++) {
+      if (!existing[i][0]) continue;
+      keys[existing[i][0]+'|'+existing[i][3]+'|'+existing[i][4]+'|'+existing[i][7]] = true;
+    }
+    var toAppend = [];
+    var grp = groups[shName];
+    for (var j = 0; j < grp.length; j++) {
+      var ord = grp[j];
+      var key = (ord.phone||'')+'|'+(ord.year||'')+'|'+(ord.month||'')+'|'+(ord.revenue||0);
+      if (keys[key]) { totalSkipped++; continue; }
+      keys[key] = true;
+      toAppend.push([ord.phone||'', ord.name||'', ord.date||'', ord.year||'', ord.month||'',
+        ord.cs||'', ord.source||'', ord.revenue||0, ord.product||'', ord.productDetail||'',
+        ord.status||'', ord.zalo||'', ord.note||'', ord.careCS||'']);
+    }
+    if (toAppend.length) {
+      sh.getRange(sh.getLastRow()+1, 1, toAppend.length, ORDER_HEADERS.length).setValues(toAppend);
+      totalWritten += toAppend.length;
+    }
+  }
+  return jsonOut_({ ok: true, written: totalWritten, skipped: totalSkipped });
 }
 
-// replaceOrders: DONG BO 2 CHIEU — lam OrderData KHOP CHINH XAC voi du lieu gui len
-// (them don moi + cap nhat don sua + XOA don khong con). Ghi theo lo de chiu duoc 350k+ dong.
+// patchOrder: tim va cap nhat 1 don theo phone|oldYear|oldMonth|oldRevenue
 function patchOrder_(data) {
-  var orders = loadLS('ome_orders') || [];
-  var updated = false;
-  for (var i = 0; i < orders.length; i++) {
-    var o = orders[i];
-    if (String(o.phone) !== String(data.phone)) continue;
-    if (String(o.year)  !== String(data.oldYear))  continue;
-    if (String(o.month) !== String(data.oldMonth)) continue;
-    if (Number(o.revenue) !== Number(data.oldRevenue)) continue;
-    if (data.newRevenue !== undefined) o.revenue = data.newRevenue;
-    if (data.newProduct) o.product = data.newProduct;
-    if (data.newDetail)  o.productDetail = data.newDetail;
-    if (data.newDate)    o.date = data.newDate;
-    if (data.newYear)    o.year = data.newYear;
-    if (data.newMonth)   o.month = data.newMonth;
-    updated = true;
-    break;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  // Tim trong sheet cua nam cu truoc, neu khong thay tim toan bo
+  var shName = getOrderSheetName_(data.oldYear);
+  var sheetsToSearch = [shName];
+  for (var si = 0; si < ORDER_SHEETS.length; si++) {
+    if (ORDER_SHEETS[si].name !== shName) sheetsToSearch.push(ORDER_SHEETS[si].name);
   }
-  if (!updated && data.phone) {
-    orders.push({ phone:data.phone, year:data.newYear||data.oldYear, month:data.newMonth||data.oldMonth,
-      date:data.newDate||'', revenue:data.newRevenue||0, product:data.newProduct||'',
-      productDetail:data.newDetail||'' });
+
+  for (var si2 = 0; si2 < sheetsToSearch.length; si2++) {
+    var sh = ss.getSheetByName(sheetsToSearch[si2]);
+    if (!sh || sh.getLastRow() < 2) continue;
+    var vals = sh.getDataRange().getValues();
+    for (var i = 1; i < vals.length; i++) {
+      var r = vals[i];
+      if (String(r[0]) !== String(data.phone))      continue;
+      if (String(r[3]) !== String(data.oldYear))    continue;
+      if (String(r[4]) !== String(data.oldMonth))   continue;
+      if (Number(r[7]) !== Number(data.oldRevenue)) continue;
+      // Tim thay — cap nhat
+      if (data.newDate    !== undefined) sh.getRange(i+1, 3).setValue(data.newDate);
+      if (data.newYear    !== undefined) sh.getRange(i+1, 4).setValue(data.newYear);
+      if (data.newMonth   !== undefined) sh.getRange(i+1, 5).setValue(data.newMonth);
+      if (data.newRevenue !== undefined) sh.getRange(i+1, 8).setValue(data.newRevenue);
+      if (data.newProduct)               sh.getRange(i+1, 9).setValue(data.newProduct);
+      if (data.newDetail)                sh.getRange(i+1,10).setValue(data.newDetail);
+      return jsonOut_({ ok: true, updated: true });
+    }
   }
-  saveLS('ome_orders', orders);
-  return { ok:true, updated };
+  // Khong tim thay → append vao sheet theo nam moi
+  var newShName = getOrderSheetName_(data.newYear || data.oldYear);
+  var newSh = getSheet_(newShName, ORDER_HEADERS);
+  newSh.appendRow([data.phone||'', '', data.newDate||'', data.newYear||data.oldYear||'',
+    data.newMonth||data.oldMonth||'', '', '', data.newRevenue||0,
+    data.newProduct||'', data.newDetail||'', '', '', '', '']);
+  return jsonOut_({ ok: true, updated: false, appended: true });
 }
 
+// replaceOrders: ghi lai toan bo — xoa sach tung sheet roi ghi theo nam
 function replaceOrders_(orders, data) {
   orders = orders || [];
   var allowEmpty = data && data.allowEmpty === true;
   var force      = data && data.force === true;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  var sh = getSheet_(SH_ORDER, ORDER_HEADERS);
-  var prev = Math.max(0, sh.getLastRow() - 1);
-
-  // CHAN AN TOAN 1: tu choi thay the bang du lieu rong (tranh xoa nham toan bo do loi mang)
-  if (orders.length === 0 && !allowEmpty) {
-    return jsonOut_({ error: 'TU_CHOI: Du lieu gui len rong — da huy de tranh xoa nham toan bo OrderData. Neu that su muon xoa sach, gui kem allowEmpty=true.', prev: prev });
+  // Dem tong so dong hien tai
+  var prev = 0;
+  for (var si = 0; si < ORDER_SHEETS.length; si++) {
+    var sh0 = ss.getSheetByName(ORDER_SHEETS[si].name);
+    if (sh0) prev += Math.max(0, sh0.getLastRow() - 1);
   }
-  // CHAN AN TOAN 2: du lieu moi (khac rong) nho hon 40% du lieu cu => nghi ngo, can force=true
+
+  if (orders.length === 0 && !allowEmpty) {
+    return jsonOut_({ error: 'TU_CHOI: Du lieu rong. Gui kem allowEmpty=true neu muon xoa sach.', prev: prev });
+  }
   if (orders.length > 0 && prev > 50 && orders.length < prev * 0.4 && !force) {
     return jsonOut_({ warn: true, needForce: true, prev: prev, incoming: orders.length,
-      error: 'CANH_BAO: Du lieu moi (' + orders.length + ') it hon 40% du lieu cu (' + prev + '). Gui lai voi force=true neu chac chan.' });
+      error: 'CANH_BAO: Du lieu moi ('+orders.length+') it hon 40% du lieu cu ('+prev+'). Gui lai voi force=true.' });
   }
 
-  // Ghi de toan bo: xoa sach roi ghi header + tat ca dong theo lo
-  sh.clearContents();
-  sh.getRange(1, 1, 1, ORDER_HEADERS.length).setValues([ORDER_HEADERS]);
-
-  var CHUNK = 50000;
-  var rowPtr = 2;
-  for (var start = 0; start < orders.length; start += CHUNK) {
-    var end = Math.min(start + CHUNK, orders.length);
-    var matrix = [];
-    for (var k = start; k < end; k++) {
-      var o = orders[k];
-      matrix.push([o.phone||'', o.name||'', o.date||'', o.year||'', o.month||'', o.cs||'',
-        o.source||'', o.revenue||0, o.product||'', o.productDetail||'', o.status||'', o.zalo||'', o.note||'', o.careCS||'']);
-    }
-    if (matrix.length) {
-      sh.getRange(rowPtr, 1, matrix.length, ORDER_HEADERS.length).setValues(matrix);
-      rowPtr += matrix.length;
-    }
-    SpreadsheetApp.flush();
+  // Nhom theo sheet
+  var groups = {};
+  for (var si2 = 0; si2 < ORDER_SHEETS.length; si2++) groups[ORDER_SHEETS[si2].name] = [];
+  for (var k = 0; k < orders.length; k++) {
+    var o = orders[k];
+    var shName = getOrderSheetName_(o.year);
+    if (!groups[shName]) groups[shName] = [];
+    groups[shName].push(o);
   }
 
-  return jsonOut_({ ok: true, mode: 'replace', prev: prev, written: orders.length, net: orders.length - prev });
+  var totalWritten = 0;
+  for (var shName in groups) {
+    var sh = getSheet_(shName, ORDER_HEADERS);
+    sh.clearContents();
+    sh.getRange(1, 1, 1, ORDER_HEADERS.length).setValues([ORDER_HEADERS]);
+    var grp = groups[shName];
+    var CHUNK = 50000, rowPtr = 2;
+    for (var start = 0; start < grp.length; start += CHUNK) {
+      var end = Math.min(start + CHUNK, grp.length);
+      var matrix = [];
+      for (var j = start; j < end; j++) {
+        var ord = grp[j];
+        matrix.push([ord.phone||'', ord.name||'', ord.date||'', ord.year||'', ord.month||'',
+          ord.cs||'', ord.source||'', ord.revenue||0, ord.product||'', ord.productDetail||'',
+          ord.status||'', ord.zalo||'', ord.note||'', ord.careCS||'']);
+      }
+      if (matrix.length) { sh.getRange(rowPtr, 1, matrix.length, ORDER_HEADERS.length).setValues(matrix); rowPtr += matrix.length; }
+      SpreadsheetApp.flush();
+    }
+    totalWritten += grp.length;
+  }
+  return jsonOut_({ ok: true, mode: 'replace', prev: prev, written: totalWritten });
 }
 
-// setOrderCareCS: ghi tên CS chăm sóc vào OrderData cột N (careCS) cho TẤT CẢ dòng đơn của 1 SĐT.
-// Dùng TextFinder trên cột A nên không quét toàn bộ 100k+ dòng.
+// setOrderCareCS: cap nhat cot careCS tren tat ca cac sheet
 function setOrderCareCS_(phone, careCS) {
-  if (!phone) return jsonOut_({ error: 'thiếu phone' });
-  var sh = getSheet_(SH_ORDER, ORDER_HEADERS);
-  var last = sh.getLastRow();
-  if (last < 2) return jsonOut_({ ok: true, updated: 0 });
-  var col = ORDER_HEADERS.length;  // careCS là cột cuối (N = 14)
-  var finder = sh.getRange(2, 1, last - 1, 1).createTextFinder(String(phone)).matchEntireCell(true);
-  var found = finder.findAll();
-  for (var i = 0; i < found.length; i++) {
-    sh.getRange(found[i].getRow(), col).setValue(careCS || '');
+  if (!phone) return jsonOut_({ error: 'thieu phone' });
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var totalUpdated = 0;
+  for (var si = 0; si < ORDER_SHEETS.length; si++) {
+    var sh = ss.getSheetByName(ORDER_SHEETS[si].name);
+    if (!sh || sh.getLastRow() < 2) continue;
+    var last = sh.getLastRow();
+    var finder = sh.getRange(2, 1, last-1, 1).createTextFinder(String(phone)).matchEntireCell(true);
+    var found = finder.findAll();
+    for (var i = 0; i < found.length; i++) { sh.getRange(found[i].getRow(), ORDER_HEADERS.length).setValue(careCS||''); }
+    totalUpdated += found.length;
   }
-  return jsonOut_({ ok: true, updated: found.length });
+  return jsonOut_({ ok: true, updated: totalUpdated });
 }
 
-// setOrderCareCSBatch: cập nhật careCS cho nhiều SĐT 1 lần (đọc cột A 1 lần, ghi cột N 1 lần).
+// setOrderCareCSBatch: cap nhat careCS nhieu KH tren tat ca cac sheet
 function setOrderCareCSBatch_(updates) {
   updates = updates || [];
   if (!updates.length) return jsonOut_({ ok: true, updated: 0 });
   var map = {};
-  for (var u = 0; u < updates.length; u++) { if (updates[u] && updates[u].phone != null) map[String(updates[u].phone)] = (updates[u].careCS || ''); }
-  var sh = getSheet_(SH_ORDER, ORDER_HEADERS);
-  var last = sh.getLastRow();
-  if (last < 2) return jsonOut_({ ok: true, updated: 0 });
-  var col = ORDER_HEADERS.length;
-  var phones = sh.getRange(2, 1, last - 1, 1).getValues();          // đọc cột A 1 lần
-  var careCol = sh.getRange(2, col, last - 1, 1).getValues();        // đọc cột N hiện tại
+  for (var u = 0; u < updates.length; u++) { if (updates[u] && updates[u].phone != null) map[String(updates[u].phone)] = (updates[u].careCS||''); }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
   var changed = 0;
-  for (var r = 0; r < phones.length; r++) {
-    var ph = String(phones[r][0]);
-    if (ph && map.hasOwnProperty(ph)) { careCol[r][0] = map[ph]; changed++; }
+  for (var si = 0; si < ORDER_SHEETS.length; si++) {
+    var sh = ss.getSheetByName(ORDER_SHEETS[si].name);
+    if (!sh || sh.getLastRow() < 2) continue;
+    var last = sh.getLastRow();
+    var col = ORDER_HEADERS.length;
+    var phones  = sh.getRange(2, 1, last-1, 1).getValues();
+    var careCol = sh.getRange(2, col, last-1, 1).getValues();
+    for (var r = 0; r < phones.length; r++) {
+      var ph = String(phones[r][0]);
+      if (ph && map.hasOwnProperty(ph)) { careCol[r][0] = map[ph]; changed++; }
+    }
+    sh.getRange(2, col, last-1, 1).setValues(careCol);
   }
-  sh.getRange(2, col, last - 1, 1).setValues(careCol);              // ghi cột N 1 lần
   return jsonOut_({ ok: true, updated: changed });
 }
 
-// saveTeams: ghi de toan bo sheet Teams
 function saveTeams_(teams) {
   var sh = getSheet_(SH_TEAM, TEAM_HEADERS);
   sh.clearContents();
@@ -6237,15 +6284,11 @@ function saveTeams_(teams) {
   return jsonOut_({ ok: true, written: teams.length });
 }
 
-// saveUsers: ghi de toan bo sheet Users (tai khoan dang nhap). Mat khau da hash o client.
 function saveUsers_(users) {
   users = users || [];
-  // CHAN AN TOAN: phai con it nhat 1 tai khoan admin (tranh khoa chet)
   var adminCount = 0;
   for (var a = 0; a < users.length; a++) { if (users[a] && users[a].role === 'admin') adminCount++; }
-  if (users.length > 0 && adminCount === 0) {
-    return jsonOut_({ error: 'TU_CHOI: Phai con it nhat 1 tai khoan Admin.' });
-  }
+  if (users.length > 0 && adminCount === 0) return jsonOut_({ error: 'TU_CHOI: Phai con it nhat 1 tai khoan Admin.' });
   var sh = getSheet_(SH_USER, USER_HEADERS);
   sh.clearContents();
   var matrix = [USER_HEADERS];
@@ -6257,7 +6300,6 @@ function saveUsers_(users) {
   return jsonOut_({ ok: true, written: users.length });
 }
 
-// saveAudit: append nhieu dong nhat ky 1 lan (setValues)
 function saveAudit_(rows) {
   var sh = getSheet_(SH_AUDIT, AUDIT_HEADERS);
   if (!rows || !rows.length) return jsonOut_({ ok: true, written: 0 });
@@ -6266,16 +6308,15 @@ function saveAudit_(rows) {
     var r = rows[i];
     matrix.push([r.timestamp||new Date().toISOString(), r.user||'', r.action||'', r.phone||'', r.oldValue||'', r.newValue||'']);
   }
-  sh.getRange(sh.getLastRow() + 1, 1, matrix.length, AUDIT_HEADERS.length).setValues(matrix);
+  sh.getRange(sh.getLastRow()+1, 1, matrix.length, AUDIT_HEADERS.length).setValues(matrix);
   return jsonOut_({ ok: true, written: matrix.length });
 }
 
 function setSetting_(key, value) {
   var sh = getSheet_(SH_SET, SET_HEADERS);
-  var last = sh.getLastRow();
-  var rowIdx = -1;
+  var last = sh.getLastRow(); var rowIdx = -1;
   if (last >= 2) {
-    var finder = sh.getRange(2, 1, last - 1, 1).createTextFinder(String(key)).matchEntireCell(true);
+    var finder = sh.getRange(2, 1, last-1, 1).createTextFinder(String(key)).matchEntireCell(true);
     var cell = finder.findNext();
     if (cell) rowIdx = cell.getRow();
   }
@@ -6284,26 +6325,21 @@ function setSetting_(key, value) {
   return jsonOut_({ ok: true });
 }
 
-// saveCareStatus: luu danh sach tinh trang CS vao Settings sheet
 function saveCareStatus_(list) {
   if (!Array.isArray(list)) return jsonOut_({ error: 'careStatus phai la mang.' });
   return setSetting_('careStatus', JSON.stringify(list));
 }
 
-// readCareStatus: doc danh sach tinh trang CS tu Settings sheet
 function readCareStatus_(ss) {
   var sh = ss.getSheetByName(SH_SET);
   if (!sh || sh.getLastRow() < 2) return null;
   var vals = sh.getDataRange().getValues();
   for (var i = 1; i < vals.length; i++) {
-    if (vals[i][0] === 'careStatus') {
-      try { return JSON.parse(vals[i][1]); } catch(e) { return null; }
-    }
+    if (vals[i][0] === 'careStatus') { try { return JSON.parse(vals[i][1]); } catch(e) { return null; } }
   }
   return null;
 }
 
-// ═══ AssignData helpers ═══════════════════════════════════════════
 function readAssign_(sh) {
   var out = [];
   if (!sh || sh.getLastRow() < 2) return out;
@@ -6311,13 +6347,9 @@ function readAssign_(sh) {
   for (var i = 1; i < vals.length; i++) {
     if (!vals[i][0]) continue;
     var phones = [], donePhones = [];
-    try { phones = JSON.parse(vals[i][4] || '[]'); } catch(e) { phones = []; }
-    try { donePhones = JSON.parse(vals[i][5] || '[]'); } catch(e) { donePhones = []; }
-    out.push({
-      id: String(vals[i][0]), date: String(vals[i][1]||''),
-      csName: String(vals[i][2]||''), label: String(vals[i][3]||''),
-      phones: phones, donePhones: donePhones
-    });
+    try { phones = JSON.parse(vals[i][4]||'[]'); } catch(e) { phones = []; }
+    try { donePhones = JSON.parse(vals[i][5]||'[]'); } catch(e) { donePhones = []; }
+    out.push({ id: String(vals[i][0]), date: String(vals[i][1]||''), csName: String(vals[i][2]||''), label: String(vals[i][3]||''), phones: phones, donePhones: donePhones });
   }
   return out;
 }
@@ -6325,22 +6357,15 @@ function readAssign_(sh) {
 function saveAssignEntry_(entry) {
   if (!entry || !entry.id) return jsonOut_({ error: 'no entry.id' });
   var sh = getSheet_(SH_ASSIGN, ASSIGN_HEADERS);
-  var last = sh.getLastRow();
-  var rowIdx = -1;
+  var last = sh.getLastRow(); var rowIdx = -1;
   if (last >= 2) {
-    var finder = sh.getRange(2, 1, last - 1, 1).createTextFinder(String(entry.id)).matchEntireCell(true);
+    var finder = sh.getRange(2, 1, last-1, 1).createTextFinder(String(entry.id)).matchEntireCell(true);
     var cell = finder.findNext();
     if (cell) rowIdx = cell.getRow();
   }
-  var row = [
-    entry.id || '', entry.date || '', entry.csName || '', entry.label || '',
-    JSON.stringify(entry.phones || []), JSON.stringify(entry.donePhones || [])
-  ];
-  if (rowIdx > 0) {
-    sh.getRange(rowIdx, 1, 1, ASSIGN_HEADERS.length).setValues([row]);
-  } else {
-    sh.appendRow(row);
-  }
+  var row = [entry.id||'', entry.date||'', entry.csName||'', entry.label||'', JSON.stringify(entry.phones||[]), JSON.stringify(entry.donePhones||[])];
+  if (rowIdx > 0) sh.getRange(rowIdx, 1, 1, ASSIGN_HEADERS.length).setValues([row]);
+  else sh.appendRow(row);
   return jsonOut_({ ok: true });
 }
 
@@ -6351,28 +6376,28 @@ function saveAssignHistory_(history) {
   var matrix = [ASSIGN_HEADERS];
   for (var i = 0; i < history.length; i++) {
     var h = history[i];
-    matrix.push([
-      h.id || '', h.date || '', h.csName || '', h.label || '',
-      JSON.stringify(h.phones || []), JSON.stringify(h.donePhones || [])
-    ]);
+    matrix.push([h.id||'', h.date||'', h.csName||'', h.label||'', JSON.stringify(h.phones||[]), JSON.stringify(h.donePhones||[])]);
   }
   sh.getRange(1, 1, matrix.length, ASSIGN_HEADERS.length).setValues(matrix);
   return jsonOut_({ ok: true, written: history.length });
 }
 
-// Chay 1 lan de tao san cac sheet + kiem tra
+// Chay 1 lan de tao sheet + kiem tra
 function testScript() {
   getSheet_(SH_CARE, CARE_HEADERS);
-  getSheet_(SH_ORDER, ORDER_HEADERS);
   getSheet_(SH_TEAM, TEAM_HEADERS);
   getSheet_(SH_AUDIT, AUDIT_HEADERS);
   getSheet_(SH_SET, SET_HEADERS);
   getSheet_(SH_ASSIGN, ASSIGN_HEADERS);
+  getSheet_(SH_USER, USER_HEADERS);
+  for (var i = 0; i < ORDER_SHEETS.length; i++) { getSheet_(ORDER_SHEETS[i].name, ORDER_HEADERS); }
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  Logger.log('OK - CareData:' + ss.getSheetByName(SH_CARE).getLastRow()
-    + ' OrderData:' + ss.getSheetByName(SH_ORDER).getLastRow()
-    + ' Teams:' + ss.getSheetByName(SH_TEAM).getLastRow()
-    + ' AssignData:' + ss.getSheetByName(SH_ASSIGN).getLastRow());
+  var log = 'OK v10.0 - CareData:' + ss.getSheetByName(SH_CARE).getLastRow();
+  for (var j = 0; j < ORDER_SHEETS.length; j++) {
+    var sh = ss.getSheetByName(ORDER_SHEETS[j].name);
+    log += ' | ' + ORDER_SHEETS[j].name + ':' + (sh ? sh.getLastRow() : 'missing');
+  }
+  Logger.log(log);
 }
 
 </script>
