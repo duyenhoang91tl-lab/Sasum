@@ -1,35 +1,34 @@
-# OME Zalo AI Helper - Chrome Extension
+# OME Zalo AI Helper v1.1 - Chrome Extension
 
-## Cài đặt (1 lần duy nhất)
+## Cài đặt (1 lần duy nhất - mọi máy trong team)
 
 1. Mở Chrome → vào địa chỉ: `chrome://extensions`
 2. Bật **Developer mode** (góc trên phải)
 3. Nhấn **Load unpacked** → chọn thư mục `zalo-extension`
-4. Extension đã cài xong ✓
+4. Mở `chat.zalo.me` → nhấn nút **🤖 AI** bên phải màn hình
+5. Nhấn ⚙ → nhập **URL GAS** (lấy từ app teamduyen) → **Lưu**
 
-## Sử dụng
+## Admin cài Gemini Key (1 lần duy nhất cho cả team)
 
-1. Mở `chat.zalo.me` trong Chrome
-2. Nhấn nút **🤖 AI** ở cạnh phải màn hình để mở panel
-3. Lần đầu: nhấn ⚙ để cài đặt:
-   - **URL Web App GAS**: lấy từ app teamduyen (URL dạng `https://script.google.com/macros/s/.../exec`)
-   - **Gemini API Key**: lấy miễn phí tại https://aistudio.google.com/app/apikey
-4. Khi mở chat với khách:
-   - Extension tự động phát hiện SĐT từ tên chat (nếu tên có số điện thoại)
-   - Hoặc nhập tay SĐT → nhấn **Tra cứu**
-5. Xem lịch sử đơn hàng + tình trạng CS
-6. Dán tin nhắn của khách → chọn giọng văn → nhấn **✨ Tạo gợi ý AI**
-7. Click vào gợi ý để copy → paste vào Zalo
+1. Mở Extension → nhấn ⚙
+2. Tick chọn **Admin**
+3. Dán **Gemini API Key** vào ô xuất hiện (lấy tại https://aistudio.google.com/app/apikey)
+4. Nhấn **Lưu** → key được gửi lên Google Sheets (Settings sheet)
+5. Xong! Nhân viên khác không cần nhập key
 
-## Đồng bộ tình trạng về app
+## Sử dụng hàng ngày
 
-- Sau khi tra cứu khách, phần **Cập nhật tình trạng CS** sẽ hiện ra
-- Chỉnh trạng thái + ghi chú → nhấn **💾 Lưu về GSheet**
-- Dữ liệu được ghi thẳng vào Google Sheets (qua GAS `action=saveSingle`)
-- App teamduyen sẽ thấy ngay sau khi Sync GS
+1. Mở chat với khách trên Zalo
+2. Extension tự động phát hiện SĐT (nếu tên có số) → tra cứu ngay
+3. Xem lịch sử đơn + tình trạng CS
+4. Dán tin nhắn khách → chọn giọng → **✨ Tạo gợi ý AI**
+5. Click gợi ý → copy → paste vào Zalo
+6. Cập nhật tình trạng CS → **💾 Lưu về GSheet** → app teamduyen thấy ngay sau Sync
 
-## Lưu ý
+## Kết nối thường gặp
 
-- SĐT tự động phát hiện khi tên chat Zalo có chứa 10 số (VD: "0901234567 - Nguyễn Văn A")
-- Cache dữ liệu 5 phút, tự động tải lại
-- Gemini API Free: 15 yêu cầu/phút, 1 triệu token/ngày — đủ dùng
+- **Không tìm thấy khách**: Sync GS trên app teamduyen trước
+- **Lỗi Admin chưa cài Gemini Key**: Admin thực hiện bước “Admin cài key” ở trên
+- **SĐT không tự phát hiện**: Nhập tay số vào ô → Tra cứu
+
+## Gemini Free tier: 15 yêu cầu/phút, 1M token/ngày — 5 người dùng bình thường thừa dùng
