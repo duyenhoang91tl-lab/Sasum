@@ -618,6 +618,26 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 .acct-row{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;margin-bottom:6px;}
 .acct-row .ar-main{flex:1;min-width:0;}
 .acct-row .ar-badge{font-size:9px;padding:1px 7px;border-radius:10px;font-weight:700;}
+/* ── ZALO AI ── */
+.zai-panel{background:var(--surface2);}
+.zai-label{font-size:11px;font-weight:600;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em;}
+.zai-input{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:var(--rsm);font-size:12px;background:var(--surface);color:var(--text);outline:none;box-sizing:border-box;}
+.zai-input:focus{border-color:var(--green);}
+.zai-textarea{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--rsm);font-size:12px;background:var(--surface);color:var(--text);outline:none;resize:vertical;box-sizing:border-box;font-family:inherit;}
+.zai-textarea:focus{border-color:var(--green);}
+.zai-tones{display:flex;gap:5px;flex-wrap:wrap;}
+.zai-tone{padding:4px 12px;border-radius:20px;font-size:11px;border:1px solid var(--border-md);background:var(--surface);color:var(--muted);cursor:pointer;}
+.zai-tone.active{background:var(--green-bg);color:var(--green);border-color:var(--green);font-weight:600;}
+.zai-info-card{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:10px 14px;font-size:12px;line-height:1.6;}
+.zai-info-card .zi-name{font-weight:700;font-size:13px;color:var(--text);margin-bottom:4px;}
+.zai-info-card .zi-row{display:flex;gap:8px;flex-wrap:wrap;}
+.zai-info-card .zi-chip{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:2px 9px;font-size:11px;color:var(--muted);}
+.zai-sug{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:12px 14px;font-size:13px;line-height:1.6;cursor:pointer;position:relative;transition:border-color .15s;}
+.zai-sug:hover{border-color:var(--green);background:var(--green-bg);}
+.zai-sug-copy{position:absolute;top:8px;right:10px;font-size:10px;color:var(--hint);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 7px;cursor:pointer;}
+.zai-sug-copy:hover{color:var(--green);}
+.zai-loading{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;padding:12px 0;}
+.zai-spinner{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite;}
 </style>
 </head>
 <body>
@@ -915,6 +935,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
       <div class="tab" onclick="switchTab('schedule',this)">Lịch chăm sóc <span class="tab-badge" id="tb-sched">0</span></div>
       <div class="tab" onclick="switchTab('overdue',this)">Quá hạn <span class="tab-badge" id="tb-over" style="background:#fee2e2;color:#991b1b">0</span></div>
       <div class="tab" onclick="switchTab('mydata',this)">📋 Data của tôi <span class="tab-badge" id="tb-mydata">0</span></div>
+      <div class="tab" onclick="switchTab('zaloai',this)">🤖 Zalo AI</div>
     </div>
 
     <!-- STATS -->
@@ -1111,6 +1132,64 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
     </div>
 
     <!-- MY DATA TAB -->
+    <!-- ZALO AI TAB -->
+    <div id="tab-zaloai" style="display:none;flex:1;overflow:auto;flex-direction:column;padding:16px 20px;gap:14px" class="main zai-panel">
+
+      <!-- Row 1: Phone lookup + API key -->
+      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <div class="zai-label">📱 Số điện thoại khách (từ chat Zalo)</div>
+          <div style="display:flex;gap:6px">
+            <input id="zai-phone" class="zai-input" placeholder="VD: 0901234567" oninput="zaiPhoneInput(this.value)" style="flex:1">
+            <button class="btn sm primary" onclick="zaiLookup()">Tra cứu</button>
+          </div>
+        </div>
+        <div style="flex:1;min-width:220px">
+          <div class="zai-label">🔑 Gemini API Key <a href="https://aistudio.google.com/app/apikey" target="_blank" style="font-size:10px;color:var(--green)">(Lấy miễn phí)</a></div>
+          <div style="display:flex;gap:6px">
+            <input id="zai-apikey" class="zai-input" type="password" placeholder="AIza..." value="" oninput="localStorage.setItem('zai_apikey',this.value)" style="flex:1">
+            <button class="btn sm" onclick="zaiToggleKey()" title="Hiện/ẩn key">👁</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Customer info card -->
+      <div id="zai-info" class="zai-info-card" style="display:none"></div>
+
+      <!-- Row 2: Customer message + tone -->
+      <div>
+        <div class="zai-label">💬 Tin nhắn khách (copy từ Zalo rồi dán vào đây)</div>
+        <textarea id="zai-msg" class="zai-textarea" placeholder="Dán tin nhắn của khách vào đây..." rows="4"></textarea>
+      </div>
+
+      <!-- Tone + context + generate -->
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div class="zai-label" style="margin:0">Giọng văn:</div>
+        <div class="zai-tones">
+          <button class="zai-tone active" data-tone="Chuyên nghiệp" onclick="zaiTone(this)">Chuyên nghiệp</button>
+          <button class="zai-tone" data-tone="Thân thiện" onclick="zaiTone(this)">Thân thiện</button>
+          <button class="zai-tone" data-tone="Ngắn gọn" onclick="zaiTone(this)">Ngắn gọn</button>
+          <button class="zai-tone" data-tone="Nhiệt tình" onclick="zaiTone(this)">Nhiệt tình</button>
+        </div>
+        <button class="btn primary" onclick="zaiGenerate()" id="zai-gen-btn" style="margin-left:auto">✨ Tạo gợi ý AI</button>
+      </div>
+
+      <!-- Ngữ cảnh / sản phẩm (tuỳ chọn) -->
+      <div>
+        <div class="zai-label">🏷 Ngữ cảnh / Sản phẩm (tuỳ chọn)</div>
+        <input id="zai-ctx" class="zai-input" placeholder="VD: Đang tư vấn kem dưỡng, khách hỏi về giá...">
+      </div>
+
+      <!-- Suggestions -->
+      <div id="zai-suggestions" style="display:none">
+        <div class="zai-label" style="margin-bottom:8px">💡 Gợi ý phản hồi (click để copy)</div>
+        <div id="zai-sug-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+
+      <!-- Error -->
+      <div id="zai-error" style="display:none;color:#dc2626;font-size:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px"></div>
+    </div>
+
     <div id="tab-mydata" style="display:none;flex:1;overflow:hidden;flex-direction:column" class="main">
       <div class="toolbar">
         <div class="tl-l">
@@ -1732,7 +1811,9 @@ async function pushCareToGS(phone) {
     schedGoi: care.schedGoi||'', schedGoiNote: care.schedGoiNote||'',
     schedSP: care.schedSP||'', schedSPNote: care.schedSPNote||'',
     schedCS: care.schedCS||'', schedCSNote: care.schedCSNote||'',
-    schedHen: care.schedHen||'', schedHenNote: care.schedHenNote||''
+    schedHen: care.schedHen||'', schedHenNote: care.schedHenNote||'',
+    khStatus: care.khStatus||'',
+    nickZalos: care.nickZalos||[]
   };
   try {
     await fetch(gsUrl, {
@@ -6085,6 +6166,7 @@ function doPost(e) {
     if (action === 'saveAssign')          return saveAssignEntry_(data.entry);
     if (action === 'saveAssignHistory')   return saveAssignHistory_(data.history);
     if (action === 'saveCareStatus')      return saveCareStatus_(data.careStatus);
+    if (action === 'ai')                  return callGeminiAI_(data);
     return jsonOut_({ error: 'Unknown action: ' + action });
   } catch (err) {
     return jsonOut_({ error: err.message });
@@ -6379,6 +6461,37 @@ function readCareStatus_(ss) {
     if (vals[i][0] === 'careStatus') { try { return JSON.parse(vals[i][1]); } catch(e) { return null; } }
   }
   return null;
+}
+
+// ── Zalo AI: gọi Gemini server-side, key lưu trong Settings sheet ──
+function getSetting_(ss, key) {
+  var sh = ss.getSheetByName(SH_SET);
+  if (!sh || sh.getLastRow() < 2) return null;
+  var vals = sh.getDataRange().getValues();
+  for (var i = 1; i < vals.length; i++) {
+    if (String(vals[i][0]) === key) return vals[i][1] || null;
+  }
+  return null;
+}
+
+function callGeminiAI_(data) {
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var key = getSetting_(ss, 'geminiKey');
+  if (!key) return jsonOut_({ error: 'Admin chua cai Gemini API Key. Vao Settings sheet, them dong: geminiKey | AIza...' });
+  var payload = {
+    contents: [{ parts: [{ text: data.prompt || '' }] }],
+    generationConfig: { temperature: 0.8, maxOutputTokens: 800 }
+  };
+  var res = UrlFetchApp.fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + key,
+    { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true }
+  );
+  var code = res.getResponseCode();
+  var txt  = res.getContentText();
+  if (code !== 200) return jsonOut_({ error: 'Gemini HTTP ' + code + ': ' + txt.substring(0, 200) });
+  var d = JSON.parse(txt);
+  var result = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts[0].text;
+  return jsonOut_({ ok: true, text: result || '' });
 }
 
 function readAssign_(sh) {
@@ -8945,6 +9058,225 @@ function _closeTierOnOutside(e) {
   var tt = document.getElementById('tier-tooltip');
   if (tt && !tt.contains(e.target)) { tt.style.display = 'none'; tt.style.visibility = ''; }
 }
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  ZALO AI HELPER
+// ═══════════════════════════════════════════════════════
+(function(){
+  // Restore saved API key
+  var savedKey = localStorage.getItem('zai_apikey') || '';
+  var keyEl = document.getElementById('zai-apikey');
+  if (keyEl && savedKey) keyEl.value = savedKey;
+
+  // Hook into switchTab to show/hide zaloai panel
+  var _prevSwitch = switchTab;
+  switchTab = function(tab, el) {
+    _prevSwitch(tab, el);
+    var zp = document.getElementById('tab-zaloai');
+    if (zp) zp.style.display = (tab === 'zaloai') ? 'flex' : 'none';
+  };
+})();
+
+function zaiTone(btn) {
+  document.querySelectorAll('.zai-tone').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+}
+
+function zaiToggleKey() {
+  var el = document.getElementById('zai-apikey');
+  if (el) el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+function zaiPhoneInput(val) {
+  // auto-extract digits only
+  var digits = val.replace(/\D/g,'');
+  if (digits !== val) document.getElementById('zai-phone').value = digits;
+}
+
+function zaiLookup() {
+  var raw = (document.getElementById('zai-phone').value || '').trim();
+  if (!raw) { zaiShowError('Vui lòng nhập số điện thoại.'); return; }
+  zaiHideError();
+
+  // Normalize phone - use app's normPhone if available
+  var phone = typeof normPhone === 'function' ? normPhone(raw) : raw.replace(/\D/g,'');
+
+  var infoEl = document.getElementById('zai-info');
+  infoEl.style.display = 'none';
+
+  // Look up in loaded data
+  var cust = (typeof customerMap !== 'undefined') ? customerMap[phone] : null;
+  var care = (typeof careData !== 'undefined') ? careData[phone] : null;
+
+  if (!cust && !care) {
+    infoEl.style.display = 'block';
+    infoEl.innerHTML = '<span style="color:var(--muted)">Không tìm thấy khách <strong>' + raw + '</strong> trong dữ liệu đã tải. Hãy Sync GS hoặc tải Excel trước.</span>';
+    return;
+  }
+
+  var orders = cust ? (cust.orders || []) : [];
+  var name = cust ? cust.name : (care && care.phone ? care.phone : raw);
+  var totalOrders = orders.length;
+  var totalRev = orders.reduce(function(s, o){ return s + (parseFloat(o.revenue) || 0); }, 0);
+  var products = cust ? Array.from(cust.brands || []).join(', ') : '';
+  var careStatus = care ? (care.status || '') : '';
+  var careNote = care ? (care.note || '') : '';
+  var csName = care ? (care.cs || '') : (cust ? (orders[0] && orders[0].cs || '') : '');
+
+  var lastOrders = orders.slice().sort(function(a,b){ return (b.date||0)-(a.date||0); }).slice(0,3);
+  var lastStr = lastOrders.map(function(o){
+    var d = o.date ? (o.date instanceof Date ? o.date.toLocaleDateString('vi-VN') : o.date) : '?';
+    return d + ' — ' + (o.product || o.productDetail || '?') + ' (' + (o.revenue ? Number(o.revenue).toLocaleString('vi-VN') + 'đ' : '?') + ')';
+  }).join('<br>');
+
+  infoEl.style.display = 'block';
+  infoEl.innerHTML =
+    '<div class="zi-name">' + name + ' &nbsp;<span style="font-size:11px;font-weight:400;color:var(--muted)">' + raw + '</span></div>' +
+    '<div class="zi-row" style="margin-bottom:6px">' +
+      (totalOrders ? '<span class="zi-chip">📦 ' + totalOrders + ' đơn</span>' : '') +
+      (totalRev ? '<span class="zi-chip">💰 ' + Math.round(totalRev/1000) + 'K</span>' : '') +
+      (products ? '<span class="zi-chip">🏷 ' + products + '</span>' : '') +
+      (careStatus ? '<span class="zi-chip">📋 ' + careStatus + '</span>' : '') +
+      (csName ? '<span class="zi-chip">👤 CS: ' + csName + '</span>' : '') +
+    '</div>' +
+    (careNote ? '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">📝 Ghi chú: ' + careNote + '</div>' : '') +
+    (lastStr ? '<div style="font-size:11px;color:var(--muted)"><strong>Đơn gần nhất:</strong><br>' + lastStr + '</div>' : '');
+
+  // Store context for AI
+  window._zaiContext = { name, phone, totalOrders, totalRev, products, careStatus, careNote, lastOrders };
+}
+
+async function zaiGenerate() {
+  var apiKey = (document.getElementById('zai-apikey').value || '').trim();
+  if (!apiKey) { zaiShowError('Vui lòng nhập Gemini API Key. Lấy miễn phí tại aistudio.google.com'); return; }
+
+  var msg = (document.getElementById('zai-msg').value || '').trim();
+  if (!msg) { zaiShowError('Vui lòng dán tin nhắn của khách vào ô bên trên.'); return; }
+
+  var tone = (document.querySelector('.zai-tone.active') || {}).dataset && document.querySelector('.zai-tone.active').dataset.tone || 'Chuyên nghiệp';
+  var ctx = (document.getElementById('zai-ctx').value || '').trim();
+  var btn = document.getElementById('zai-gen-btn');
+  var sugEl = document.getElementById('zai-suggestions');
+  var listEl = document.getElementById('zai-sug-list');
+
+  zaiHideError();
+  btn.disabled = true;
+  btn.textContent = 'Đang tạo...';
+  sugEl.style.display = 'block';
+  listEl.innerHTML = '<div class="zai-loading"><div class="zai-spinner"></div>AI đang soạn gợi ý...</div>';
+
+  // Build context from customer data
+  var custCtxLines = [];
+  var c = window._zaiContext;
+  if (c) {
+    custCtxLines.push('Tên khách: ' + c.name);
+    custCtxLines.push('Số đơn đã mua: ' + c.totalOrders);
+    if (c.products) custCtxLines.push('Sản phẩm đã mua: ' + c.products);
+    if (c.careStatus) custCtxLines.push('Tình trạng chăm sóc: ' + c.careStatus);
+    if (c.careNote) custCtxLines.push('Ghi chú CS: ' + c.careNote);
+    if (c.lastOrders && c.lastOrders.length) {
+      custCtxLines.push('Đơn gần nhất: ' + c.lastOrders.slice(0,2).map(function(o){
+        return (o.product || '') + (o.revenue ? ' (' + Number(o.revenue).toLocaleString('vi-VN') + 'đ)' : '');
+      }).join(', '));
+    }
+  }
+  if (ctx) custCtxLines.push('Ngữ cảnh bổ sung: ' + ctx);
+
+  var prompt = 'Bạn là nhân viên chăm sóc khách hàng chuyên nghiệp của shop bán lẻ Việt Nam.\n' +
+    (custCtxLines.length ? 'Thông tin khách hàng:\n' + custCtxLines.join('\n') + '\n\n' : '') +
+    'Tin nhắn khách gửi: "' + msg + '"\n\n' +
+    'Hãy viết 3 phiên bản phản hồi cho khách, giọng văn ' + tone.toLowerCase() + ', bằng tiếng Việt tự nhiên. ' +
+    'Mỗi phiên bản trên 1 dòng riêng, bắt đầu bằng "1.", "2.", "3.". Không giải thích thêm.';
+
+  try {
+    var res = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + apiKey,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.8, maxOutputTokens: 800 }
+        })
+      }
+    );
+    if (!res.ok) {
+      var err = await res.json().catch(function(){ return {}; });
+      throw new Error((err.error && err.error.message) || 'HTTP ' + res.status);
+    }
+    var data = await res.json();
+    var text = data.candidates && data.candidates[0] && data.candidates[0].content &&
+               data.candidates[0].content.parts && data.candidates[0].content.parts[0].text || '';
+
+    // Parse suggestions
+    var sugs = text.split(/\n(?=\d+\.)/).map(function(s){ return s.replace(/^\d+\.\s*/, '').trim(); }).filter(Boolean);
+    if (!sugs.length) sugs = [text.trim()];
+
+    listEl.innerHTML = sugs.map(function(s, i){
+      return '<div class="zai-sug" onclick="zaiCopySug(this)">' +
+        '<button class="zai-sug-copy" onclick="event.stopPropagation();zaiCopySug(this.parentNode)">Copy</button>' +
+        s.replace(/\n/g, '<br>') +
+        '</div>';
+    }).join('');
+
+  } catch(e) {
+    zaiShowError('Lỗi Gemini API: ' + e.message + '. Kiểm tra API key hoặc kết nối mạng.');
+    sugEl.style.display = 'none';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✨ Tạo gợi ý AI';
+  }
+}
+
+function zaiCopySug(el) {
+  var text = el.innerText.replace(/^Copy\n?/, '').trim();
+  navigator.clipboard.writeText(text).then(function(){
+    var orig = el.style.borderColor;
+    el.style.borderColor = 'var(--green)';
+    setTimeout(function(){ el.style.borderColor = orig; }, 800);
+    if (typeof toast === 'function') toast('✓ Đã copy — dán vào Zalo!');
+  });
+}
+
+function zaiShowError(msg) {
+  var el = document.getElementById('zai-error');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+function zaiHideError() {
+  var el = document.getElementById('zai-error');
+  if (el) el.style.display = 'none';
+}
+
+// ── URL param: ?phone=xxx auto-search ──
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var phoneParam = params.get('phone');
+  if (!phoneParam) return;
+  function tryOpenPhone() {
+    var inp = document.getElementById('search-input');
+    if (!inp) { setTimeout(tryOpenPhone, 300); return; }
+    inp.value = phoneParam;
+    if (typeof debouncedApplyFilters === 'function') debouncedApplyFilters();
+    else if (typeof applyFilters === 'function') applyFilters();
+    // Try to open detail after short delay (data may still be loading)
+    setTimeout(function() {
+      var rows = document.querySelectorAll('[data-phone="' + phoneParam + '"]');
+      if (rows.length) { rows[0].click(); return; }
+      // Fallback: if allCustomers loaded, call openDetail directly
+      if (typeof allCustomers !== 'undefined') {
+        var c = allCustomers.find(function(x){ return x.phone === phoneParam; });
+        if (c && typeof openDetail === 'function') openDetail(phoneParam, 'hist');
+      }
+    }, 1500);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(tryOpenPhone, 500); });
+  } else {
+    setTimeout(tryOpenPhone, 500);
+  }
+})();
 </script>
 
 </body>
