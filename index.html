@@ -1811,7 +1811,9 @@ async function pushCareToGS(phone) {
     schedGoi: care.schedGoi||'', schedGoiNote: care.schedGoiNote||'',
     schedSP: care.schedSP||'', schedSPNote: care.schedSPNote||'',
     schedCS: care.schedCS||'', schedCSNote: care.schedCSNote||'',
-    schedHen: care.schedHen||'', schedHenNote: care.schedHenNote||''
+    schedHen: care.schedHen||'', schedHenNote: care.schedHenNote||'',
+    khStatus: care.khStatus||'',
+    nickZalos: care.nickZalos||[]
   };
   try {
     await fetch(gsUrl, {
