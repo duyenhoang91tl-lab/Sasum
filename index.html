@@ -3011,6 +3011,10 @@ function renderHistTab(c) {
             style="border:none;background:${isMissing?'var(--orange,#e8a04a)':'var(--surface2)'};color:${isMissing?'#fff':'var(--muted)'};border-radius:4px;padding:1px 7px;font-size:11px;cursor:pointer;margin-left:6px;border:1px solid ${isMissing?'var(--orange,#e8a04a)':'var(--border)'}">
             ${isMissing?'⚠ Cập nhật':'✏ Sửa'}
           </button>
+          ${(isMissing||!o.source)?`<button onclick="_histDeleteOrder('${esc(c.phone)}',${realIdx})" title="Xóa đơn này"
+            style="border:1px solid var(--red-b,#fca5a5);background:var(--red-bg,#fff1f2);color:var(--red,#dc2626);border-radius:4px;padding:1px 7px;font-size:11px;cursor:pointer;margin-left:4px">
+            🗑 Xóa
+          </button>`:''}
         </div>
         ${o.productDetail?`<div class="hist-prod" onclick="_toggleHistProd(this)" title="Bấm để xem đầy đủ sản phẩm">${esc(o.productDetail)}</div>`:''}
         <div class="hist-tags">
@@ -3118,6 +3122,49 @@ async function _histEditSave(phone, orderIdx, eid) {
   renderTable();
   openDetail(phone, 'hist');
 }
+async function _histDeleteOrder(phone, orderIdx) {
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c || !c.orders[orderIdx]) { toast('Không tìm thấy đơn hàng'); return; }
+  const o = c.orders[orderIdx];
+  const label = [
+    o.date instanceof Date && !isNaN(o.date) ? o.date.toLocaleDateString('vi-VN') : (o.year && o.month ? `${o.month}/${o.year}` : 'Không rõ ngày'),
+    o.product || 'Không có sản phẩm',
+    fmtVND(o.revenue)
+  ].join(' · ');
+  if (!confirm(`Xác nhận xóa đơn hàng này?\n\n${label}\n\nThao tác này không thể hoàn tác.`)) return;
+
+  const oldYear    = o.year;
+  const oldMonth   = o.month;
+  const oldRevenue = o.revenue || 0;
+
+  // Xóa trong bộ nhớ
+  c.orders.splice(orderIdx, 1);
+  c._keys = new Set(c.orders.map(x=>`${phone}_${x.year}_${x.month}_${x.revenue}`));
+  c.totalRevenue = c.orders.reduce((s,x)=>s+(x.revenue||0),0);
+  c.brands = new Set(c.orders.map(x=>x.product).filter(Boolean));
+  c.renewOrders = c.orders.filter(x=>RENEW_SOURCES.includes(s(x.source).toLowerCase())).length;
+
+  logAudit('order_delete', phone, '', `Xóa đơn: ${label}`);
+
+  if (gsUrl) {
+    show('loverlay');
+    try {
+      const payload = { action: 'deleteOrder', phone, oldYear, oldMonth, oldRevenue };
+      const r = await fetch(gsUrl, { method:'POST', redirect:'follow', body: JSON.stringify(payload) });
+      const txt2 = await r.text();
+      let d2; try { d2=JSON.parse(txt2); } catch(e){ d2={}; }
+      hide('loverlay');
+      if (d2.error) toast('⚠ Xóa local OK · Lỗi GSheets: '+d2.error);
+      else toast('✓ Đã xóa đơn' + (d2.deleted ? ' · Đã xóa trên GSheets' : ' (không tìm thấy trên GSheets)'));
+    } catch(e) { hide('loverlay'); toast('✓ Đã xóa local · Lỗi kết nối GSheets'); }
+  } else {
+    toast('✓ Đã xóa đơn (chưa cấu hình GSheets)');
+  }
+
+  renderTable();
+  openDetail(phone, 'hist');
+}
+
 // Sau khi render Lịch sử đơn: chỉ gắn nút mở rộng (mũi tên) cho dòng SP bị cắt
 function _initHistExpand(){
   var run = function(){
