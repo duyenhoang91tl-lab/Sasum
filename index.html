@@ -1736,7 +1736,8 @@ async function syncFromGS(opts) {
         schedSP: row.schedSP||'', schedSPNote: row.schedSPNote||'',
         schedCS: row.schedCS||'', schedCSNote: row.schedCSNote||'',
         schedHen: row.schedHen||'', schedHenNote: row.schedHenNote||'',
-        updated: row.updated||''
+        updated: row.updated||'',
+        khStatus: row.khStatus||'', nickZalos: row.nickZalos||[], birthday: row.birthday||''
       };
       if (row.schedules) {
         try {
@@ -6832,7 +6833,8 @@ function _careRow(phone){
     schedGoi: care.schedGoi||'', schedGoiNote: care.schedGoiNote||'',
     schedSP: care.schedSP||'', schedSPNote: care.schedSPNote||'',
     schedCS: care.schedCS||'', schedCSNote: care.schedCSNote||'',
-    schedHen: care.schedHen||'', schedHenNote: care.schedHenNote||''
+    schedHen: care.schedHen||'', schedHenNote: care.schedHenNote||'',
+    khStatus: care.khStatus||'', nickZalos: care.nickZalos||[], birthday: care.birthday||''
   };
 }
 function queueCareSync(phone){
