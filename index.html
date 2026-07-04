@@ -2530,11 +2530,17 @@ let _vt = { list: [], raf: null, bound: false, lastStart: -1, lastEnd: -1 };
 function _vtWrap() { return document.querySelector('#tab-list .table-wrap'); }
 
 function renderTable(list) {
+  // Chữ ký danh sách hiện tại: dùng để phân biệt "đổi bộ lọc thật sự" (nên cuộn về đầu)
+  // với "vẽ lại do đồng bộ dữ liệu nền / quay lại tab" (nên giữ nguyên vị trí cuộn).
+  const sig = list.length + '|' + (list[0] ? list[0].phone : '') + '|' + (list[list.length-1] ? list[list.length-1].phone : '');
+  const sameList = (_vt.sig === sig);
+  _vt.sig = sig;
   _vt.list = list;
   try { window.__omeFiltered = list; } catch(e){}   // MỌI lần bảng vẽ đều ghi danh sách đang hiển thị ra window (nguồn chắc chắn cho Chia data)
   _vt.lastStart = -1; _vt.lastEnd = -1;
   const wrap = _vtWrap();
-  if (wrap) wrap.scrollTop = 0;       // về đầu mỗi khi đổi bộ lọc
+  const prevScroll = wrap ? wrap.scrollTop : 0;
+  if (wrap) wrap.scrollTop = sameList ? prevScroll : 0;   // giữ vị trí cuộn nếu danh sách không đổi, về đầu nếu đổi bộ lọc
   if (!_vt.bound && wrap) {
     wrap.addEventListener('scroll', () => {
       if (_vt.raf) return;
