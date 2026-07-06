@@ -3684,7 +3684,9 @@ function _checkAndRenewBdaySchedules() {
   saveLS('ome_sched', schedules);
 }
 
-// ── Auto lịch chăm sóc cho đơn Data Đảo renew trong tháng ──
+// ── Auto lịch chăm sóc (+7/+14/+1t/+2t từ ngày đặt) ──
+//   • landipage/messenger/capture/web: áp dụng từ tháng 5/2026 trở đi
+//   • data đảo renew: chỉ giữ auto cho đơn tháng 6/2026 (đã bỏ quy tắc theo tháng hiện tại)
 var DATA_DAO_SOURCES = ['data đảo renew','data dao renew'];
 
 function _daoSchedExcluded(phone) {
@@ -3713,6 +3715,13 @@ function _isDataDaoRenew(src) {
   return DATA_DAO_SOURCES.some(function(k){ return (src||'').toLowerCase().includes(k); });
 }
 
+// Nguồn khách mới cần auto lịch CS (+7/+14/+1t/+2t) — áp dụng từ tháng 5/2026 trở đi
+var NEW_LEAD_SOURCES = ['landipage','landing','messenger','capture','web'];
+function _isNewLeadSource(src) {
+  var t = (src||'').toLowerCase();
+  return NEW_LEAD_SOURCES.some(function(k){ return t.indexOf(k) !== -1; });
+}
+
 function _addDateMonths(dateStr, months) {
   var d = new Date(dateStr + 'T00:00:00');
   d.setMonth(d.getMonth() + months);
@@ -3724,7 +3733,7 @@ function _addDateDays(dateStr, days) {
   return d.toISOString().slice(0,10);
 }
 
-// Gọi sau khi data load xong; tạo lịch CS cho đơn Data Đảo renew tháng hiện tại
+// Gọi sau khi data load xong; tạo lịch CS theo nguồn (xem chú thích quy tắc ở trên)
 function checkDataDaoRenewSchedules() {
   var now = new Date();
   var curYear = now.getFullYear();
@@ -3732,10 +3741,10 @@ function checkDataDaoRenewSchedules() {
 
   // Các mốc nhắc: [{offset_days, offset_months, label}]
   var MILESTONES = [
-    { days: 7,  label: 'CS +7 ngày (Data Đảo)' },
-    { days: 14, label: 'CS +14 ngày (Data Đảo)' },
-    { months: 1, label: 'CS +1 tháng (Data Đảo)' },
-    { months: 2, label: 'CS +2 tháng (Data Đảo)' },
+    { days: 7,  label: 'CS +7 ngày' },
+    { days: 14, label: 'CS +14 ngày' },
+    { months: 1, label: 'CS +1 tháng' },
+    { months: 2, label: 'CS +2 tháng' },
   ];
 
   if (typeof allCustomers === 'undefined') return;
@@ -3744,14 +3753,16 @@ function checkDataDaoRenewSchedules() {
   allCustomers.forEach(function(c) {
     if (daoExclude[c.phone]) return; // Khách đã bị bỏ lịch auto
     c.orders.forEach(function(o) {
-      if (!_isDataDaoRenew(o.source)) return;
+      var isDao  = _isDataDaoRenew(o.source);
+      var isLead = _isNewLeadSource(o.source);
+      if (!isDao && !isLead) return;
 
-      // Chỉ xét đơn trong tháng hiện tại
+      // Chuẩn hoá năm/tháng của đơn
       var oYear  = o.year  || (o.date instanceof Date ? o.date.getFullYear()  : 0);
       var oMonth = o.month || (o.date instanceof Date ? o.date.getMonth() + 1 : 0);
       // Normalize năm 2 chữ số (26 → 2026)
       if (oYear > 0 && oYear < 100) oYear = 2000 + +oYear;
-      if (+oYear !== curYear || +oMonth !== curMonth) return;
+      oYear = +oYear; oMonth = +oMonth;
 
       // Xác định ngày gốc của đơn
       var baseDate = '';
@@ -3763,6 +3774,17 @@ function checkDataDaoRenewSchedules() {
         baseDate = oYear + '-' + String(oMonth).padStart(2,'0') + '-01';
       }
       if (!baseDate) return;
+
+      // ── Điều kiện áp dụng theo nguồn ──
+      if (isDao) {
+        // Data Đảo Renew: chỉ giữ auto cho đơn tháng 6/2026 (đã bỏ quy tắc theo tháng hiện tại)
+        if (!(oYear === 2026 && oMonth === 6)) return;
+      } else {
+        // landipage/messenger/capture/web: áp dụng từ tháng 5/2026 trở đi
+        if (baseDate < '2026-05-01') return;
+      }
+
+      var srcTag = isDao ? ' (Data Đảo)' : '';
 
       MILESTONES.forEach(function(m) {
         var targetDate = m.months
@@ -3780,7 +3802,7 @@ function checkDataDaoRenewSchedules() {
           phone:    c.phone,
           type:     'cs',
           date:     targetDate,
-          note:     m.label + ' · Đơn ' + baseDate,
+          note:     m.label + srcTag + ' · Đơn ' + baseDate,
           done:     false,
           autoDao:  true
         }, _remOwnerStamp()));
