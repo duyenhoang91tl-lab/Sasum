@@ -2584,20 +2584,27 @@ function _renderVirtualWindow(force) {
 // ═══════════════════════════════════════════════════════
 //  SCHEDULE VIEWS
 // ═══════════════════════════════════════════════════════
-function schedNav(dir) { if(dir===0) schedOffset=0; else schedOffset+=dir; renderScheduleTab(); }
+function schedNav(dir) {
+  if(dir===0) { schedOffset=0; _schedOpenDay=new Date().toISOString().slice(0,10); }
+  else { schedOffset+=dir; _schedOpenDay=null; }
+  renderScheduleTab();
+}
 
 function _schedCsFilter(it) {
-  // Khi đăng nhập role=cs, dùng tên CS đăng nhập nếu chưa set currentCS
-  let filterCS = currentCS;
+  // Đọc filter từ DOM (currentCS không bao giờ được cập nhật)
+  let filterCS = (document.getElementById('cs-staff-filter')?.value) || 'all';
+  // Khi đăng nhập role=cs mà chưa chọn filter → tự dùng tên CS đăng nhập
   if ((!filterCS || filterCS === 'all') && typeof currentUser !== 'undefined' && currentUser && currentUser.role === 'cs' && currentUser.name) {
     filterCS = currentUser.name;
   }
   if (!filterCS || filterCS === 'all') return true;
   const target = filterCS.toLowerCase();
-  // Ưu tiên check owner của lịch hẹn (người tạo)
+  // Ưu tiên check owner của lịch hẹn (người tạo lịch)
   if (it.owner && it.owner.toLowerCase() === target) return true;
   if (it.ownerUser && it.ownerUser.toLowerCase() === target) return true;
-  // Fallback: check CS phụ trách của KH
+  // Fallback: check CS phụ trách của KH (careData)
+  const care = (typeof careData !== 'undefined' && careData[it.phone]) || {};
+  if (care.cs && care.cs.toLowerCase() === target) return true;
   const c = allCustomers.find(x => x.phone === it.phone);
   if (!c) return false;
   return (c.cs || '').toLowerCase() === target;
@@ -2607,37 +2614,58 @@ function _schedCsTag(it) {
   if (!name) return '';
   return `<span style="font-size:10px;color:var(--blue);font-weight:600;margin-left:4px;white-space:nowrap">${esc(name)}</span>`;
 }
+let _schedOpenDay = null; // ngày đang mở trong accordion
+
+function _schedToggleDay(dayStr) {
+  _schedOpenDay = (_schedOpenDay === dayStr) ? null : dayStr;
+  renderScheduleTab();
+}
+
 function renderScheduleTab() {
   const base = new Date(); base.setHours(0,0,0,0);
+  const todayStr = base.toISOString().slice(0,10);
   const grid = document.getElementById('sched-grid');
   const label = schedOffset===0?'Tuần này':schedOffset<0?`${Math.abs(schedOffset)} tuần trước`:`${schedOffset} tuần sau`;
   txt('sched-date-label', label);
+
+  // Tự động mở ngày hôm nay khi mới vào (nếu chưa chọn ngày nào)
+  if (_schedOpenDay === null) _schedOpenDay = todayStr;
+
   let html = '';
   for (let d=0; d<7; d++) {
     const day = new Date(base); day.setDate(base.getDate() + schedOffset*7 + d);
     const dayStr = day.toISOString().slice(0,10);
     const items = schedules.filter(x => x.date===dayStr && !x.done && _schedCsFilter(x));
-    const isToday = dayStr === base.toISOString().slice(0,10);
+    const isToday = dayStr === todayStr;
+    const isOpen = _schedOpenDay === dayStr;
     const dayName = day.toLocaleDateString('vi-VN',{weekday:'long',day:'2-digit',month:'2-digit'});
-    html += `<div class="sched-day">
-      <div class="sched-day-hdr" style="${isToday?'background:var(--green-bg)':''}">
-        <div class="sched-day-title" style="${isToday?'color:var(--green)':''}">${isToday?'⬤ ':''} ${dayName}</div>
-        <div class="sched-day-sub">${items.length} lịch</div>
+
+    html += `<div class="sched-day" style="border-bottom:1px solid var(--border)">
+      <div class="sched-day-hdr" onclick="_schedToggleDay('${dayStr}')" style="cursor:pointer;user-select:none;${isToday?'background:var(--green-bg)':''}${isOpen?';background:var(--surface2)':''}">
+        <div class="sched-day-title" style="${isToday?'color:var(--green)':''}${isOpen&&!isToday?';color:var(--text);font-weight:600':''}">${isToday?'⬤ ':''} ${dayName}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="sched-day-sub" style="${items.length?'color:var(--blue);font-weight:600':''}${isToday?';color:var(--green)':''}">${items.length} lịch</div>
+          <span style="font-size:11px;color:var(--hint);transition:transform .15s;display:inline-block;transform:rotate(${isOpen?'90':'0'}deg)">▶</span>
+        </div>
       </div>`;
-    if (!items.length) { html += `<div style="padding:10px 12px;color:var(--hint);font-size:11px">Không có lịch</div>`; }
-    else {
-      for (const it of items) {
-        const c = allCustomers.find(x=>x.phone===it.phone);
-        const st = SCHED_TYPES.find(x=>x.key===it.type)||SCHED_TYPES[0];
-        html += `<div class="sched-item" onclick="openDp('${esc(it.phone)}')">
-          <div class="sched-dot" style="background:${st.color}"></div>
-          <div class="sched-type">${st.label}</div>
-          <div class="sched-name">${c?esc(c.name):it.phone}</div>
-          <div class="sched-phone">${it.phone}</div>
-          ${_schedCsTag(it)}
-          <div class="sched-note">${esc(it.note||'')}</div>
-          <button onclick="event.stopPropagation();markDone('${it.id}')" style="background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:2px 7px;font-size:10px;cursor:pointer;color:var(--muted);white-space:nowrap;margin-left:auto">✓ Xong</button>
-        </div>`;
+
+    if (isOpen) {
+      if (!items.length) {
+        html += `<div style="padding:12px 16px;color:var(--hint);font-size:12px;text-align:center">Không có lịch hẹn trong ngày này</div>`;
+      } else {
+        for (const it of items) {
+          const c = allCustomers.find(x=>x.phone===it.phone);
+          const st = SCHED_TYPES.find(x=>x.key===it.type)||SCHED_TYPES[0];
+          html += `<div class="sched-item" onclick="openDp('${esc(it.phone)}')">
+            <div class="sched-dot" style="background:${st.color}"></div>
+            <div class="sched-type">${st.label}</div>
+            <div class="sched-name">${c?esc(c.name):it.phone}</div>
+            <div class="sched-phone">${it.phone}</div>
+            ${_schedCsTag(it)}
+            <div class="sched-note">${esc(it.note||'')}</div>
+            <button onclick="event.stopPropagation();markDone('${it.id}')" style="background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:2px 7px;font-size:10px;cursor:pointer;color:var(--muted);white-space:nowrap;margin-left:auto">✓ Xong</button>
+          </div>`;
+        }
       }
     }
     html += `</div>`;
@@ -4090,6 +4118,9 @@ function onCSFilterChange(){
   updateBrandList();
   if (typeof updateCampaignFilter === 'function') updateCampaignFilter();
   applyFilters();
+  // Re-render lịch hẹn theo CS mới (trước đây bị bỏ sót)
+  if (typeof renderScheduleTab === 'function') renderScheduleTab();
+  if (typeof renderOverdueTab === 'function') renderOverdueTab();
 }
 
 // ── Ô "Lọc theo CS" có tìm kiếm (gõ tên thay vì cuộn) ──
