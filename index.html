@@ -3812,6 +3812,66 @@ function checkDataDaoRenewSchedules() {
 
   saveLS('ome_sched', schedules);
   if (typeof updateSchedBadges === 'function') updateSchedBadges();
+  try { syncAutoHenToCareData(); } catch(e){ console.warn('syncAutoHen', e); }
+}
+
+// ── Đưa mốc auto GẦN NHẤT sắp tới của mỗi khách vào ô Hẹn (schedHen) ──
+//   → để extension Zalo AI (chỉ đọc schedHen) nhìn thấy lịch auto.
+//   KHÔNG đè lịch "Hẹn mua" khách tự đặt tay: chỉ ghi khi ô trống hoặc
+//   do chính auto ghi trước đó (nhận diện qua tiền tố AUTO_HEN_TAG).
+var AUTO_HEN_TAG = '⟳ auto';
+function syncAutoHenToCareData() {
+  if (typeof careData === 'undefined' || !careData) return 0;
+  var todayStr = new Date().toISOString().slice(0,10);
+
+  // Gom mốc auto sắp tới (chưa done, ngày >= hôm nay) theo phone → lấy sớm nhất
+  var byPhone = {};
+  (typeof schedules !== 'undefined' ? schedules : []).forEach(function(x){
+    if (!x || !x.autoDao || x.done) return;
+    if (!x.date || x.date < todayStr) return;
+    var cur = byPhone[x.phone];
+    if (!cur || x.date < cur.date) byPhone[x.phone] = x;
+  });
+
+  // Xét union: các phone có mốc auto + các phone đang mang ô Hẹn do auto ghi
+  var phones = {};
+  Object.keys(byPhone).forEach(function(p){ phones[p] = 1; });
+  Object.keys(careData).forEach(function(p){
+    var n = (careData[p] && careData[p].schedHenNote) || '';
+    if (n.indexOf(AUTO_HEN_TAG) === 0) phones[p] = 1;
+  });
+
+  var changed = [];
+  Object.keys(phones).forEach(function(phone){
+    var care = careData[phone] || {};
+    var curNote = care.schedHenNote || '';
+    var isAuto  = curNote.indexOf(AUTO_HEN_TAG) === 0;
+    // Tôn trọng Hẹn mua đặt tay: có ngày + không phải auto → bỏ qua
+    if (care.schedHen && !isAuto) return;
+
+    var next = byPhone[phone];
+    if (next) {
+      var newNote = AUTO_HEN_TAG + ' · ' + (next.note || 'Lịch CS');
+      if (care.schedHen !== next.date || curNote !== newNote) {
+        care.schedHen = next.date;
+        care.schedHenNote = newNote;
+        careData[phone] = care;
+        changed.push(phone);
+      }
+    } else if (isAuto) {
+      // Không còn mốc auto sắp tới → dọn ô Hẹn auto cũ
+      care.schedHen = '';
+      care.schedHenNote = '';
+      careData[phone] = care;
+      changed.push(phone);
+    }
+  });
+
+  // Đẩy các thay đổi lên GAS (gom batch) → CareData → extension đọc được
+  if (changed.length && typeof queueCareSync === 'function') {
+    changed.forEach(function(p){ queueCareSync(p); });
+  }
+  return changed.length;
 }
 
 function syncRemindType(val) {
