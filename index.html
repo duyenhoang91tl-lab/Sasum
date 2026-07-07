@@ -9811,6 +9811,9 @@ function zaiHideError() {
     <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Nội dung tin nhắn</label>
     <textarea id="bc-compose-msg" rows="5" placeholder="Nội dung tin nhắn gửi cho khách..." style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-bottom:10px;box-sizing:border-box;font-family:inherit;resize:vertical;"></textarea>
 
+    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Nick Zalo phụ trách (tuỳ chọn — để trống nếu chưa đồng bộ)</label>
+    <input id="bc-compose-nick" type="text" placeholder="VD: duyenht_zalo (bỏ trống nếu chưa có dữ liệu)" style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-bottom:10px;box-sizing:border-box;">
+
     <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Ảnh đính kèm (tối đa 15 ảnh)</label>
     <input id="bc-compose-imgs" type="file" accept="image/*" multiple style="margin-bottom:8px;">
     <div id="bc-compose-preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
@@ -9843,6 +9846,7 @@ function openBroadcastCompose(batchId) {
   _bcComposeImages = [];
   document.getElementById('bc-compose-label').value = h.label || '';
   document.getElementById('bc-compose-msg').value = '';
+  document.getElementById('bc-compose-nick').value = '';
   document.getElementById('bc-compose-imgs').value = '';
   document.getElementById('bc-compose-preview').innerHTML = '';
   document.getElementById('bc-compose-progress').style.display = 'none';
@@ -9913,6 +9917,7 @@ async function submitBroadcastCompose() {
     // 2) Luu chien dich broadcast
     errEl.textContent = 'Đang lưu chiến dịch...';
     const bcId = 'bc_' + Date.now();
+    const expectedNick = (document.getElementById('bc-compose-nick').value || '').trim();
     const r2 = await fetch(gsUrl, {
       method: 'POST', redirect: 'follow',
       body: JSON.stringify({
@@ -9924,6 +9929,7 @@ async function submitBroadcastCompose() {
           images: imageUrls,
           phones: _bcComposeTargetBatch.phones,
           csName: _bcComposeTargetBatch.csName,
+          expectedNick,
           createdAt: new Date().toISOString(),
           status: 'active'
         }
