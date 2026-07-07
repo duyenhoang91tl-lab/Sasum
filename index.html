@@ -968,6 +968,10 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
             <option value="">Tất cả chiến dịch</option>
           </select>
           <span style="font-size:10px;color:var(--hint)" id="campaign-count-label"></span>
+          <span class="ymf-label" style="white-space:nowrap">📢</span>
+          <select class="ymf-sel" id="bc-status-filter" onchange="bcStatusFilterId=this.value;applyFilters()" style="max-width:180px" title="Xem trạng thái gửi tin của 1 chiến dịch bắn cụ thể">
+            <option value="">Chiến dịch bắn gần nhất</option>
+          </select>
           <button class="btn sm" id="adv-filter-btn" onclick="openAdvModal()" title="Bộ lọc nâng cao">
             ⚙ Lọc nâng cao
           </button>
@@ -1083,6 +1087,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
         <label class="col-toggle-chip"><input type="checkbox" checked onchange="toggleCol('cs',this)"> CS phụ trách</label>
         <label class="col-toggle-chip"><input type="checkbox" checked onchange="toggleCol('carecs',this)"> CS chăm sóc</label>
         <label class="col-toggle-chip"><input type="checkbox" onchange="toggleCol('source',this)"> Nguồn</label>
+        <label class="col-toggle-chip"><input type="checkbox" checked onchange="toggleCol('bcstatus',this)"> Trạng thái gửi TN</label>
         <label class="col-toggle-chip"><input type="checkbox" checked onchange="toggleCol('note',this)"> Ghi chú</label>
         <label class="col-toggle-chip"><input type="checkbox" checked onchange="toggleCol('sched',this)"> Lịch kế tiếp</label>
         <label class="col-toggle-chip"><input type="checkbox" checked onchange="toggleCol('lastact',this)"> Lần tác động</label>
@@ -1105,6 +1110,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
             <th class="filterable col-cs" id="th-cs" onclick="openColDropdown('cs',event)"><div class="th-inner">CS phụ trách <span class="th-filter-icon">▼</span></div></th>
             <th class="filterable col-carecs" id="th-careCS" onclick="openColDropdown('careCS',event)"><div class="th-inner">CS chăm sóc <span class="th-filter-icon">▼</span></div></th>
             <th class="filterable col-source" id="th-source" style="display:none" onclick="openColDropdown('source',event)"><div class="th-inner">Nguồn <span class="th-filter-icon">▼</span></div></th>
+            <th class="col-bcstatus" id="th-bcstatus" title="Trạng thái gửi tin nhắn ở chiến dịch bắn (chọn ở dropdown 📢 phía trên bảng)">Trạng thái gửi TN</th>
             <th class="col-note" style="min-width:160px">Ghi chú gần nhất</th>
             <th class="filterable col-sched" id="th-sched" onclick="openColDropdown('sched',event)"><div class="th-inner">Lịch kế tiếp <span class="th-filter-icon">▼</span></div></th>
             <th class="filterable col-lastact" id="th-lastact" style="min-width:130px" title="Nhấn ▼ để lọc · Nhấn ↕ để sắp xếp"><div class="th-inner" onclick="openColDropdown('lastact',event)">Lần tác động <span class="th-filter-icon">▼</span></div><span id="lastact-sort-icon" style="color:var(--hint);cursor:pointer;font-size:11px;margin-left:2px" onclick="event.stopPropagation();toggleLastActSort()" title="Sắp xếp theo lần tác động">↕</span></th>
@@ -1774,6 +1780,7 @@ async function syncFromGS(opts) {
 
     // Pull chiến dịch (sheet AssignData) — robust, tách riêng để luôn chạy dù order lớn
     await pullAssignHistory();
+    if (typeof pullBroadcastHistory === 'function') pullBroadcastHistory().catch(() => {});
 
     applyFilters();
     updateStats();
@@ -2489,6 +2496,7 @@ function _rowHtml(c) {
     ? `<span style="color:${isOverdue(ns)?'var(--red)':'#2563eb'};font-size:11px">${schedTypeLabel(ns.type)} · ${fmtDate(ns.date)}</span>`
     : '<span style="color:var(--hint);font-size:11px">—</span>';
   const srcDisp = (typeof colVisible !== 'undefined' && colVisible.source) ? '' : 'display:none';
+  const bcDisp = (typeof colVisible !== 'undefined' && colVisible.bcstatus !== false) ? '' : 'display:none';
   const lastActDisp = (typeof colVisible !== 'undefined' && colVisible.lastact !== false) ? '' : 'display:none';
   // Lần tác động gần nhất: lấy từ careData.updated hoặc schedules done hoặc careNote update
   const lastActDate = c._lastActionDate; // precomputed in buildCustomers
@@ -2524,6 +2532,7 @@ function _rowHtml(c) {
     <td class="col-cs">${csHtml}</td>
     <td class="col-carecs">${careCSHtml}</td>
     <td class="col-source" style="${srcDisp}"><div class="btags">${srcTags}${srcExtra}</div></td>
+    <td class="col-bcstatus" style="${bcDisp}">${_bcStatusBadge(c.phone)}</td>
     <td class="col-note" style="font-size:11px;color:var(--muted)" title="${noteTitle}">${noteStr}</td>
     <td class="col-sched">${nsHtml}</td>
     <td class="col-lastact" style="${lastActDisp}">${lastActHtml}</td>
@@ -4831,7 +4840,7 @@ function loadLS(k){try{const v=localStorage.getItem(k);return v?JSON.parse(v):nu
 function saveLS(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
 
 // Column visibility state
-const _colVisDefault = { name:true, tier:true, care:true, zalo:true, order:true, product:true, cs:true, source:false, note:true, sched:true, lastact:true, tacdong:true, carecs:true };
+const _colVisDefault = { name:true, tier:true, care:true, zalo:true, order:true, product:true, cs:true, source:false, note:true, sched:true, lastact:true, tacdong:true, carecs:true, bcstatus:true };
 const colVisible = Object.assign({}, _colVisDefault, loadLS('ome_col_visible') || {});
 
 function toggleCol(col, cb) {
@@ -5038,6 +5047,7 @@ if (gsUrl) {
   syncFromGS({ pullOrders: true }).catch(() => {});
   // Kéo riêng chiến dịch (không phụ thuộc order lớn) — đảm bảo không mất khi mở lại
   if (typeof pullAssignHistory === 'function') pullAssignHistory().catch(() => {});
+  if (typeof pullBroadcastHistory === 'function') pullBroadcastHistory().catch(() => {});
 }
 
 // ── AUTO SYNC MỖI 3 GIÂY (chỉ khi tab visible, không spam khi lỗi) ──
@@ -6128,6 +6138,68 @@ function showAssignBackendWarning() {
   if (_assignWarnShown) return;
   _assignWarnShown = true;
   if (typeof showDeployGuideBanner === 'function') showDeployGuideBanner();
+}
+
+// ── BROADCAST STATUS ──────────────────────────────────────────────
+// Kéo toàn bộ chiến dịch "gửi hàng loạt" (Broadcasts sheet) về để biết
+// từng KH đã được gửi tin thành công / lỗi / chưa gửi trong từng chiến dịch.
+let broadcastHistory = []; // [{id,label,message,images,phones,sent:{phone:{status,ts}},csName,createdAt,status}]
+let bcStatusFilterId = ''; // '' = tự động lấy chiến dịch bắn gần nhất có chứa KH đó
+
+async function pullBroadcastHistory() {
+  if (!gsUrl) return;
+  try {
+    const sep = gsUrl.includes('?') ? '&' : '?';
+    const r = await fetch(gsUrl + sep + 'action=broadcastList', { redirect: 'follow' });
+    const d = await r.json();
+    if (!d || !Array.isArray(d.broadcasts)) return;
+    broadcastHistory = d.broadcasts.map(b => {
+      const sent = {};
+      Object.keys(b.sent || {}).forEach(p => {
+        const np = (typeof normPhone === 'function') ? (normPhone(p) || p) : p;
+        sent[np] = b.sent[p];
+      });
+      return { ...b, phones: (b.phones||[]).map(p => (typeof normPhone === 'function') ? (normPhone(p) || String(p)) : String(p)), sent };
+    });
+    broadcastHistory.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    if (typeof updateBroadcastFilter === 'function') updateBroadcastFilter();
+    if (typeof applyFilters === 'function') applyFilters();
+  } catch(e) { console.warn('Pull broadcastHistory failed:', e.message); }
+}
+
+// Trạng thái gửi TN của 1 KH: ưu tiên chiến dịch đang chọn ở dropdown; nếu để "Tất cả"
+// thì lấy chiến dịch bắn GẦN NHẤT (createdAt mới nhất) có chứa KH đó (dù đã gửi hay chưa).
+function _bcStatusForPhone(phone) {
+  if (!broadcastHistory.length) return null;
+  const cands = bcStatusFilterId
+    ? broadcastHistory.filter(b => b.id === bcStatusFilterId)
+    : broadcastHistory;
+  for (const b of cands) {
+    if (!b.phones.includes(phone)) continue;
+    const rec = b.sent[phone];
+    return { campaign: b.label, status: rec ? (rec.status || 'sent') : 'pending', ts: rec ? rec.ts : null };
+  }
+  return null;
+}
+
+function _bcStatusBadge(phone) {
+  const r = _bcStatusForPhone(phone);
+  if (!r) return '<span style="color:var(--hint);font-size:11px">—</span>';
+  if (r.status === 'sent') return `<span class="badge" style="background:#dcfce7;color:#15803d;border-color:#86efac" title="${esc(r.campaign)}${r.ts?(' · '+new Date(r.ts).toLocaleString('vi-VN')):''}">✓ Đã gửi</span>`;
+  if (r.status === 'failed') return `<span class="badge" style="background:#fef2f2;color:#dc2626;border-color:#fecaca" title="${esc(r.campaign)}${r.ts?(' · '+new Date(r.ts).toLocaleString('vi-VN')):''}">✗ Gửi lỗi</span>`;
+  if (r.status === 'skip') return `<span class="badge" style="background:#f3f4f6;color:#6b7280;border-color:#e5e7eb" title="${esc(r.campaign)}">— Bỏ qua</span>`;
+  return `<span class="badge" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" title="${esc(r.campaign)}">⏳ Chưa gửi</span>`;
+}
+
+// Dropdown chọn chiến dịch bắn để xem trạng thái (giống campaign-filter của Chia data)
+function updateBroadcastFilter() {
+  const sel = document.getElementById('bc-status-filter');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Chiến dịch bắn gần nhất</option>' +
+    broadcastHistory.map(b => `<option value="${esc(b.id)}">${esc(b.label)} (${b.phones.length} KH)</option>`).join('');
+  sel.value = broadcastHistory.some(b => b.id === prev) ? prev : '';
+  bcStatusFilterId = sel.value;
 }
 
 
@@ -8418,6 +8490,9 @@ function _applyAuthIdentity(acct){
   // để danh sách KH theo chiến dịch không bị mất khi đăng nhập trên máy/tab mới
   if (gsUrl && typeof pullAssignHistory === 'function') {
     pullAssignHistory().catch(function(){});
+  }
+  if (gsUrl && typeof pullBroadcastHistory === 'function') {
+    pullBroadcastHistory().catch(function(){});
   }
 }
 
