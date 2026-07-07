@@ -5523,6 +5523,7 @@ function renderAssignHistory() {
           <strong>${esc(h.label)}</strong>
           <span class="assign-hist-badge">👤 ${esc(h.csName)}</span>
         </div>
+        <button class="btn sm" onclick="openBroadcastCompose('${h.id}')" style="padding:2px 7px;font-size:10px;background:#00b14f;color:#fff;border:none">📢 Gửi hàng loạt</button>
         <button class="btn sm danger" onclick="deleteAssignEntry('${h.id}')" style="padding:2px 7px;font-size:10px">✕ Xóa</button>
       </div>
       <div class="assign-hist-meta">
@@ -9795,5 +9796,153 @@ function zaiHideError() {
 })();
 </script>
 
+<!-- ═══ BROADCAST COMPOSE MODAL (Gửi tin hàng loạt qua Zalo AI extension) ═══ -->
+<div id="bc-compose-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;width:520px;max-width:92vw;max-height:88vh;overflow-y:auto;padding:20px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h3 style="margin:0;font-size:16px;">📢 Soạn tin gửi hàng loạt</h3>
+      <button onclick="closeBroadcastCompose()" style="border:none;background:none;font-size:20px;cursor:pointer;line-height:1;">✕</button>
+    </div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:10px;" id="bc-compose-target-info"></div>
+
+    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Tên chiến dịch</label>
+    <input id="bc-compose-label" type="text" style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-bottom:10px;box-sizing:border-box;">
+
+    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Nội dung tin nhắn</label>
+    <textarea id="bc-compose-msg" rows="5" placeholder="Nội dung tin nhắn gửi cho khách..." style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-bottom:10px;box-sizing:border-box;font-family:inherit;resize:vertical;"></textarea>
+
+    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Ảnh đính kèm (tối đa 15 ảnh)</label>
+    <input id="bc-compose-imgs" type="file" accept="image/*" multiple style="margin-bottom:8px;">
+    <div id="bc-compose-preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+
+    <div id="bc-compose-progress" style="font-size:12px;color:#00b14f;margin-bottom:8px;display:none;"></div>
+    <div id="bc-compose-error" style="font-size:12px;color:#dc2626;margin-bottom:8px;display:none;"></div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button onclick="closeBroadcastCompose()" style="padding:8px 16px;border:1px solid #d1d5db;background:#fff;border-radius:6px;cursor:pointer;font-size:13px;">Hủy</button>
+      <button id="bc-compose-submit" onclick="submitBroadcastCompose()" style="padding:8px 16px;border:none;background:#00b14f;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">💾 Lưu & đẩy vào hàng đợi gửi</button>
+    </div>
+    <div style="font-size:10px;color:#9ca3af;margin-top:8px;">
+      Sau khi lưu, mở extension "OME Zalo AI Helper" trên chat.zalo.me → mục 📢 Gửi hàng loạt để bắt đầu gửi.
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  BROADCAST COMPOSE — soạn + đẩy 1 chiến dịch "gửi hàng loạt" lên GAS,
+//  để extension Zalo AI Helper lấy về và tự gửi tuần tự cho từng khách.
+// ═══════════════════════════════════════════════════════════════
+let _bcComposeTargetBatch = null;
+let _bcComposeImages = []; // [{file, dataUrl}]
+
+function openBroadcastCompose(batchId) {
+  const h = assignHistory.find(x => x.id === batchId);
+  if (!h) { toast('Không tìm thấy chiến dịch chia data này'); return; }
+  _bcComposeTargetBatch = h;
+  _bcComposeImages = [];
+  document.getElementById('bc-compose-label').value = h.label || '';
+  document.getElementById('bc-compose-msg').value = '';
+  document.getElementById('bc-compose-imgs').value = '';
+  document.getElementById('bc-compose-preview').innerHTML = '';
+  document.getElementById('bc-compose-progress').style.display = 'none';
+  document.getElementById('bc-compose-error').style.display = 'none';
+  document.getElementById('bc-compose-target-info').textContent =
+    `Chiến dịch chia data: "${h.label}" — ${h.phones.length} khách — CS: ${h.csName}`;
+  document.getElementById('bc-compose-overlay').style.display = 'flex';
+}
+
+function closeBroadcastCompose() {
+  document.getElementById('bc-compose-overlay').style.display = 'none';
+  _bcComposeTargetBatch = null;
+  _bcComposeImages = [];
+}
+
+document.addEventListener('change', function(e) {
+  if (e.target && e.target.id === 'bc-compose-imgs') {
+    const files = [...e.target.files].slice(0, 15);
+    if (e.target.files.length > 15) toast('Chỉ lấy 15 ảnh đầu tiên (giới hạn tối đa)');
+    _bcComposeImages = [];
+    const preview = document.getElementById('bc-compose-preview');
+    preview.innerHTML = '';
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        _bcComposeImages.push({ file, dataUrl: ev.target.result });
+        const img = document.createElement('img');
+        img.src = ev.target.result;
+        img.style.cssText = 'width:52px;height:52px;object-fit:cover;border-radius:5px;border:1px solid #d1d5db;';
+        preview.appendChild(img);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+});
+
+async function submitBroadcastCompose() {
+  const label = (document.getElementById('bc-compose-label').value || '').trim();
+  const message = (document.getElementById('bc-compose-msg').value || '').trim();
+  const errEl = document.getElementById('bc-compose-progress');
+  const errBox = document.getElementById('bc-compose-error');
+  errBox.style.display = 'none';
+
+  if (!_bcComposeTargetBatch) { errBox.textContent = 'Thiếu danh sách khách.'; errBox.style.display = 'block'; return; }
+  if (!message) { errBox.textContent = 'Vui lòng nhập nội dung tin nhắn.'; errBox.style.display = 'block'; return; }
+  if (!gsUrl) { errBox.textContent = 'Chưa kết nối Google Sheets (gsUrl trống).'; errBox.style.display = 'block'; return; }
+
+  const submitBtn = document.getElementById('bc-compose-submit');
+  submitBtn.disabled = true;
+  errEl.style.display = 'block';
+
+  try {
+    // 1) Upload tung anh len Drive qua GAS, lay ve URL xem truc tiep
+    const imageUrls = [];
+    for (let i = 0; i < _bcComposeImages.length; i++) {
+      errEl.textContent = `Đang tải ảnh ${i+1}/${_bcComposeImages.length}...`;
+      const base64 = _bcComposeImages[i].dataUrl.split(',')[1];
+      const mimeType = _bcComposeImages[i].file.type || 'image/jpeg';
+      const r = await fetch(gsUrl, {
+        method: 'POST', redirect: 'follow',
+        body: JSON.stringify({ action: 'uploadBroadcastImg', base64, filename: _bcComposeImages[i].file.name, mimeType })
+      });
+      const d = await r.json();
+      if (d.ok && d.url) imageUrls.push(d.url);
+      else console.warn('Upload ảnh lỗi:', d.error);
+    }
+
+    // 2) Luu chien dich broadcast
+    errEl.textContent = 'Đang lưu chiến dịch...';
+    const bcId = 'bc_' + Date.now();
+    const r2 = await fetch(gsUrl, {
+      method: 'POST', redirect: 'follow',
+      body: JSON.stringify({
+        action: 'saveBroadcast',
+        broadcast: {
+          id: bcId,
+          label: label || _bcComposeTargetBatch.label,
+          message,
+          images: imageUrls,
+          phones: _bcComposeTargetBatch.phones,
+          csName: _bcComposeTargetBatch.csName,
+          createdAt: new Date().toISOString(),
+          status: 'active'
+        }
+      })
+    });
+    const d2 = await r2.json();
+    if (!d2.ok) throw new Error(d2.error || 'Lưu thất bại');
+
+    errEl.style.display = 'none';
+    toast('✅ Đã tạo chiến dịch gửi hàng loạt — mở extension Zalo AI để bắt đầu gửi');
+    closeBroadcastCompose();
+  } catch (e) {
+    errBox.textContent = 'Lỗi: ' + e.message;
+    errBox.style.display = 'block';
+    errEl.style.display = 'none';
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+</script>
 </body>
 </html>
