@@ -383,6 +383,16 @@ function doGet(e) {
       return jsonOut_({ value: getSetting_(skey) });
     }
 
+    // ── BROADCAST: hang doi tin gui hang loat cho 1 CS (ZaloAI extension) ──
+    if (action === 'broadcastQueue') {
+      var bcCs = (e && e.parameter && e.parameter.cs) ? String(e.parameter.cs) : '';
+      return jsonOut_({ broadcasts: broadcastQueueForCS_(bcCs) });
+    }
+    // ── BROADCAST: danh sach toan bo chien dich (Sasum quan ly) ──
+    if (action === 'broadcastList') {
+      return jsonOut_({ broadcasts: readBroadcasts_() });
+    }
+
     // default — backward compat voi appweb v10
     var resD = { rows: readCare_(ss.getSheetByName(SH_CARE)), orders: [] };
     if (!(e && e.parameter && e.parameter.noOrders)) resD.orders = readAllOrders_();
@@ -435,6 +445,14 @@ function doPost(e) {
     if (action === 'saveCareStatus')      return saveCareStatus_(data.careStatus);
     if (action === 'saveAIContext')        return saveAIContext_(data.type, data.content, data.context);
     if (action === 'ai')                  return callGroqAI_(data);
+    // ── BROADCAST: tao/cap nhat 1 chien dich gui tin hang loat ──
+    if (action === 'saveBroadcast')        return saveBroadcast_(data.broadcast || data);
+    // ── BROADCAST: danh dau 1 SDT da gui/loi/bo qua trong 1 chien dich ──
+    if (action === 'broadcastMark')        return broadcastMark_(data.id, data.phone, data.status);
+    // ── BROADCAST: upload 1 anh (base64) len Drive, tra ve link xem truc tiep ──
+    if (action === 'uploadBroadcastImg')   return uploadBroadcastImage_(data.base64, data.filename, data.mimeType);
+    // ── BROADCAST: huy 1 chien dich (dung gui tiep) ──
+    if (action === 'broadcastCancel')      return broadcastCancel_(data.id);
     return jsonOut_({ error: 'Unknown action: ' + action });
   } catch(err) {
     return jsonOut_({ error: err.message });
@@ -895,4 +913,151 @@ function testScript() {
   Logger.log(log);
   var testLookup = findCareByPhone_('0978000000');
   Logger.log('Test lookup: ' + JSON.stringify(testLookup));
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BROADCAST — Gui tin hang loat qua Zalo (ZaloAI extension) — v13.1
+//  Luu 1 sheet "Broadcasts": moi hang la 1 chien dich
+//  Anh dinh kem duoc upload len 1 folder Google Drive rieng (xem BROADCAST_FOLDER_ID)
+// ═══════════════════════════════════════════════════════════════
+var SH_BROADCAST = 'Broadcasts';
+var BROADCAST_HEADERS = ['id','label','message','imagesJson','phonesJson','sentJson','csName','createdAt','status','expectedNick'];
+
+// ⚠️ BAT BUOC: tao 1 folder rieng trong Google Drive de luu anh chien dich,
+//    mo folder -> copy ID trong URL (phan sau /folders/) -> dan vao day.
+//    Nho: folder do se duoc set quyen "Anyone with link" cho tung anh khi upload.
+var BROADCAST_FOLDER_ID = '1q4uoHhjmf1yfUjHoYLPAjcNWkr4Ue2J8';
+
+function getBroadcastSheet_() {
+  return getSheet_(SH_BROADCAST, BROADCAST_HEADERS);
+}
+
+function readBroadcasts_() {
+  var sh = getBroadcastSheet_();
+  var last = sh.getLastRow();
+  if (last < 2) return [];
+  var vals = sh.getRange(2, 1, last - 1, BROADCAST_HEADERS.length).getValues();
+  var out = [];
+  for (var i = 0; i < vals.length; i++) {
+    var r = vals[i];
+    if (!r[0]) continue;
+    var images = [], phones = [], sent = {};
+    try { images = JSON.parse(r[3] || '[]'); } catch (e) {}
+    try { phones = JSON.parse(r[4] || '[]'); } catch (e) {}
+    try { sent = JSON.parse(r[5] || '{}'); } catch (e) {}
+    out.push({
+      id: r[0], label: r[1], message: r[2],
+      images: images, phones: phones, sent: sent,
+      csName: r[6], createdAt: r[7], status: r[8] || 'active',
+      expectedNick: r[9] || ''
+    });
+  }
+  return out;
+}
+
+// Tao moi hoac cap nhat 1 chien dich (giu nguyen sentJson neu da co, tru khi truyen kem)
+function saveBroadcast_(b) {
+  if (!b || !b.phones || !b.phones.length) return jsonOut_({ ok: false, error: 'Thieu danh sach SDT' });
+  var sh = getBroadcastSheet_();
+  var id = b.id || ('bc_' + Date.now());
+  var last = sh.getLastRow();
+  var foundRow = -1, existingSent = {};
+  if (last >= 2) {
+    var ids = sh.getRange(2, 1, last - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]) === id) {
+        foundRow = i + 2;
+        try { existingSent = JSON.parse(sh.getRange(foundRow, 6).getValue() || '{}'); } catch (e) {}
+        break;
+      }
+    }
+  }
+  var sentMap = b.sent || existingSent || {};
+  var row = [
+    id, b.label || '', b.message || '',
+    JSON.stringify(b.images || []),
+    JSON.stringify(b.phones || []),
+    JSON.stringify(sentMap),
+    b.csName || '',
+    b.createdAt || new Date().toISOString(),
+    b.status || 'active',
+    b.expectedNick || ''
+  ];
+  if (foundRow > 0) sh.getRange(foundRow, 1, 1, row.length).setValues([row]);
+  else sh.appendRow(row);
+  return jsonOut_({ ok: true, id: id });
+}
+
+// Danh dau 1 SDT la da gui / loi / bo qua trong 1 chien dich cu the
+function broadcastMark_(id, phone, status) {
+  if (!id || !phone) return jsonOut_({ ok: false, error: 'Thieu id/phone' });
+  var sh = getBroadcastSheet_();
+  var last = sh.getLastRow();
+  if (last < 2) return jsonOut_({ ok: false, error: 'Chua co chien dich nao' });
+  var ids = sh.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === id) {
+      var rowIdx = i + 2;
+      var sent = {};
+      try { sent = JSON.parse(sh.getRange(rowIdx, 6).getValue() || '{}'); } catch (e) {}
+      sent[normPhone_(phone)] = { status: status || 'sent', ts: new Date().toISOString() };
+      sh.getRange(rowIdx, 6).setValue(JSON.stringify(sent));
+      return jsonOut_({ ok: true });
+    }
+  }
+  return jsonOut_({ ok: false, error: 'Khong tim thay chien dich' });
+}
+
+// Danh sach chien dich dang active + cac SDT CHUA gui, loc theo CS dang dung extension
+// (neu chien dich khong gan csName cu the thi hien cho tat ca CS)
+function broadcastQueueForCS_(csName) {
+  var all = readBroadcasts_().filter(function (b) { return (b.status || 'active') === 'active'; });
+  var out = [];
+  all.forEach(function (b) {
+    if (csName && b.csName && b.csName !== csName) return;
+    var pending = (b.phones || []).filter(function (p) {
+      var np = normPhone_(p);
+      return !b.sent || !b.sent[np];
+    });
+    if (pending.length) {
+      out.push({
+        id: b.id, label: b.label, message: b.message, images: b.images,
+        pendingPhones: pending,
+        total: b.phones.length,
+        doneCount: b.phones.length - pending.length,
+        expectedNick: b.expectedNick || ''
+      });
+    }
+  });
+  return out;
+}
+
+// Upload 1 anh (base64) len Drive folder rieng, set quyen xem cong khai qua link, tra ve URL
+function uploadBroadcastImage_(base64, filename, mimeType) {
+  if (!base64) return jsonOut_({ ok: false, error: 'Thieu du lieu anh' });
+  var folder;
+  try { folder = DriveApp.getFolderById(BROADCAST_FOLDER_ID); }
+  catch (e) { return jsonOut_({ ok: false, error: 'Chua cau hinh dung BROADCAST_FOLDER_ID (xem comment dau ham)' }); }
+  try {
+    var bytes = Utilities.base64Decode(base64);
+    var blob = Utilities.newBlob(bytes, mimeType || 'image/jpeg', filename || ('img_' + Date.now() + '.jpg'));
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    var directUrl = 'https://drive.google.com/uc?export=view&id=' + file.getId();
+    return jsonOut_({ ok: true, url: directUrl, fileId: file.getId() });
+  } catch (e) {
+    return jsonOut_({ ok: false, error: e.message });
+  }
+}
+
+// Huy 1 chien dich (khong xoa du lieu, chi doi status de extension ngung lay ve)
+function broadcastCancel_(id) {
+  var sh = getBroadcastSheet_();
+  var last = sh.getLastRow();
+  if (last < 2) return jsonOut_({ ok: false });
+  var ids = sh.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === id) { sh.getRange(i + 2, 9).setValue('cancelled'); return jsonOut_({ ok: true }); }
+  }
+  return jsonOut_({ ok: false, error: 'Khong tim thay chien dich' });
 }
