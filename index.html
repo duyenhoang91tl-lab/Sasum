@@ -6185,9 +6185,11 @@ function _bcStatusForPhone(phone) {
 function _bcStatusBadge(phone) {
   const r = _bcStatusForPhone(phone);
   if (!r) return '<span style="color:var(--hint);font-size:11px">—</span>';
-  if (r.status === 'sent') return `<span class="badge" style="background:#dcfce7;color:#15803d;border-color:#86efac" title="${esc(r.campaign)}${r.ts?(' · '+new Date(r.ts).toLocaleString('vi-VN')):''}">✓ Đã gửi</span>`;
-  if (r.status === 'failed') return `<span class="badge" style="background:#fef2f2;color:#dc2626;border-color:#fecaca" title="${esc(r.campaign)}${r.ts?(' · '+new Date(r.ts).toLocaleString('vi-VN')):''}">✗ Gửi lỗi</span>`;
-  if (r.status === 'skip') return `<span class="badge" style="background:#f3f4f6;color:#6b7280;border-color:#e5e7eb" title="${esc(r.campaign)}">— Bỏ qua</span>`;
+  const st = String(r.status || '');
+  const tsStr = r.ts ? (' · ' + new Date(r.ts).toLocaleString('vi-VN')) : '';
+  if (st === 'sent') return `<span class="badge" style="background:#dcfce7;color:#15803d;border-color:#86efac" title="${esc(r.campaign)}${tsStr}">✓ Đã gửi</span>`;
+  if (st.startsWith('failed')) return `<span class="badge" style="background:#fef2f2;color:#dc2626;border-color:#fecaca" title="${esc(r.campaign)}${tsStr} — ${esc(st)}">✗ Gửi lỗi</span>`;
+  if (st.startsWith('skip')) return `<span class="badge" style="background:#f3f4f6;color:#6b7280;border-color:#e5e7eb" title="${esc(r.campaign)}${tsStr} — ${esc(st)}">— Bỏ qua</span>`;
   return `<span class="badge" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" title="${esc(r.campaign)}">⏳ Chưa gửi</span>`;
 }
 
@@ -9892,6 +9894,9 @@ function zaiHideError() {
     <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Nick Zalo phụ trách (tuỳ chọn — để trống nếu chưa đồng bộ)</label>
     <input id="bc-compose-nick" type="text" placeholder="VD: duyenht_zalo (bỏ trống nếu chưa có dữ liệu)" style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-bottom:10px;box-sizing:border-box;">
 
+    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">CS phụ trách gửi (tuỳ chọn — để trống thì mọi CS dùng extension đều thấy & gửi được)</label>
+    <input id="bc-compose-cs" type="text" placeholder="VD: duyenht (đúng mã CS chọn ở thanh 👤 CS trong extension — để trống = mọi CS)" style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-bottom:10px;box-sizing:border-box;">
+
     <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Ảnh đính kèm (tối đa 15 ảnh)</label>
     <input id="bc-compose-imgs" type="file" accept="image/*" multiple style="margin-bottom:8px;">
     <div id="bc-compose-preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
@@ -9930,6 +9935,7 @@ function _showBroadcastComposeModal(h, infoText) {
   document.getElementById('bc-compose-label').value = h.label || '';
   document.getElementById('bc-compose-msg').value = '';
   document.getElementById('bc-compose-nick').value = '';
+  document.getElementById('bc-compose-cs').value = h.csName && !h.csName.startsWith('(') ? h.csName : '';
   document.getElementById('bc-compose-imgs').value = '';
   document.getElementById('bc-compose-preview').innerHTML = '';
   document.getElementById('bc-compose-progress').style.display = 'none';
@@ -9954,7 +9960,7 @@ function openBroadcastFromCurrentFilter() {
     id: 'filterbc_' + Date.now(),
     label: `Tự chọn lọc - ${new Date().toLocaleDateString('vi-VN')}`,
     phones,
-    csName: '(Tuỳ chọn lọc, không gán CS)'
+    csName: '' // để trống → mọi CS dùng extension đều thấy chiến dịch này trong hàng đợi gửi
   };
   _showBroadcastComposeModal(h, `Từ bộ lọc hiện tại (${filterNote}) — ${phones.length} khách`);
 }
@@ -10031,7 +10037,7 @@ async function submitBroadcastCompose() {
           message,
           images: imageUrls,
           phones: _bcComposeTargetBatch.phones,
-          csName: _bcComposeTargetBatch.csName,
+          csName: (document.getElementById('bc-compose-cs').value || '').trim(),
           expectedNick,
           createdAt: new Date().toISOString(),
           status: 'active'
