@@ -1722,6 +1722,7 @@ async function syncFromGS(opts) {
     }
 
     let count = 0;
+    let _dpPhoneChanged = false; // true nếu KH đang mở trong panel chi tiết vừa có dữ liệu mới (vd: từ Zalo AI extension)
     for (const row of (d.rows || [])) {
       if (!row.phone) continue;
       // Normalize phone từ GS (tránh mất số 0 đầu do Excel/GSheets lưu kiểu số)
@@ -1730,6 +1731,7 @@ async function syncFromGS(opts) {
       var _ph2 = String(row.phone);
       if ((typeof _careQueue !== 'undefined' && (_careQueue.has(_normPh) || _careQueue.has(_ph2))) ||
           (typeof _careWriting !== 'undefined' && (_careWriting.has(_normPh) || _careWriting.has(_ph2)))) { count++; continue; }
+      const _oldUpdated = (careData[_normPh] || {}).updated || '';
       careData[_normPh] = {
         status: row.status||'', zalo: row.zalo||'', cs: row.cs||'', note: row.note||'',
         schedGoi: row.schedGoi||'', schedGoiNote: row.schedGoiNote||'',
@@ -1739,6 +1741,12 @@ async function syncFromGS(opts) {
         updated: row.updated||'',
         khStatus: row.khStatus||'', nickZalos: row.nickZalos||[], birthday: row.birthday||''
       };
+      // KH này đang được xem trong panel chi tiết (openDp) và vừa có bản ghi mới hơn (vd: CS vừa lưu từ Zalo AI extension)
+      if (typeof currentPhone !== 'undefined' && currentPhone &&
+          (_normPh === currentPhone || _ph2 === currentPhone) &&
+          row.updated && _oldUpdated && row.updated !== _oldUpdated) {
+        _dpPhoneChanged = true;
+      }
       if (row.schedules) {
         try {
           const sc = JSON.parse(row.schedules);
@@ -1768,6 +1776,7 @@ async function syncFromGS(opts) {
     updateStats();
     updateSidebarBadges();
     updateSchedBadges();
+    if (_dpPhoneChanged) _maybeRefreshOpenDp();
     if (isManual) {
       hide('loverlay');
       if (orderCount > 0) {
@@ -2771,8 +2780,39 @@ function updateSchedBadges() {
 // ═══════════════════════════════════════════════════════
 //  DETAIL PANEL
 // ═══════════════════════════════════════════════════════
+// ── Tự làm mới panel chi tiết KH khi có dữ liệu mới từ nguồn khác (vd: Zalo AI extension) ──
+let _dpDirty = false; // true nếu người dùng đang gõ dở trong panel (tránh ghi đè mất dữ liệu chưa lưu)
+(function _initDpDirtyWatcher(){
+  const dpBody = document.getElementById('dp-body');
+  if (dpBody) {
+    dpBody.addEventListener('input', () => { _dpDirty = true; });
+    dpBody.addEventListener('change', () => { _dpDirty = true; });
+  }
+})();
+function _maybeRefreshOpenDp() {
+  const ov = document.getElementById('dp-overlay');
+  if (!ov || !ov.classList.contains('open') || !currentPhone) return;
+  if (_dpDirty) {
+    // Đang gõ dở → không ghi đè, chỉ báo nhẹ để người dùng chủ động tải lại
+    const body = document.getElementById('dp-body');
+    if (body && !document.getElementById('dp-refresh-hint')) {
+      const hint = document.createElement('div');
+      hint.id = 'dp-refresh-hint';
+      hint.style.cssText = 'background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:7px;padding:7px 10px;font-size:11px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px;';
+      hint.innerHTML = `<span>🔄 Khách này vừa có cập nhật mới (vd: từ Zalo AI)</span><button style="background:#00b14f;color:#fff;border:none;border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;white-space:nowrap" onclick="_dpDirty=false;renderDpTab(currentDpTab)">Tải lại</button>`;
+      body.insertBefore(hint, body.firstChild);
+    }
+    return;
+  }
+  // Không có gì đang dở → tự động render lại tab hiện tại với dữ liệu mới nhất
+  renderDpTab(currentDpTab);
+  syncToast('🔄 Đã tự động cập nhật dữ liệu KH đang xem');
+}
+
 function openDp(phone) {
   currentPhone = phone;
+  _dpDirty = false;
+  const _hint = document.getElementById('dp-refresh-hint'); if (_hint) _hint.remove();
   const c = allCustomers.find(x=>x.phone===phone);
   if (!c) return;
   const initials = c.name.split(' ').map(w=>w[0]||'').slice(-2).join('').toUpperCase();
@@ -2792,6 +2832,7 @@ function openDp(phone) {
 
 function renderDpTab(tab) {
   currentDpTab = tab;
+  _dpDirty = false;
   const c = allCustomers.find(x=>x.phone===currentPhone);
   const body = document.getElementById('dp-body');
   if (!c || !body) return;
@@ -2806,6 +2847,7 @@ function renderDpTab(tab) {
 
 function switchDpTab(tab, el) {
   currentDpTab = tab;
+  _dpDirty = false;
   document.querySelectorAll('.dp-tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
   const c = allCustomers.find(x=>x.phone===currentPhone);
