@@ -974,6 +974,9 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
           <button class="btn sm secondary" id="assign-btn" onclick="openAssignModal()" title="Chia data đang lọc cho CS">
             👥 Chia data
           </button>
+          <button class="btn sm secondary" id="broadcast-filter-btn" onclick="openBroadcastFromCurrentFilter()" title="Tạo chiến dịch bắn trực tiếp từ danh sách đang lọc (CS, sản phẩm, nguồn, trạng thái, ngày mua...) — không cần qua Chia data">
+            📢 Tạo chiến dịch bắn
+          </button>
         </div>
         <button class="btn sm" onclick="exportCSV()">
           <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
@@ -9842,6 +9845,11 @@ let _bcComposeImages = []; // [{file, dataUrl}]
 function openBroadcastCompose(batchId) {
   const h = assignHistory.find(x => x.id === batchId);
   if (!h) { toast('Không tìm thấy chiến dịch chia data này'); return; }
+  _showBroadcastComposeModal(h, `Chiến dịch chia data: "${h.label}" — ${h.phones.length} khách — CS: ${h.csName}`);
+}
+
+// Điền + mở modal soạn tin hàng loạt dùng chung cho cả 2 nguồn: batch "Chia data" và bộ lọc tự do
+function _showBroadcastComposeModal(h, infoText) {
   _bcComposeTargetBatch = h;
   _bcComposeImages = [];
   document.getElementById('bc-compose-label').value = h.label || '';
@@ -9851,9 +9859,29 @@ function openBroadcastCompose(batchId) {
   document.getElementById('bc-compose-preview').innerHTML = '';
   document.getElementById('bc-compose-progress').style.display = 'none';
   document.getElementById('bc-compose-error').style.display = 'none';
-  document.getElementById('bc-compose-target-info').textContent =
-    `Chiến dịch chia data: "${h.label}" — ${h.phones.length} khách — CS: ${h.csName}`;
+  document.getElementById('bc-compose-target-info').textContent = infoText;
   document.getElementById('bc-compose-overlay').style.display = 'flex';
+}
+
+// ── Tạo chiến dịch bắn TRỰC TIẾP từ danh sách KH đang lọc ở tab "Danh sách KH"
+// (CS phụ trách, sản phẩm, nguồn đơn, ngày mua, tình trạng CS/Zalo, tier...)
+// KHÔNG cần đi qua bước "Chia data" cho CS.
+function openBroadcastFromCurrentFilter() {
+  const list = (typeof window.__omeFiltered !== 'undefined' && Array.isArray(window.__omeFiltered)) ? window.__omeFiltered : null;
+  if (!list || !list.length) {
+    toast('⚠ Danh sách đang lọc ra 0 KH. Hãy chỉnh bộ lọc (CS / Sản phẩm / Nguồn / Trạng thái / Ngày mua...) ở tab Danh sách KH hoặc mục "⚙ Lọc nâng cao" rồi thử lại.');
+    return;
+  }
+  const phones = [...new Set(list.map(c => c.phone).filter(Boolean))];
+  const n = countAdvFilters();
+  const filterNote = n > 0 ? `${n} bộ lọc nâng cao đang bật + bộ lọc bảng` : 'bộ lọc bảng hiện tại';
+  const h = {
+    id: 'filterbc_' + Date.now(),
+    label: `Tự chọn lọc - ${new Date().toLocaleDateString('vi-VN')}`,
+    phones,
+    csName: '(Tuỳ chọn lọc, không gán CS)'
+  };
+  _showBroadcastComposeModal(h, `Từ bộ lọc hiện tại (${filterNote}) — ${phones.length} khách`);
 }
 
 function closeBroadcastCompose() {
