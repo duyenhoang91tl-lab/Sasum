@@ -10128,7 +10128,7 @@ async function submitBroadcastCompose() {
 <div class="modal" style="max-width:860px;width:95vw">
   <div class="modal-hdr">
     <div class="modal-title">📨 Mẫu tin hỏi thăm tự động</div>
-    <div class="modal-sub">Mỗi CS có thể tạo mẫu riêng — hệ thống ưu tiên mẫu của CS phụ trách khách, không có thì dùng mẫu chung (CS để trống). Mốc = số ngày sau khi mua, đặt tùy ý (7, 14, 30, 60, 90...). Placeholder: {name} {product} {days} {phone}</div>
+    <div class="modal-sub">Mỗi CS có thể tạo mẫu riêng — hệ thống ưu tiên mẫu của CS phụ trách khách, không có thì dùng mẫu chung (CS để trống). Mốc = số ngày sau khi mua, đặt tùy ý (7, 14, 30, 60, 90...). Mã SP: dùng mã chuẩn hóa (HH, CF, TEA...), nhiều mã cùng 1 mẫu thì cách nhau dấu phẩy (VD: CF,TEA), * = mọi sản phẩm. Placeholder: {name} {product} {days} {phone}</div>
     <datalist id="futpl-days-hint"><option value="7"><option value="14"><option value="30"><option value="60"><option value="90"></datalist>
   </div>
   <div class="modal-body" style="max-height:60vh;overflow-y:auto">
@@ -10207,7 +10207,7 @@ function renderFuTplTable(){
       var locked = !canEditAll && t.cs !== mine && t.cs !== '';
       var dis = locked ? ' disabled style="opacity:.55"' : '';
       return '<tr style="border-bottom:1px solid #f3f4f6;vertical-align:top">'+
-        '<td style="padding:4px"><input value="'+esc(t.productCode)+'" onchange="_fuTplList['+i+'].productCode=this.value.trim().toUpperCase()||\'*\'"'+dis+' style="width:100%;padding:4px;border:1px solid #d1d5db;border-radius:5px;font-size:12px;text-transform:uppercase"></td>'+
+        '<td style="padding:4px"><input value="'+esc(t.productCode)+'" placeholder="* / CF,TEA" title="Mã chuẩn hóa; nhiều mã cách nhau dấu phẩy (CF,TEA); * = mọi SP" onchange="_fuTplList['+i+'].productCode=this.value.trim().toUpperCase()||\'*\'"'+dis+' style="width:100%;padding:4px;border:1px solid #d1d5db;border-radius:5px;font-size:12px;text-transform:uppercase"></td>'+
         '<td style="padding:4px"><input type="number" min="1" max="365" list="futpl-days-hint" value="'+esc(t.days)+'" onchange="_fuTplList['+i+'].days=String(parseInt(this.value,10)||7)"'+dis+' title="Số ngày sau khi mua (tùy ý: 7, 14, 30, 60, 90...)" style="width:100%;padding:4px;border:1px solid #d1d5db;border-radius:5px;font-size:12px"></td>'+
         '<td style="padding:4px"><input value="'+esc(t.cs)+'" placeholder="(chung)" onchange="_fuTplList['+i+'].cs=this.value.trim().toLowerCase()"'+(canEditAll?'':' disabled style="opacity:.55"')+' style="width:100%;padding:4px;border:1px solid #d1d5db;border-radius:5px;font-size:12px"></td>'+
         '<td style="padding:4px"><textarea rows="2" onchange="_fuTplList['+i+'].template=this.value"'+dis+' style="width:100%;padding:4px;border:1px solid #d1d5db;border-radius:5px;font-size:12px;resize:vertical;font-family:inherit">'+esc(t.template)+'</textarea></td>'+

@@ -1211,8 +1211,13 @@ function readFollowUpTemplates_() {
     var tpl = String(vals[i][2] || '').trim();
     var cs = String(vals[i][3] || '').trim().toLowerCase();
     if (!days || !tpl) continue;
-    // key co CS: "HH|7|duyenht"; mau chung: "HH|7"
-    map[code + '|' + days + (cs ? '|' + cs : '')] = tpl;
+    // Ma SP ho tro NHIEU ma cach nhau dau phay: "CF,TEA" -> ap dung cung mau cho ca CF va TEA
+    var codeList = code.split(',').map(function (c) { return c.trim(); }).filter(String);
+    if (!codeList.length) codeList = ['*'];
+    for (var ci2 = 0; ci2 < codeList.length; ci2++) {
+      // key co CS: "HH|7|duyenht"; mau chung: "HH|7"
+      map[codeList[ci2] + '|' + days + (cs ? '|' + cs : '')] = tpl;
+    }
   }
   return map;
 }
