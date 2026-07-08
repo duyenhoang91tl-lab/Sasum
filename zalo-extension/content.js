@@ -1099,13 +1099,16 @@
       const tagColor = isOverdue ? '#ef4444' : '#f97316';
       const tagText = isOverdue ? 'Quá hạn' : 'Hôm nay';
       note.innerHTML = '<span style="background:'+tagColor+';color:#fff;border-radius:2px;padding:0 3px;font-size:9px;margin-right:3px;">'+tagText+'</span>' + escHtml(rem.schedHenNote || '—');
-      // Mở KH → appweb
+      // Mở KH → tra cứu ngay trong panel Zalo AI (điền SDT + lookup, đồng bộ về Sasum khi lưu)
       const openBtn = document.createElement('button');
       openBtn.textContent = 'Mở KH';
       openBtn.style.cssText = 'background:#3b82f6;color:#fff;border:none;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:10px;flex-shrink:0;';
       openBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(rem.phone).catch(()=>{});
-        window.open('https://duyenhoang91tl-lab.github.io/Sasum/?phone=' + encodeURIComponent(rem.phone), '_blank');
+        const inp = document.getElementById('zai-phone-input');
+        if (inp) inp.value = rem.phone;
+        doLookup();
+        const bodyEl = document.getElementById('zai-body');
+        if (bodyEl) bodyEl.scrollTop = 0;
       });
       // Done
       const doneBtn = document.createElement('button');
