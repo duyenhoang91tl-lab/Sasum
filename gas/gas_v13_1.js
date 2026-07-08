@@ -1106,6 +1106,17 @@ var ZALO_SCAN_HEADERS = ['phone', 'rawName', 'nameGuess', 'orderDateGuess', 'pro
 var FU_CHECKPOINTS = [7, 14, 30, 60]; // ngay: 7, 14, 1 thang, 2 thang
 // Chi hoi tham khach mua tu 5/2026 tro di (don cu hon bo qua hoan toan)
 var FU_START = new Date(2026, 4, 1); // thang 5/2026 (thang tinh tu 0)
+// Chi hoi tham khach den tu cac nguon nay (so khop chua-chuoi, khong phan biet hoa thuong).
+// Don hang nguon khac (KH Renew, Data Dao...) KHONG gui hoi tham tu dong.
+var FU_SOURCES = ['landipage', 'landing', 'messenger', 'mess', 'web'];
+function fuSourceAllowed_(source) {
+  var sl = String(source || '').toLowerCase();
+  if (!sl) return false;
+  for (var i = 0; i < FU_SOURCES.length; i++) {
+    if (sl.indexOf(FU_SOURCES[i]) !== -1) return true;
+  }
+  return false;
+}
 
 // Bang quy doi ten/viet tat san pham -> ma san pham chuan (dung chung cho
 // OrderData.product/productDetail VA ten hien thi Zalo do CS dat).
@@ -1367,6 +1378,7 @@ function runFollowUpScan_() {
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
     if (o.phone) phonesWithOrders[normPhone_(o.phone)] = true;
+    if (!fuSourceAllowed_(o.source)) continue; // chi nguon landipage / messenger / web
     tryAdd(o.phone, o.date, o.product || o.productDetail, o.name, 'order');
   }
 
