@@ -936,7 +936,7 @@ function testScript() {
 //  Anh dinh kem duoc upload len 1 folder Google Drive rieng (xem BROADCAST_FOLDER_ID)
 // ═══════════════════════════════════════════════════════════════
 var SH_BROADCAST = 'Broadcasts';
-var BROADCAST_HEADERS = ['id','label','message','imagesJson','phonesJson','sentJson','csName','createdAt','status','expectedNick','perPhoneMsgJson'];
+var BROADCAST_HEADERS = ['id','label','message','imagesJson','phonesJson','sentJson','csName','createdAt','status','expectedNick','perPhoneMsgJson','perPhoneNickJson'];
 
 // ⚠️ BAT BUOC: tao 1 folder rieng trong Google Drive de luu anh chien dich,
 //    mo folder -> copy ID trong URL (phan sau /folders/) -> dan vao day.
@@ -956,16 +956,17 @@ function readBroadcasts_() {
   for (var i = 0; i < vals.length; i++) {
     var r = vals[i];
     if (!r[0]) continue;
-    var images = [], phones = [], sent = {}, perPhoneMsg = {};
+    var images = [], phones = [], sent = {}, perPhoneMsg = {}, perPhoneNick = {};
     try { images = JSON.parse(r[3] || '[]'); } catch (e) {}
     try { phones = JSON.parse(r[4] || '[]'); } catch (e) {}
     try { sent = JSON.parse(r[5] || '{}'); } catch (e) {}
     try { perPhoneMsg = JSON.parse(r[10] || '{}'); } catch (e) {}
+    try { perPhoneNick = JSON.parse(r[11] || '{}'); } catch (e) {}
     out.push({
       id: r[0], label: r[1], message: r[2],
       images: images, phones: phones, sent: sent,
       csName: r[6], createdAt: r[7], status: r[8] || 'active',
-      expectedNick: r[9] || '', perPhoneMsg: perPhoneMsg
+      expectedNick: r[9] || '', perPhoneMsg: perPhoneMsg, perPhoneNick: perPhoneNick
     });
   }
   return out;
@@ -998,7 +999,8 @@ function saveBroadcast_(b) {
     b.createdAt || new Date().toISOString(),
     b.status || 'active',
     b.expectedNick || '',
-    JSON.stringify(b.perPhoneMsg || {})
+    JSON.stringify(b.perPhoneMsg || {}),
+    JSON.stringify(b.perPhoneNick || {})
   ];
   if (foundRow > 0) sh.getRange(foundRow, 1, 1, row.length).setValues([row]);
   else sh.appendRow(row);
@@ -1043,7 +1045,8 @@ function broadcastQueueForCS_(csName) {
         total: b.phones.length,
         doneCount: b.phones.length - pending.length,
         expectedNick: b.expectedNick || '',
-        perPhoneMsg: b.perPhoneMsg || {}
+        perPhoneMsg: b.perPhoneMsg || {},
+        perPhoneNick: b.perPhoneNick || {}
       });
     }
   });
@@ -1261,6 +1264,17 @@ function runFollowUpScan_() {
   var doneKeys = readFollowUpLogKeys_();
   var today = new Date(); today.setHours(0, 0, 0, 0);
 
+  // Doc CareData 1 lan: phone -> { cs phu trach, cac nick Zalo da ket ban }
+  var careMap = {};
+  var careRows = readCare_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH_CARE));
+  for (var ci = 0; ci < careRows.length; ci++) {
+    var cr = careRows[ci];
+    careMap[normPhone_(cr.phone)] = {
+      cs: String(cr.cs || '').trim(),
+      nicks: Array.isArray(cr.nickZalos) ? cr.nickZalos : []
+    };
+  }
+
   var perPhoneMsg = {}, phones = [], logRows = [];
   var matchedPhones = {}; // tranh trung SDT trong cung 1 lan chay neu khop nhieu moc
 
@@ -1308,22 +1322,47 @@ function runFollowUpScan_() {
 
   if (!phones.length) return { ok: true, count: 0, message: 'Khong co KH nao toi moc hoi tham hom nay (hoac chua co mau tin cho san pham/moc ngay tuong ung).' };
 
+  // ── TACH CHIEN DICH THEO CS PHU TRACH (tu CareData.cs) ──
+  // Moi CS 1 chien dich rieng -> CS nao mo extension chi thay khach cua minh.
+  // Khach chua gan CS -> vao chien dich chung (csName rong, moi CS deu thay).
+  var groups = {}; // csName -> [phones]
+  for (var gi = 0; gi < phones.length; gi++) {
+    var gp = phones[gi];
+    var gcs = (careMap[gp] && careMap[gp].cs) || '';
+    if (!groups[gcs]) groups[gcs] = [];
+    groups[gcs].push(gp);
+  }
+
   var todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+7', 'yyyy-MM-dd_HHmm');
-  var broadcast = {
-    id: 'fu_' + todayStr,
-    label: 'Tự động hỏi thăm ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+7', 'dd/MM/yyyy'),
-    message: '(Nội dung cá nhân hoá riêng theo từng khách — xem chi tiết trong extension)',
-    images: [],
-    phones: phones,
-    csName: '', // de trong -> moi CS dung extension deu thay va gui duoc
-    expectedNick: '',
-    createdAt: new Date().toISOString(),
-    status: 'active',
-    perPhoneMsg: perPhoneMsg
-  };
-  saveBroadcast_(broadcast);
+  var dateLabel = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'GMT+7', 'dd/MM/yyyy');
+  var created = [];
+  Object.keys(groups).forEach(function (csName) {
+    var grpPhones = groups[csName];
+    var grpMsg = {}, grpNick = {};
+    for (var pi = 0; pi < grpPhones.length; pi++) {
+      var pp = grpPhones[pi];
+      grpMsg[pp] = perPhoneMsg[pp];
+      grpNick[pp] = (careMap[pp] && careMap[pp].nicks) || [];
+    }
+    var broadcast = {
+      id: 'fu_' + todayStr + (csName ? '_' + csName : '_chung'),
+      label: 'Tự động hỏi thăm ' + dateLabel + (csName ? ' — ' + csName : ' — chưa gán CS'),
+      message: '(Nội dung cá nhân hoá riêng theo từng khách — xem chi tiết trong extension)',
+      images: [],
+      phones: grpPhones,
+      csName: csName,
+      expectedNick: '',
+      createdAt: new Date().toISOString(),
+      status: 'active',
+      perPhoneMsg: grpMsg,
+      perPhoneNick: grpNick
+    };
+    saveBroadcast_(broadcast);
+    created.push({ id: broadcast.id, cs: csName || '(chung)', count: grpPhones.length });
+  });
+
   appendFollowUpLogRows_(logRows);
-  return { ok: true, count: phones.length, id: broadcast.id };
+  return { ok: true, count: phones.length, campaigns: created };
 }
 
 // ─── HUONG DAN DAT LICH CHAY TU DONG (setup 1 lan) ───────────────

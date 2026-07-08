@@ -1,34 +1,21 @@
-# OME Zalo AI Helper v1.1 - Chrome Extension
+# OME Zalo AI Helper - Chrome Extension
 
-## Cài đặt (1 lần duy nhất - mọi máy trong team)
+## Cai dat (1 lan duy nhat)
 
-1. Mở Chrome → vào địa chỉ: `chrome://extensions`
-2. Bật **Developer mode** (góc trên phải)
-3. Nhấn **Load unpacked** → chọn thư mục `zalo-extension`
-4. Mở `chat.zalo.me` → nhấn nút **🤖 AI** bên phải màn hình
-5. Nhấn ⚙ → nhập **URL GAS** (lấy từ app teamduyen) → **Lưu**
+1. Mo Chrome -> vao dia chi: `chrome://extensions`
+2. Bat **Developer mode** (goc tren phai)
+3. Nhan **Load unpacked** -> chon thu muc repo da giai nen (thu muc chua file manifest.json)
+4. Extension da cai xong
 
-## Admin cài Gemini Key (1 lần duy nhất cho cả team)
+## Su dung
 
-1. Mở Extension → nhấn ⚙
-2. Tick chọn **Admin**
-3. Dán **Gemini API Key** vào ô xuất hiện (lấy tại https://aistudio.google.com/app/apikey)
-4. Nhấn **Lưu** → key được gửi lên Google Sheets (Settings sheet)
-5. Xong! Nhân viên khác không cần nhập key
-
-## Sử dụng hàng ngày
-
-1. Mở chat với khách trên Zalo
-2. Extension tự động phát hiện SĐT (nếu tên có số) → tra cứu ngay
-3. Xem lịch sử đơn + tình trạng CS
-4. Dán tin nhắn khách → chọn giọng → **✨ Tạo gợi ý AI**
-5. Click gợi ý → copy → paste vào Zalo
-6. Cập nhật tình trạng CS → **💾 Lưu về GSheet** → app teamduyen thấy ngay sau Sync
-
-## Kết nối thường gặp
-
-- **Không tìm thấy khách**: Sync GS trên app teamduyen trước
-- **Lỗi Admin chưa cài Gemini Key**: Admin thực hiện bước “Admin cài key” ở trên
-- **SĐT không tự phát hiện**: Nhập tay số vào ô → Tra cứu
-
-## Gemini Free tier: 15 yêu cầu/phút, 1M token/ngày — 5 người dùng bình thường thừa dùng
+1. Mo `chat.zalo.me` trong Chrome
+2. Nhan nut **Robot AI** o canh phai man hinh de mo panel
+3. Lan dau: nhan bieu tuong banh rang de cai dat:
+   - **URL Web App GAS**: lay tu app Sasum (ban GAS v12)
+   - **Groq API Key**: lay mien phi tai https://console.groq.com/keys
+4. Nhap Groq Key -> Luu cai dat (chi can 1 lan, luu chung cho ca team)
+5. Khi mo chat voi khach: extension tu dong phat hien SDT tu ten chat
+6. Xem lich su don hang + tinh trang CS
+7. Dan tin nhan cua khach -> chon giong van -> nhan Tao goi y AI
+8. Click vao goi y de copy -> paste vao Zalo
