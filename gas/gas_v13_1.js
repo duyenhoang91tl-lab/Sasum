@@ -1382,13 +1382,9 @@ function runFollowUpScan_() {
     tryAdd(o.phone, o.date, o.product || o.productDetail, o.name, 'order');
   }
 
-  // 2) Du phong: KH quet tu ten Zalo nhung KHONG co don hang nao trong OrderData
-  var scans = readZaloScanByPhone_();
-  Object.keys(scans).forEach(function (np) {
-    if (phonesWithOrders[np]) return; // da co don that -> bo qua ban quet
-    var s = scans[np];
-    tryAdd(s.phone, s.orderDateGuess, s.productCodeGuess, s.nameGuess, 'zalo_scan');
-  });
+  // 2) Ban quet ten Zalo (ZaloContactScan) KHONG dung lam nguon ngay/san pham nua.
+  // Ngay mua + san pham CHI tinh theo don hang that trong Sasum (OrderData).
+  // Ban quet chi de doi chieu SDT nao dang co tren Zalo (phuc vu gui tin dung nick).
 
   if (!phones.length) return { ok: true, count: 0, message: 'Khong co KH nao toi moc hoi tham hom nay (hoac chua co mau tin cho san pham/moc ngay tuong ung).' };
 
