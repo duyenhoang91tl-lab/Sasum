@@ -395,7 +395,11 @@ function doGet(e) {
 
     // ── HOI THAM TU DONG: xem mau tin hien co (de kiem tra da cau hinh chua) ──
     if (action === 'followUpTemplates') {
-      return jsonOut_({ templates: readFollowUpTemplates_(), list: listFollowUpTemplates_(), checkpoints: FU_CHECKPOINTS });
+      var fuTpls = readFollowUpTemplates_();
+      var fuDays = {};
+      Object.keys(fuTpls).forEach(function (k) { var dd = parseInt(k.split('|')[1], 10); if (dd > 0) fuDays[dd] = true; });
+      var fuDayList = Object.keys(fuDays).map(Number).sort(function(a,b){return a-b;});
+      return jsonOut_({ templates: fuTpls, list: listFollowUpTemplates_(), checkpoints: fuDayList.length ? fuDayList : FU_CHECKPOINTS });
     }
     // ── HOI THAM TU DONG: bang ma san pham (doc dong tu sheet "Mã Zalo", ZaloAI extension dung de doc ten Zalo) ──
     if (action === 'productCodeMap') {
@@ -1035,7 +1039,10 @@ function broadcastQueueForCS_(csName) {
   var all = readBroadcasts_().filter(function (b) { return (b.status || 'active') === 'active'; });
   var out = [];
   all.forEach(function (b) {
-    if (csName && b.csName && b.csName !== csName) return;
+    if (csName && b.csName) {
+      var csList = String(b.csName).toLowerCase().split(',').map(function(x){ return x.trim(); }).filter(String);
+      if (csList.length && csList.indexOf(String(csName).toLowerCase().trim()) === -1) return;
+    }
     var pending = (b.phones || []).filter(function (p) {
       var np = normPhone_(p);
       return !b.sent || !b.sent[np];
@@ -1320,6 +1327,17 @@ function runFollowUpScan_() {
   var doneKeys = readFollowUpLogKeys_();
   var today = new Date(); today.setHours(0, 0, 0, 0);
 
+  // Moc ngay lay DONG tu bang mau tin (CS dat tuy y: 7, 14, 30, 60, 90...).
+  // Neu bang mau trong -> dung bo moc mac dinh FU_CHECKPOINTS.
+  var fuDaysSet = {};
+  Object.keys(templates).forEach(function (k) {
+    var d = parseInt(k.split('|')[1], 10);
+    if (d > 0) fuDaysSet[d] = true;
+  });
+  if (!Object.keys(fuDaysSet).length) {
+    for (var fci = 0; fci < FU_CHECKPOINTS.length; fci++) fuDaysSet[FU_CHECKPOINTS[fci]] = true;
+  }
+
   // Doc CareData 1 lan: phone -> { cs phu trach, cac nick Zalo da ket ban }
   var careMap = {};
   var careRows = readCare_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH_CARE));
@@ -1341,7 +1359,7 @@ function runFollowUpScan_() {
     d.setHours(0, 0, 0, 0);
     if (d < FU_START) return; // chi hoi tham khach mua tu 5/2026 tro di
     var daysSince = Math.round((today - d) / 86400000);
-    if (FU_CHECKPOINTS.indexOf(daysSince) === -1) return;
+    if (!fuDaysSet[daysSince]) return;
     var np = normPhone_(phone);
     if (!np || matchedPhones[np]) return; // 1 KH chi nhan 1 tin moi lan chay, tranh spam neu khop nhieu don
 

@@ -978,6 +978,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
           <button class="btn sm secondary" id="assign-btn" onclick="openAssignModal()" title="Chia data đang lọc cho CS">
             👥 Chia data
           </button>
+          <button class="btn sm secondary" id="futpl-inline-btn" onclick="openFuTplModal()" title="Mẫu tin hỏi thăm tự động theo mốc ngày sau mua — máy tự tạo chiến dịch mỗi sáng">📨 Hỏi thăm tự động</button>
           <button class="btn sm secondary" id="broadcast-filter-btn" onclick="openBroadcastFromCurrentFilter()" title="Tạo chiến dịch bắn trực tiếp từ danh sách đang lọc (CS, sản phẩm, nguồn, trạng thái, ngày mua...) — không cần qua Chia data">
             📢 Tạo chiến dịch bắn
           </button>
@@ -9883,7 +9884,11 @@ function zaiHideError() {
       <h3 style="margin:0;font-size:16px;">📢 Soạn tin gửi hàng loạt</h3>
       <button onclick="closeBroadcastCompose()" style="border:none;background:none;font-size:20px;cursor:pointer;line-height:1;">✕</button>
     </div>
-    <div style="font-size:12px;color:#6b7280;margin-bottom:10px;" id="bc-compose-target-info"></div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:6px;" id="bc-compose-target-info"></div>
+    <div style="font-size:11px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:6px 10px;margin-bottom:10px;color:#166534;">
+      💡 Đây là chiến dịch <b>gửi 1 lần</b> (tin + ảnh, cùng nội dung). Còn <b>tin hỏi thăm tự động</b> theo mốc ngày sau mua (+7, +14, +1 tháng...) thì
+      <a href="#" onclick="closeBroadcastCompose();openFuTplModal();return false" style="color:#00b14f;font-weight:600;text-decoration:underline">chỉnh mẫu tại đây</a> — máy tự tạo chiến dịch mỗi sáng.
+    </div>
 
     <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Tên chiến dịch</label>
     <input id="bc-compose-label" type="text" style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-bottom:10px;box-sizing:border-box;">
@@ -9891,11 +9896,16 @@ function zaiHideError() {
     <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Nội dung tin nhắn</label>
     <textarea id="bc-compose-msg" rows="5" placeholder="Nội dung tin nhắn gửi cho khách..." style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-bottom:10px;box-sizing:border-box;font-family:inherit;resize:vertical;"></textarea>
 
-    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Nick Zalo phụ trách (tuỳ chọn — để trống nếu chưa đồng bộ)</label>
-    <input id="bc-compose-nick" type="text" placeholder="VD: duyenht_zalo (bỏ trống nếu chưa có dữ liệu)" style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-bottom:10px;box-sizing:border-box;">
+    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Nick Zalo phụ trách (tuỳ chọn — danh sách đồng bộ chung với Zalo AI)</label>
+    <select id="bc-compose-nick" style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-bottom:10px;box-sizing:border-box;background:#fff;">
+      <option value="">— Không chỉ định nick —</option>
+    </select>
 
-    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">CS phụ trách gửi (tuỳ chọn — để trống thì mọi CS dùng extension đều thấy & gửi được)</label>
-    <input id="bc-compose-cs" type="text" placeholder="VD: duyenht (đúng mã CS chọn ở thanh 👤 CS trong extension — để trống = mọi CS)" style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-bottom:10px;box-sizing:border-box;">
+    <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">CS phụ trách gửi (chọn 1 hoặc nhiều — để trống thì mọi CS đều thấy & gửi được)</label>
+    <input id="bc-compose-cs-search" type="text" placeholder="Gõ để tìm CS..." style="width:100%;padding:6px 9px;border:1px solid #d1d5db;border-radius:6px 6px 0 0;font-size:12px;box-sizing:border-box;" oninput="_bcFilterCsList(this.value)">
+    <div id="bc-compose-cs-list" style="max-height:120px;overflow-y:auto;border:1px solid #d1d5db;border-top:none;border-radius:0 0 6px 6px;margin-bottom:6px;background:#fff;"></div>
+    <div id="bc-compose-cs-chips" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;"></div>
+    <input id="bc-compose-cs" type="hidden">
 
     <label style="font-weight:600;font-size:12px;display:block;margin-bottom:4px;">Ảnh đính kèm (tối đa 15 ảnh)</label>
     <input id="bc-compose-imgs" type="file" accept="image/*" multiple style="margin-bottom:8px;">
@@ -9929,13 +9939,66 @@ function openBroadcastCompose(batchId) {
 }
 
 // Điền + mở modal soạn tin hàng loạt dùng chung cho cả 2 nguồn: batch "Chia data" và bộ lọc tự do
+var _bcCsSelected = [];
+async function _bcLoadNickList() {
+  var sel = document.getElementById('bc-compose-nick');
+  if (!sel || !gsUrl) return;
+  try {
+    var sep = gsUrl.includes('?') ? '&' : '?';
+    var r = await fetch(gsUrl + sep + 'action=getSetting&key=nickZaloList', {redirect:'follow'});
+    var d = await r.json();
+    var list = [];
+    if (d.value) { try { list = JSON.parse(d.value); } catch(e) {} }
+    var cur = sel.value;
+    sel.innerHTML = '<option value="">— Không chỉ định nick —</option>' +
+      (Array.isArray(list) ? list : []).map(function(n){ return '<option value="'+esc(n)+'">'+esc(n)+'</option>'; }).join('');
+    sel.value = cur;
+  } catch(e) {}
+}
+function _bcCsNames() {
+  var names = [];
+  try { (accounts||[]).forEach(function(a){ if (a.role !== 'admin' && a.username && a.active !== false) names.push(String(a.username).toLowerCase()); }); } catch(e) {}
+  return [...new Set(names)].sort();
+}
+function _bcRenderCsList(filter) {
+  var box = document.getElementById('bc-compose-cs-list');
+  if (!box) return;
+  var f = (filter||'').toLowerCase();
+  var names = _bcCsNames().filter(function(n){ return !f || n.includes(f); });
+  box.innerHTML = names.length ? names.map(function(n){
+    var on = _bcCsSelected.includes(n);
+    return '<label style="display:flex;align-items:center;gap:6px;padding:4px 9px;font-size:12px;cursor:pointer;border-bottom:1px solid #f3f4f6">'+
+      '<input type="checkbox" '+(on?'checked':'')+' onchange="_bcToggleCs(\''+esc(n)+'\', this.checked)"> '+esc(n)+'</label>';
+  }).join('') : '<div style="padding:6px 9px;font-size:11px;color:#9ca3af">Không có CS khớp</div>';
+}
+function _bcFilterCsList(v){ _bcRenderCsList(v); }
+function _bcToggleCs(name, on) {
+  if (on) { if (!_bcCsSelected.includes(name)) _bcCsSelected.push(name); }
+  else _bcCsSelected = _bcCsSelected.filter(function(x){ return x !== name; });
+  _bcRenderCsChips();
+  document.getElementById('bc-compose-cs').value = _bcCsSelected.join(',');
+}
+function _bcRenderCsChips() {
+  var box = document.getElementById('bc-compose-cs-chips');
+  if (!box) return;
+  box.innerHTML = _bcCsSelected.map(function(n){
+    return '<span style="background:#dcfce7;color:#166534;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:600">'+esc(n)+
+      ' <a href="#" onclick="_bcToggleCs(\''+esc(n)+'\',false);_bcRenderCsList(document.getElementById(\'bc-compose-cs-search\').value);return false" style="color:#166534;text-decoration:none">✕</a></span>';
+  }).join('') || '<span style="font-size:11px;color:#9ca3af">Chưa chọn CS nào — mọi CS đều thấy chiến dịch</span>';
+}
+
 function _showBroadcastComposeModal(h, infoText) {
   _bcComposeTargetBatch = h;
   _bcComposeImages = [];
   document.getElementById('bc-compose-label').value = h.label || '';
   document.getElementById('bc-compose-msg').value = '';
   document.getElementById('bc-compose-nick').value = '';
-  document.getElementById('bc-compose-cs').value = h.csName && !h.csName.startsWith('(') ? h.csName : '';
+  _bcCsSelected = (h.csName && !h.csName.startsWith('(')) ? h.csName.split(',').map(function(x){return x.trim().toLowerCase();}).filter(Boolean) : [];
+  document.getElementById('bc-compose-cs').value = _bcCsSelected.join(',');
+  document.getElementById('bc-compose-cs-search').value = '';
+  _bcRenderCsList('');
+  _bcRenderCsChips();
+  _bcLoadNickList();
   document.getElementById('bc-compose-imgs').value = '';
   document.getElementById('bc-compose-preview').innerHTML = '';
   document.getElementById('bc-compose-progress').style.display = 'none';
@@ -10065,7 +10128,8 @@ async function submitBroadcastCompose() {
 <div class="modal" style="max-width:860px;width:95vw">
   <div class="modal-hdr">
     <div class="modal-title">📨 Mẫu tin hỏi thăm tự động</div>
-    <div class="modal-sub">Mỗi CS có thể tạo mẫu riêng — hệ thống ưu tiên mẫu của CS phụ trách khách, không có thì dùng mẫu chung (CS để trống). Placeholder: {name} {product} {days} {phone}</div>
+    <div class="modal-sub">Mỗi CS có thể tạo mẫu riêng — hệ thống ưu tiên mẫu của CS phụ trách khách, không có thì dùng mẫu chung (CS để trống). Mốc = số ngày sau khi mua, đặt tùy ý (7, 14, 30, 60, 90...). Placeholder: {name} {product} {days} {phone}</div>
+    <datalist id="futpl-days-hint"><option value="7"><option value="14"><option value="30"><option value="60"><option value="90"></datalist>
   </div>
   <div class="modal-body" style="max-height:60vh;overflow-y:auto">
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
@@ -10137,15 +10201,14 @@ function renderFuTplTable(){
   var canEditAll = _fuIsAdmin();
   var mine = _fuMyCS();
   box.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:12px">'+
-    '<tr style="background:#f0fdf4;color:#166534;font-weight:600"><td style="padding:6px;width:80px">Mã SP</td><td style="padding:6px;width:70px">Mốc</td><td style="padding:6px;width:90px">CS</td><td style="padding:6px">Nội dung tin</td><td style="width:34px"></td></tr>'+
+    '<tr style="background:#f0fdf4;color:#166534;font-weight:600"><td style="padding:6px;width:80px">Mã SP</td><td style="padding:6px;width:80px">Mốc (ngày)</td><td style="padding:6px;width:90px">CS</td><td style="padding:6px">Nội dung tin</td><td style="width:34px"></td></tr>'+
     rows.map(function(x){
       var t = x.t, i = x.i;
       var locked = !canEditAll && t.cs !== mine && t.cs !== '';
       var dis = locked ? ' disabled style="opacity:.55"' : '';
       return '<tr style="border-bottom:1px solid #f3f4f6;vertical-align:top">'+
         '<td style="padding:4px"><input value="'+esc(t.productCode)+'" onchange="_fuTplList['+i+'].productCode=this.value.trim().toUpperCase()||\'*\'"'+dis+' style="width:100%;padding:4px;border:1px solid #d1d5db;border-radius:5px;font-size:12px;text-transform:uppercase"></td>'+
-        '<td style="padding:4px"><select onchange="_fuTplList['+i+'].days=this.value"'+dis+' style="width:100%;padding:4px;border:1px solid #d1d5db;border-radius:5px;font-size:12px">'+
-          _fuTplDays.map(function(dd){ return '<option value="'+dd+'"'+(String(dd)===t.days?' selected':'')+'>'+(dd===30?'1 tháng':dd===60?'2 tháng':dd+' ngày')+'</option>'; }).join('')+'</select></td>'+
+        '<td style="padding:4px"><input type="number" min="1" max="365" list="futpl-days-hint" value="'+esc(t.days)+'" onchange="_fuTplList['+i+'].days=String(parseInt(this.value,10)||7)"'+dis+' title="Số ngày sau khi mua (tùy ý: 7, 14, 30, 60, 90...)" style="width:100%;padding:4px;border:1px solid #d1d5db;border-radius:5px;font-size:12px"></td>'+
         '<td style="padding:4px"><input value="'+esc(t.cs)+'" placeholder="(chung)" onchange="_fuTplList['+i+'].cs=this.value.trim().toLowerCase()"'+(canEditAll?'':' disabled style="opacity:.55"')+' style="width:100%;padding:4px;border:1px solid #d1d5db;border-radius:5px;font-size:12px"></td>'+
         '<td style="padding:4px"><textarea rows="2" onchange="_fuTplList['+i+'].template=this.value"'+dis+' style="width:100%;padding:4px;border:1px solid #d1d5db;border-radius:5px;font-size:12px;resize:vertical;font-family:inherit">'+esc(t.template)+'</textarea></td>'+
         '<td style="padding:4px">'+(locked?'':'<button onclick="_fuTplList.splice('+i+',1);renderFuTplTable()" title="Xóa" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:14px">✕</button>')+'</td>'+
