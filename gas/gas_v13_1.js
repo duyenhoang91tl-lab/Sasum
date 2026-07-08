@@ -1102,6 +1102,8 @@ var FU_LOG_HEADERS = ['phone', 'orderKey', 'days', 'sentAt', 'source'];
 var SH_ZALO_SCAN = 'ZaloContactScan';
 var ZALO_SCAN_HEADERS = ['phone', 'rawName', 'nameGuess', 'orderDateGuess', 'productCodeGuess', 'scannedAt', 'scannedBy'];
 var FU_CHECKPOINTS = [7, 14, 30, 60]; // ngay: 7, 14, 1 thang, 2 thang
+// Chi hoi tham khach mua tu 5/2026 tro di (don cu hon bo qua hoan toan)
+var FU_START = new Date(2026, 4, 1); // thang 5/2026 (thang tinh tu 0)
 
 // Bang quy doi ten/viet tat san pham -> ma san pham chuan (dung chung cho
 // OrderData.product/productDetail VA ten hien thi Zalo do CS dat).
@@ -1283,6 +1285,7 @@ function runFollowUpScan_() {
     var d = (orderDate instanceof Date) ? orderDate : new Date(orderDate);
     if (isNaN(d)) return;
     d.setHours(0, 0, 0, 0);
+    if (d < FU_START) return; // chi hoi tham khach mua tu 5/2026 tro di
     var daysSince = Math.round((today - d) / 86400000);
     if (FU_CHECKPOINTS.indexOf(daysSince) === -1) return;
     var np = normPhone_(phone);
@@ -1304,7 +1307,16 @@ function runFollowUpScan_() {
   }
 
   // 1) Uu tien du lieu don hang that trong OrderData
-  var orders = readAllOrders_();
+  // Chi doc sheet nam hien tai + nam truoc (moc xa nhat la 60 ngay, khong can doc 21-25)
+  var orders = [];
+  var curY = today.getFullYear();
+  var ossFU = getOrderSS_();
+  for (var syi = 0; syi < ORDER_SHEETS.length; syi++) {
+    var shYears = ORDER_SHEETS[syi].years;
+    if (shYears.indexOf(curY) === -1 && shYears.indexOf(curY - 1) === -1) continue;
+    var shFU = ossFU.getSheetByName(ORDER_SHEETS[syi].name);
+    if (shFU) orders = orders.concat(readOrders_(shFU));
+  }
   var phonesWithOrders = {};
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
