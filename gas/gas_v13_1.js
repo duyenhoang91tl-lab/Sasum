@@ -395,7 +395,7 @@ function doGet(e) {
 
     // ── HOI THAM TU DONG: xem mau tin hien co (de kiem tra da cau hinh chua) ──
     if (action === 'followUpTemplates') {
-      return jsonOut_({ templates: readFollowUpTemplates_(), checkpoints: FU_CHECKPOINTS });
+      return jsonOut_({ templates: readFollowUpTemplates_(), list: listFollowUpTemplates_(), checkpoints: FU_CHECKPOINTS });
     }
     // ── HOI THAM TU DONG: bang ma san pham (doc dong tu sheet "Mã Zalo", ZaloAI extension dung de doc ten Zalo) ──
     if (action === 'productCodeMap') {
@@ -468,6 +468,8 @@ function doPost(e) {
     if (action === 'broadcastCancel')      return broadcastCancel_(data.id);
     // ── HOI THAM TU DONG: nhan ket qua quet ten Zalo tu extension (du phong khi thieu OrderData) ──
     if (action === 'saveZaloScan')         return saveZaloScan_(data.rows);
+    // ── HOI THAM TU DONG: luu bang mau tin (UI Sasum) ──
+    if (action === 'saveFollowUpTemplates') return saveFollowUpTemplates_(data.templates);
     return jsonOut_({ error: 'Unknown action: ' + action });
   } catch(err) {
     return jsonOut_({ error: err.message });
@@ -1096,7 +1098,7 @@ function broadcastCancel_(id) {
 //    huong dan setup trigger o cuoi file)
 // ═══════════════════════════════════════════════════════════════
 var SH_FU_TEMPLATE = 'FollowUpTemplates';
-var FU_TEMPLATE_HEADERS = ['productCode', 'days', 'template'];
+var FU_TEMPLATE_HEADERS = ['productCode', 'days', 'template', 'cs'];
 var SH_FU_LOG = 'FollowUpLog';
 var FU_LOG_HEADERS = ['phone', 'orderKey', 'days', 'sentAt', 'source'];
 var SH_ZALO_SCAN = 'ZaloContactScan';
@@ -1189,10 +1191,51 @@ function readFollowUpTemplates_() {
     var code = String(vals[i][0] || '').trim().toUpperCase();
     var days = String(vals[i][1] || '').trim();
     var tpl = String(vals[i][2] || '').trim();
+    var cs = String(vals[i][3] || '').trim().toLowerCase();
     if (!days || !tpl) continue;
-    map[code + '|' + days] = tpl;
+    // key co CS: "HH|7|duyenht"; mau chung: "HH|7"
+    map[code + '|' + days + (cs ? '|' + cs : '')] = tpl;
   }
   return map;
+}
+
+// Danh sach dang mang (cho UI Sasum sua truc tiep)
+function listFollowUpTemplates_() {
+  var sh = getSheet_(SH_FU_TEMPLATE, FU_TEMPLATE_HEADERS);
+  var last = sh.getLastRow();
+  var out = [];
+  if (last < 2) return out;
+  var vals = sh.getRange(2, 1, last - 1, FU_TEMPLATE_HEADERS.length).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    if (!String(vals[i][1] || '').trim()) continue;
+    out.push({
+      productCode: String(vals[i][0] || '').trim().toUpperCase(),
+      days: String(vals[i][1] || '').trim(),
+      template: String(vals[i][2] || ''),
+      cs: String(vals[i][3] || '').trim().toLowerCase()
+    });
+  }
+  return out;
+}
+
+// Ghi de toan bo bang mau tin (UI Sasum gui len danh sach day du sau khi sua)
+function saveFollowUpTemplates_(list) {
+  if (!Array.isArray(list)) return jsonOut_({ error: 'templates phai la mang' });
+  var sh = getSheet_(SH_FU_TEMPLATE, FU_TEMPLATE_HEADERS);
+  sh.clearContents();
+  var matrix = [FU_TEMPLATE_HEADERS];
+  for (var i = 0; i < list.length; i++) {
+    var t = list[i] || {};
+    if (!String(t.days || '').trim() || !String(t.template || '').trim()) continue;
+    matrix.push([
+      String(t.productCode || '*').trim().toUpperCase(),
+      String(t.days).trim(),
+      String(t.template),
+      String(t.cs || '').trim().toLowerCase()
+    ]);
+  }
+  sh.getRange(1, 1, matrix.length, FU_TEMPLATE_HEADERS.length).setValues(matrix);
+  return jsonOut_({ ok: true, written: matrix.length - 1 });
 }
 
 function renderFollowUpTemplate_(tpl, ctx) {
@@ -1296,7 +1339,10 @@ function runFollowUpScan_() {
     if (doneKeys[logKey]) return;
 
     var code = productCodeFromText_(productText) || '*';
-    var tpl = templates[code + '|' + daysSince] || templates['*|' + daysSince];
+    var csOwn = ((careMap[np] && careMap[np].cs) || '').toLowerCase();
+    // Uu tien: mau rieng cua CS (theo ma SP -> mac dinh) -> mau chung (theo ma SP -> mac dinh)
+    var tpl = (csOwn && (templates[code + '|' + daysSince + '|' + csOwn] || templates['*|' + daysSince + '|' + csOwn]))
+      || templates[code + '|' + daysSince] || templates['*|' + daysSince];
     if (!tpl) return; // chua co mau cho san pham/moc ngay nay -> khong gui (tranh gui tin rong/chung chung)
 
     var msg = renderFollowUpTemplate_(tpl, { name: name || '', phone: np, days: daysSince, product: productText || '' });
