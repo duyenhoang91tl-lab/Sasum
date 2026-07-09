@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OME CS Portal 16.55.9.7.2026</title>
+<title>OME CS Portal 17.15.9.7.2026</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -799,6 +799,10 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
   <div id="col-dd-tacdong-items" style="max-height:200px;overflow-y:auto"></div>
   <div class="col-dd-footer"><button class="col-dd-clear" onclick="clearColFilter('tacdong')">Xóa lọc</button><button class="col-dd-apply" onclick="applyColFilter('tacdong')">Áp dụng</button></div>
 </div>
+<div class="col-dropdown" id="col-dd-bcstatus">
+  <div id="col-dd-bcstatus-items" style="max-height:200px;overflow-y:auto"></div>
+  <div class="col-dd-footer"><button class="col-dd-clear" onclick="clearColFilter('bcstatus')">Xóa lọc</button><button class="col-dd-apply" onclick="applyColFilter('bcstatus')">Áp dụng</button></div>
+</div>
 <div class="col-dropdown" id="col-dd-product">
   <input class="col-dd-search" placeholder="Tìm sản phẩm..." oninput="renderColDdItems('product',this.value)">
   <div id="col-dd-product-items" style="max-height:200px;overflow-y:auto"></div>
@@ -825,7 +829,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 <header>
   <div class="logo">
     <div class="logo-mark"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">16.55.9.7.2026</span>
+    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">17.15.9.7.2026</span>
   </div>
   <div class="hdr-r">
     <span class="fstatus" id="fstatus">Chưa có dữ liệu</span>
@@ -1113,7 +1117,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
             <th class="filterable col-cs" id="th-cs" onclick="openColDropdown('cs',event)"><div class="th-inner">CS phụ trách <span class="th-filter-icon">▼</span></div></th>
             <th class="filterable col-carecs" id="th-careCS" onclick="openColDropdown('careCS',event)"><div class="th-inner">CS chăm sóc <span class="th-filter-icon">▼</span></div></th>
             <th class="filterable col-source" id="th-source" style="display:none" onclick="openColDropdown('source',event)"><div class="th-inner">Nguồn <span class="th-filter-icon">▼</span></div></th>
-            <th class="col-bcstatus" id="th-bcstatus" title="Trạng thái gửi tin nhắn ở chiến dịch bắn (chọn ở dropdown 📢 phía trên bảng)">Trạng thái gửi TN</th>
+            <th class="filterable col-bcstatus" id="th-bcstatus" onclick="openColDropdown('bcstatus',event)" title="Trạng thái gửi TN ở chiến dịch bắn — nhấn ▼ để lọc, nhấn vào ô của khách để xem log"><div class="th-inner">Trạng thái gửi TN <span class="th-filter-icon">▼</span></div></th>
             <th class="col-note" style="min-width:160px">Ghi chú gần nhất</th>
             <th class="filterable col-sched" id="th-sched" onclick="openColDropdown('sched',event)"><div class="th-inner">Lịch kế tiếp <span class="th-filter-icon">▼</span></div></th>
             <th class="filterable col-lastact" id="th-lastact" style="min-width:130px" title="Nhấn ▼ để lọc · Nhấn ↕ để sắp xếp"><div class="th-inner" onclick="openColDropdown('lastact',event)">Lần tác động <span class="th-filter-icon">▼</span></div><span id="lastact-sort-icon" style="color:var(--hint);cursor:pointer;font-size:11px;margin-left:2px" onclick="event.stopPropagation();toggleLastActSort()" title="Sắp xếp theo lần tác động">↕</span></th>
@@ -1536,7 +1540,7 @@ function _foldVi(str){
 }
 
 // Column filters
-let colFilters = { name: new Set(), tier: new Set(), care: new Set(), zalo: new Set(), product: new Set(), cs: new Set(), careCS: new Set(), source: new Set(), sched: new Set(), lastact: new Set(), tacdong: new Set() };
+let colFilters = { name: new Set(), tier: new Set(), care: new Set(), zalo: new Set(), product: new Set(), cs: new Set(), careCS: new Set(), source: new Set(), sched: new Set(), lastact: new Set(), tacdong: new Set(), bcstatus: new Set() };
 let _colDdActive = null;
 
 // Advanced filters state
@@ -2357,6 +2361,21 @@ function applyFilters() {
       if (!matchTD) return false;
     }
 
+    // Column filter: trạng thái gửi TN chiến dịch bắn (bcstatus)
+    if (colFilters.bcstatus.size > 0) {
+      const _bcr = _bcStatusForPhone(c.phone);
+      let _bcCat;
+      if (!_bcr) _bcCat = 'Không trong chiến dịch';
+      else {
+        const _st = String(_bcr.status || '');
+        if (_st === 'sent') _bcCat = 'Đã gửi';
+        else if (_st.startsWith('failed')) _bcCat = 'Gửi lỗi';
+        else if (_st.startsWith('skip')) _bcCat = 'Bỏ qua';
+        else _bcCat = 'Chưa gửi';
+      }
+      if (!colFilters.bcstatus.has(_bcCat)) return false;
+    }
+
     // Year/month filter on orders
     if (ymYear || ymMonth || hourFrom !== '' || hourTo !== '') {
       const yr = ymYear ? parseInt(ymYear) : null;
@@ -2535,7 +2554,7 @@ function _rowHtml(c) {
     <td class="col-cs">${csHtml}</td>
     <td class="col-carecs">${careCSHtml}</td>
     <td class="col-source" style="${srcDisp}"><div class="btags">${srcTags}${srcExtra}</div></td>
-    <td class="col-bcstatus" style="${bcDisp}">${_bcStatusBadge(c.phone)}</td>
+    <td class="col-bcstatus" style="cursor:pointer;${bcDisp}" onclick="event.stopPropagation();openBcLogModal('${esc(c.phone)}')" title="Nhấn để xem log gửi TN của khách này">${_bcStatusBadge(c.phone)}</td>
     <td class="col-note" style="font-size:11px;color:var(--muted)" title="${noteTitle}">${noteStr}</td>
     <td class="col-sched">${nsHtml}</td>
     <td class="col-lastact" style="${lastActDisp}">${lastActHtml}</td>
@@ -4941,6 +4960,7 @@ function renderColDdItems(col, query) {
   else if (col==='sched') values = ['Có lịch', 'Không có lịch', ...SCHED_TYPES.map(t=>t.label)];
   else if (col==='lastact') values = ['Hôm nay', 'Hôm qua', '≤ 3 ngày', '≤ 7 ngày', '≤ 14 ngày', '≤ 30 ngày', '> 30 ngày', 'Chưa tác động', '__custom_range__'];
   else if (col==='tacdong') values = ['Trong 24h', 'Hôm nay', 'Hôm qua', '≤ 3 ngày', '≤ 7 ngày', '> 7 ngày', 'Chưa có'];
+  else if (col==='bcstatus') values = ['Đã gửi', 'Gửi lỗi', 'Bỏ qua', 'Chưa gửi', 'Không trong chiến dịch'];
   else values = [];
   const filtered = values.filter(v=>_foldVi(v||'—').includes(q));
   const container = document.getElementById('col-dd-'+col+'-items');
@@ -10543,6 +10563,56 @@ function renderBcStat(){
       '<div style="font-size:11px;color:#374151"><b>Đã gửi theo CS:</b><br>'+csChips+'</div>'+
     '</div>';
   }).join('');
+}
+</script>
+
+<!-- ═══ LOG GỬI TN CHIẾN DỊCH CỦA 1 KHÁCH ═══ -->
+<div class="modal-overlay" id="bclog-modal" style="z-index:2700">
+<div class="modal" style="max-width:560px;width:94vw">
+  <div class="modal-hdr">
+    <div class="modal-title">📨 Log gửi tin nhắn chiến dịch</div>
+    <div class="modal-sub" id="bclog-sub"></div>
+  </div>
+  <div class="modal-body" style="max-height:55vh;overflow-y:auto" id="bclog-body"></div>
+  <div style="display:flex;justify-content:flex-end;padding:12px 16px;border-top:1px solid #e5e7eb">
+    <button onclick="document.getElementById('bclog-modal').classList.remove('open')" style="padding:8px 16px;border:1px solid #d1d5db;background:#fff;border-radius:6px;cursor:pointer;font-size:13px">Đóng</button>
+  </div>
+</div>
+</div>
+<script>
+function openBcLogModal(phone){
+  var m = document.getElementById('bclog-modal');
+  var c = allCustomers.find(function(x){ return x.phone === phone; });
+  document.getElementById('bclog-sub').textContent = (c ? c.name + ' — ' : '') + phone;
+  var body = document.getElementById('bclog-body');
+  // Gom moi chien dich co chua SDT nay (moi nhat truoc)
+  var entries = [];
+  (broadcastHistory || []).forEach(function(b){
+    if (!(b.phones || []).includes(phone)) return;
+    var rec = (b.sent || {})[phone];
+    entries.push({ label: b.label || b.id, createdAt: b.createdAt || '', rec: rec });
+  });
+  if (!entries.length){
+    body.innerHTML = '<div style="padding:16px;text-align:center;color:#6b7280;font-size:12px">Khách này chưa nằm trong chiến dịch bắn nào.</div>';
+  } else {
+    body.innerHTML = entries.map(function(e){
+      var st = e.rec ? String(e.rec.status || 'sent') : 'pending';
+      var ts = e.rec && e.rec.ts ? new Date(e.rec.ts) : null;
+      var when = ts ? (String(ts.getHours()).padStart(2,'0') + ':' + String(ts.getMinutes()).padStart(2,'0') + ' ' + ts.getDate() + '/' + (ts.getMonth()+1) + '/' + ts.getFullYear()) : '';
+      var icon, text, color;
+      if (st === 'sent'){ icon='✅'; text='đã gửi'; color='#15803d'; }
+      else if (st.indexOf('failed') === 0){ icon='❌'; text='không gửi được'; color='#dc2626'; }
+      else if (st.indexOf('skip') === 0){ icon='⏭'; text='bỏ qua'; color='#6b7280'; }
+      else { icon='⏳'; text='chưa gửi'; color='#c2410c'; }
+      var created = e.createdAt ? new Date(e.createdAt).toLocaleDateString('vi-VN') : '';
+      return '<div style="border:1px solid #e5e7eb;border-radius:7px;padding:8px 12px;margin-bottom:6px;font-size:12px;background:#fff">'+
+        '<span style="color:'+color+';font-weight:600">'+icon+' '+(when ? when + ' — ' : '')+text+'</span>'+
+        ' chiến dịch <b>'+esc(e.label)+'</b>'+
+        (created ? ' <span style="color:#9ca3af;font-size:10px">(tạo '+created+')</span>' : '')+
+      '</div>';
+    }).join('');
+  }
+  m.classList.add('open');
 }
 </script>
 </body>
