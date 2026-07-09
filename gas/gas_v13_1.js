@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script v12.0  (Unified)
+//  OME CS Portal — Google Apps Script — PHIEN BAN 10.22.9.7.2026 (gio.phut.ngay.thang.nam)
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)
@@ -104,6 +104,18 @@ function setSetting_(key, value) {
   else sh.appendRow([key, value]);
   return jsonOut_({ ok: true });
 }
+function addZaloNick_(nick) {
+  nick = String(nick || '').trim();
+  if (!nick) return jsonOut_({ error: 'Thieu nick' });
+  var raw = getSetting_('nickZaloList');
+  var list = [];
+  try { list = JSON.parse(raw || '[]'); } catch (e) {}
+  if (!Array.isArray(list)) list = [];
+  if (list.indexOf(nick) === -1) list.push(nick);
+  setSetting_('nickZaloList', JSON.stringify(list));
+  return jsonOut_({ ok: true, list: list });
+}
+
 function readCareStatus_(ss) {
   var sh = ss.getSheetByName(SH_SET);
   if (!sh || sh.getLastRow() < 2) return null;
@@ -457,6 +469,8 @@ function doPost(e) {
     if (action === 'saveUsers')           return saveUsers_(data.users);
     if (action === 'saveAudit')           return saveAudit_(data.rows);
     if (action === 'setSetting')          return setSetting_(data.key, data.value);
+    // Them 1 nick Zalo vao danh sach chung (MERGE tren server -> khong ghi de mat nick cu)
+    if (action === 'addZaloNick')         return addZaloNick_(data.nick);
     if (action === 'saveAssign')          return saveAssignEntry_(data.entry);
     if (action === 'saveAssignHistory')   return saveAssignHistory_(data.history);
     if (action === 'saveCareStatus')      return saveCareStatus_(data.careStatus);

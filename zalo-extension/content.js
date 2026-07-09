@@ -1,4 +1,7 @@
-// OME Zalo AI Helper - content script v15.2
+// OME Zalo AI Helper - content script phien ban 10.22.9.7.2026 (gio.phut.ngay.thang.nam xuat ban)
+// v15.3: Tu dong cap nhat tinh trang ket ban Zalo ve Sasum khi chay chien dich
+//        (Gui ket ban->Chua ket ban; Da gui/Huy yeu cau->Chua dong y; ten co CTN->Chan;
+//         ten co NHD->Zalo ngung hd; khong thay gi->Da ket ban; trung trang thai cu->bo qua)
 // v15.2: Dinh tuyen gui theo Nick Zalo (perPhoneNick tu CareData.nickZalos);
 //        khong danh dau skipped/failed len server nua -> nick khac van gui duoc
 // v15.1: Dong bo gan-tuc-thoi - tu dong poll GAS moi 6s khi panel dang mo de lay
@@ -313,14 +316,21 @@
     nzAddBtn.addEventListener('click', async () => {
       const nick = (prompt('Nhập nick Zalo mới:') || '').trim();
       if (!nick) return;
-      if (!_zaloNickList.includes(nick)) _zaloNickList.push(nick);
-      // Save via GAS setSetting
       if (GAS_URL) {
         try {
-          await fetch(GAS_URL, {method:'POST', body:JSON.stringify({action:'setSetting',key:'nickZaloList',value:JSON.stringify(_zaloNickList)}), headers:{'Content-Type':'text/plain'}});
+          // Uu tien addZaloNick: server tu MERGE vao danh sach chung -> khong ghi de mat nick cu
+          const r = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({action:'addZaloNick', nick}), headers:{'Content-Type':'text/plain'}});
+          const d = await r.json();
+          if (d && d.error) {
+            // GAS cu chua co addZaloNick -> fallback: tai list MOI NHAT tu server, merge roi luu
+            await loadNickZaloList_();
+            if (!_zaloNickList.includes(nick)) _zaloNickList.push(nick);
+            await fetch(GAS_URL, {method:'POST', body:JSON.stringify({action:'setSetting',key:'nickZaloList',value:JSON.stringify(_zaloNickList)}), headers:{'Content-Type':'text/plain'}});
+          }
         } catch(e) {}
       }
       await loadNickZaloList_();
+      if (!_zaloNickList.includes(nick)) _zaloNickList.push(nick);
       const nzSelEl = document.getElementById('zai-nz-sel');
       if (nzSelEl) nzSelEl.value = nick;
       _currentZaloNick = nick;
@@ -1506,6 +1516,52 @@ async function startReminderPoll_() {
     return false;
   }
 
+  // ── TU DONG CAP NHAT TINH TRANG KET BAN ZALO VE SASUM ──
+  // Quy uoc doc tu giao dien chat dang mo:
+  //  - Co nut/banner "Gửi kết bạn" / "Gửi yêu cầu kết bạn"  -> Chưa kết bạn
+  //  - Co "Đã gửi lời mời/yêu cầu" / "Hủy yêu cầu" / "Thu hồi" -> Chưa đồng ý (da gui, cho chap nhan)
+  //  - Ten khach co chu CTN -> Chặn (da ket ban nhung chan tin nhan)
+  //  - Ten khach co chu NHD -> Zalo ngừng hd (tai khoan ngung hoat dong)
+  //  - Khong thay gi -> Đã kết bạn
+  function detectZaloFriendStatus_() {
+    const name = getCurrentChatName() || '';
+    if (/\bNHD\b/i.test(name)) return 'Zalo ngừng hd';
+    if (/\bCTN\b/i.test(name)) return 'Chặn';
+    let sawSend = false, sawPending = false;
+    try {
+      const els = document.querySelectorAll('button, a, span, div');
+      for (const el of els) {
+        if (el.children && el.children.length > 0) continue;
+        const t = (el.textContent || '').trim();
+        if (!t || t.length > 70) continue;
+        const tl = t.toLowerCase();
+        if (/hủy yêu cầu|đã gửi (lời mời|yêu cầu)|thu hồi lời mời/.test(tl)) { sawPending = true; break; }
+        if (/^gửi kết bạn$|gửi yêu cầu kết bạn/.test(tl)) sawSend = true;
+      }
+    } catch (e) {}
+    if (sawPending) return 'Chưa đồng ý';
+    if (sawSend) return 'Chưa kết bạn';
+    return 'Đã kết bạn';
+  }
+
+  // Cap nhat len Sasum (chi ghi khi khac gia tri hien tai -> khach da update roi thi tu bo qua)
+  async function autoUpdateZaloStatus_(phone) {
+    if (!GAS_URL || !phone) return;
+    try {
+      const st = detectZaloFriendStatus_();
+      const sep = GAS_URL.includes('?') ? '&' : '?';
+      const r = await fetch(GAS_URL + sep + 'action=lookup&phone=' + encodeURIComponent(phone), { redirect: 'follow' });
+      const d = await r.json();
+      const care = (d && d.care) || null;
+      if (care && (care.zalo || '') === st) return; // da dung trang thai nay roi -> bo qua
+      const row = Object.assign({}, care || { phone: phone, cs: _currentCS || '' });
+      row.phone = phone;
+      row.zalo = st;
+      await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveSingle', row }), headers: { 'Content-Type': 'text/plain' } });
+      bcLog_('🔗 Cập nhật Zalo "' + st + '" → Sasum: ' + phone);
+    } catch (e) {}
+  }
+
   async function startBroadcast_(camp) {
     if (_bcRunning) { bcLog_('Đang có chiến dịch chạy, vui lòng dừng trước khi bắt đầu chiến dịch khác.'); return; }
 
@@ -1565,6 +1621,8 @@ async function startReminderPoll_() {
           bcLog_('⏭ Bỏ qua (không mở được chat — có thể chưa kết bạn nick này): ' + phone);
         } else {
           await sleep_(600);
+          // Tu dong doc tinh trang ket ban tu giao dien chat -> update ve Sasum (khong chan luong gui)
+          autoUpdateZaloStatus_(phone).catch(() => {});
           const inputEl = findZaloComposeInput_();
           if (!inputEl) {
             failCount++;
