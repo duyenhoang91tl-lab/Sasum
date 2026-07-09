@@ -256,6 +256,9 @@
     const col4 = addEl(row2, 'div', {className:'zai-field-col'});
     addEl(col4, 'label', {textContent:'Ghi chú hẹn'});
     addEl(col4, 'input', {id:'zai-hen-note', type:'text', placeholder:'Hẹn gì...'});
+    const col5 = addEl(row2, 'div', {className:'zai-field-col'});
+    addEl(col5, 'label', {textContent:'🎂 Sinh nhật'});
+    addEl(col5, 'input', {id:'zai-birthday', type:'date'});
 
     addEl(upd, 'label', {textContent:'Ghi chú CS'});
     const noteWrap = addEl(upd, 'div', {className:'zai-note-wrap'});
@@ -654,6 +657,7 @@
     document.getElementById('zai-hen-date').value   = care&&care.schedHen ? toInputDate_(care.schedHen) : '';
     document.getElementById('zai-hen-note').value   = care&&care.schedHenNote||'';
     document.getElementById('zai-kh-status-sel').value = care&&care.khStatus||'';
+    document.getElementById('zai-birthday').value   = care&&care.birthday||'';
     // Ghi chú CS: đọc dữ liệu (đồng bộ 2 chiều với Sasum, cùng định dạng JSON [{text,user,time}])
     const noteNewEl = document.getElementById('zai-note-new');
     if (noteNewEl) noteNewEl.value = '';
@@ -710,6 +714,7 @@
     syncField('zai-zalo-sel','zalo');
     syncField('zai-kh-status-sel','khStatus');
     syncField('zai-hen-note','schedHenNote');
+    syncField('zai-birthday','birthday');
     const henDateEl = document.getElementById('zai-hen-date');
     if (henDateEl) {
       const baseHen = baseline.schedHen ? toInputDate_(baseline.schedHen) : '';
@@ -760,6 +765,7 @@
     btn.disabled = true; btn.textContent = 'Đang lưu...';
     try {
       const c = care||{};
+      const birthday = document.getElementById('zai-birthday') ? document.getElementById('zai-birthday').value : '';
       const row = {
         phone:_currentCustData.phone, status:status||c.status||'',
         zalo:zalo||c.zalo||'', cs:cs||c.cs||'', note,
@@ -768,6 +774,7 @@
         schedCS:c.schedCS||'', schedCSNote:c.schedCSNote||'',
         schedHen:henDate||c.schedHen||'', schedHenNote:henNote||c.schedHenNote||'',
         khStatus: document.getElementById('zai-kh-status-sel').value || (c.khStatus||''),
+        birthday: birthday || c.birthday || '',
         nickZalos: (() => {
           const existing = c.nickZalos || [];
           if (_currentZaloNick && !existing.includes(_currentZaloNick)) return [...existing, _currentZaloNick];
