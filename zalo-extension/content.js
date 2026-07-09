@@ -650,8 +650,8 @@
     updSec.style.display = 'block';
     document.getElementById('zai-status-sel').value = care&&care.status||'';
     document.getElementById('zai-zalo-sel').value   = care&&care.zalo||'';
-    // CS chăm sóc & Nick Zalo đang dùng: luôn = giá trị đang chọn ở thanh trên (ẩn, không cho sửa riêng ở đây)
-    document.getElementById('zai-cs-sel').value     = _currentCS || '';
+    // CS chăm sóc: đồng bộ từ server (care.cs), fallback nếu không có từ server thì dùng _currentCS
+    document.getElementById('zai-cs-sel').value     = care&&care.cs || _currentCS || '';
     const nzF = document.getElementById('zai-nz-form-sel');
     if (nzF) nzF.value = _currentZaloNick || '';
     document.getElementById('zai-hen-date').value   = care&&care.schedHen ? toInputDate_(care.schedHen) : '';
