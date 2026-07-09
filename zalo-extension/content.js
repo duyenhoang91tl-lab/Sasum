@@ -1,4 +1,4 @@
-// OME Zalo AI Helper - content script phien ban 16.55.9.7.2026 (gio.phut.ngay.thang.nam xuat ban)
+// OME Zalo AI Helper - content script phien ban 17.2.9.7.2026 (gio.phut.ngay.thang.nam xuat ban)
 // v15.3: Tu dong cap nhat tinh trang ket ban Zalo ve Sasum khi chay chien dich
 //        (Gui ket ban->Chua ket ban; Da gui/Huy yeu cau->Chua dong y; ten co CTN->Chan;
 //         ten co NHD->Zalo ngung hd; khong thay gi->Da ket ban; trung trang thai cu->bo qua)
@@ -48,6 +48,7 @@
   let _bcDateFrom = '';
   let _bcDateTo = '';
   let _bcHidden = {};        // {campId: true} — luu rieng tung may (chrome.storage)
+  let _bcActive = {};        // {campId: true} — KICH HOAT rieng tung may: ai bat thi may do moi chay duoc
   let _bcShowHidden = false; // dang xem danh sach da an?
   let _bcRunningCampId = ''; // chien dich dang chay (nut ⏸/⏹ hien theo tung the)
 
@@ -305,7 +306,7 @@
       tonesDiv.querySelectorAll('.zai-tone').forEach(b => b.classList.remove('active'));
       tb.classList.add('active'); _activeTone = tb.dataset.tone;
     });
-    chrome.storage.local.get(['ome_bc_hidden'], (res) => { _bcHidden = res.ome_bc_hidden || {}; });
+    chrome.storage.local.get(['ome_bc_hidden','ome_bc_active'], (res) => { _bcHidden = res.ome_bc_hidden || {}; _bcActive = res.ome_bc_active || {}; });
     chrome.storage.local.get(['ome_gas_url','ome_current_cs','ome_current_nz'], (res) => {
       GAS_URL = res.ome_gas_url || '';
       if (GAS_URL) { inpGas.value = GAS_URL; loadCSNames_(); loadNickZaloList_(); loadCareStatusTree_(); loadProductCodeMap_(); }
@@ -1341,14 +1342,11 @@ async function startReminderPoll_() {
     renderBroadcastList_();
   }
 
-  async function _bcSetStatus_(camp, status) {
-    if (!GAS_URL) return;
-    try {
-      const r = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'broadcastSetStatus', id: camp.id, status }), redirect: 'follow' });
-      const d = await r.json();
-      if (d && d.ok) { camp.status = d.status; renderBroadcastList_(); }
-      else if (d && d.error) bcLog_('Lỗi đổi trạng thái: ' + d.error);
-    } catch (e) { bcLog_('Lỗi đổi trạng thái: ' + e.message); }
+  // Kich hoat/tat chien dich CHI TREN MAY NAY (moi CS tu bat cho minh, khong anh huong nguoi khac)
+  function _bcToggleActive_(campId, on) {
+    if (on) _bcActive[campId] = true; else delete _bcActive[campId];
+    chrome.storage.local.set({ ome_bc_active: _bcActive });
+    renderBroadcastList_();
   }
 
   function _bcCampVisible_(camp) {
@@ -1394,15 +1392,18 @@ async function startReminderPoll_() {
       listWrap.innerHTML = '<div style="font-size:11px;color:#6b7280;padding:6px 0">' + (_bcShowHidden ? 'Không có chiến dịch nào đã ẩn.' : 'Không có chiến dịch nào đang chờ gửi (khớp bộ lọc).') + '</div>';
     } else {
       visible.forEach(camp => {
-        const isActive = (camp.status || 'active') === 'active';
+        const serverOff = (camp.status || 'active') === 'paused'; // admin tat tu Sasum -> khoa voi moi nguoi
+        const isActive = !serverOff && !!_bcActive[camp.id];      // kich hoat rieng tren may nay
         const isRunningThis = _bcRunning && _bcRunningCampId === camp.id;
         const card = document.createElement('div');
         card.style.cssText = 'background:#fff;border:1px solid ' + (isActive ? '#bbf7d0' : '#e5e7eb') + ';border-radius:7px;padding:8px 10px;margin-bottom:6px;font-size:12px;' + (isActive ? '' : 'opacity:.75;');
         const dateStr = camp.createdAt ? new Date(camp.createdAt).toLocaleDateString('vi-VN') : '';
+        const badge = serverOff ? 'ADMIN ĐÃ TẮT' : (isActive ? 'ĐANG KÍCH HOẠT' : 'CHƯA KÍCH HOẠT');
+        const badgeCss = serverOff ? 'background:#fef2f2;color:#dc2626' : (isActive ? 'background:#dcfce7;color:#15803d' : 'background:#f3f4f6;color:#6b7280');
         card.innerHTML =
           '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">' +
             '<span style="font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(camp.label || camp.id) + '</span>' +
-            '<span style="font-size:9px;font-weight:700;border-radius:10px;padding:1px 7px;' + (isActive ? 'background:#dcfce7;color:#15803d' : 'background:#f3f4f6;color:#6b7280') + '">' + (isActive ? 'ĐANG KÍCH HOẠT' : 'ĐANG TẮT') + '</span>' +
+            '<span style="font-size:9px;font-weight:700;border-radius:10px;padding:1px 7px;' + badgeCss + '">' + badge + '</span>' +
           '</div>' +
           '<div style="color:#6b7280;font-size:11px;margin-bottom:6px">Còn ' + camp.pendingPhones.length + '/' + camp.total + ' khách chưa gửi &middot; ' + (camp.images || []).length + ' ảnh' + (dateStr ? ' &middot; tạo ' + dateStr : '') + '</div>';
         const btnRow = document.createElement('div');
@@ -1428,16 +1429,17 @@ async function startReminderPoll_() {
           startBtn.className = 'zai-btn zai-btn-primary zai-btn-sm';
           startBtn.textContent = '▶ Bắt đầu';
           startBtn.disabled = _bcRunning || !isActive;
-          startBtn.title = !isActive ? 'Chiến dịch đang TẮT — bấm "Kích hoạt" trước' : (_bcRunning ? 'Đang có chiến dịch khác chạy' : '');
+          startBtn.title = serverOff ? 'Admin đã tắt chiến dịch này trên Sasum' : (!isActive ? 'Bấm "⏻ Kích hoạt" trước — chỉ áp dụng trên máy của bạn' : (_bcRunning ? 'Đang có chiến dịch khác chạy' : ''));
           startBtn.addEventListener('click', () => startBroadcast_(camp));
           btnRow.appendChild(startBtn);
         }
 
         const togBtn = document.createElement('button');
         togBtn.className = 'zai-btn zai-btn-secondary zai-btn-sm';
-        togBtn.textContent = isActive ? '⏻ Tắt' : '⏻ Kích hoạt';
-        togBtn.disabled = isRunningThis;
-        togBtn.addEventListener('click', () => _bcSetStatus_(camp, isActive ? 'paused' : 'active'));
+        togBtn.textContent = _bcActive[camp.id] ? '⏻ Tắt' : '⏻ Kích hoạt';
+        togBtn.title = 'Chỉ áp dụng trên máy này — CS nào kích hoạt thì máy đó mới chạy được';
+        togBtn.disabled = isRunningThis || serverOff;
+        togBtn.addEventListener('click', () => _bcToggleActive_(camp.id, !_bcActive[camp.id]));
         btnRow.appendChild(togBtn);
 
         const hideBtn = document.createElement('button');
@@ -1662,7 +1664,8 @@ async function startReminderPoll_() {
 
   async function startBroadcast_(camp) {
     if (_bcRunning) { bcLog_('Đang có chiến dịch chạy, vui lòng dừng trước khi bắt đầu chiến dịch khác.'); return; }
-    if ((camp.status || 'active') !== 'active') { alert('Chiến dịch "' + (camp.label || camp.id) + '" đang TẮT. Bấm "⏻ Kích hoạt" trước khi gửi.'); return; }
+    if ((camp.status || 'active') === 'paused') { alert('Chiến dịch "' + (camp.label || camp.id) + '" đã bị Admin tắt trên Sasum.'); return; }
+    if (!_bcActive[camp.id]) { alert('Chiến dịch "' + (camp.label || camp.id) + '" chưa được kích hoạt trên máy này. Bấm "⏻ Kích hoạt" trước khi gửi.'); return; }
 
     // Kiem tra khop Nick Zalo (chi khi nguoi dung bat tuy chon nay)
     if (_bcCheckNick) {
