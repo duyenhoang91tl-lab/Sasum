@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OME CS Portal 15.58.9.7.2026</title>
+<title>OME CS Portal 16.48.9.7.2026</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -825,7 +825,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 <header>
   <div class="logo">
     <div class="logo-mark"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">15.58.9.7.2026</span>
+    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">16.48.9.7.2026</span>
   </div>
   <div class="hdr-r">
     <span class="fstatus" id="fstatus">Chưa có dữ liệu</span>
@@ -978,6 +978,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
           <button class="btn sm secondary" id="assign-btn" onclick="openAssignModal()" title="Chia data đang lọc cho CS">
             👥 Chia data
           </button>
+          <button class="btn sm secondary" id="bcstat-open-btn" onclick="openBcStatModal()" title="Tình trạng chiến dịch + số khách đã gửi theo CS">📊 TK chiến dịch</button>
           <button class="btn sm secondary" id="bct-open-btn" onclick="openBctModal()" title="Lọc khách theo sản phẩm chi tiết / số đơn / thời gian mua / nguồn / phân loại rồi soạn tin bắn">🎯 CD theo điều kiện</button>
           <button class="btn sm secondary" id="futpl-inline-btn" onclick="openFuTplModal()" title="Mẫu tin hỏi thăm tự động theo mốc ngày sau mua — máy tự tạo chiến dịch mỗi sáng">📨 Hỏi thăm tự động</button>
           <button class="btn sm secondary" id="broadcast-filter-btn" onclick="openBroadcastFromCurrentFilter()" title="Tạo chiến dịch bắn trực tiếp từ danh sách đang lọc (CS, sản phẩm, nguồn, trạng thái, ngày mua...) — không cần qua Chia data">
@@ -10443,6 +10444,105 @@ function bctContinue(){
     phones: phones,
     csName: ''
   }, 'Theo điều kiện đã chọn — ' + phones.length + ' khách');
+}
+</script>
+
+<!-- ═══ THỐNG KÊ CHIẾN DỊCH GỬI HÀNG LOẠT ═══ -->
+<div class="modal-overlay" id="bcstat-modal" style="z-index:2600">
+<div class="modal" style="max-width:900px;width:96vw">
+  <div class="modal-hdr">
+    <div class="modal-title">📊 Thống kê chiến dịch gửi hàng loạt</div>
+    <div class="modal-sub">Tình trạng từng chiến dịch, tiến độ gửi và số khách đã gửi theo từng CS.</div>
+  </div>
+  <div class="modal-body" style="max-height:62vh;overflow-y:auto">
+    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
+      <input id="bcstat-search" type="text" placeholder="🔍 Tìm tên chiến dịch..." oninput="renderBcStat()" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">
+      <select id="bcstat-status" onchange="renderBcStat()" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">
+        <option value="">— Mọi trạng thái —</option>
+        <option value="active">Đang kích hoạt</option>
+        <option value="paused">Đang tắt</option>
+        <option value="cancelled">Đã hủy</option>
+      </select>
+      <button onclick="pullBroadcastHistory().then(renderBcStat)" style="padding:6px 12px;background:#fff;border:1.5px solid #00b14f;color:#00b14f;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">🔄 Làm mới</button>
+    </div>
+    <div id="bcstat-table"></div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;padding:12px 16px;border-top:1px solid #e5e7eb">
+    <button onclick="document.getElementById('bcstat-modal').classList.remove('open')" style="padding:8px 16px;border:1px solid #d1d5db;background:#fff;border-radius:6px;cursor:pointer;font-size:13px">Đóng</button>
+  </div>
+</div>
+</div>
+<script>
+function openBcStatModal(){
+  document.getElementById('bcstat-modal').classList.add('open');
+  if (!broadcastHistory.length) { pullBroadcastHistory().then(renderBcStat); }
+  renderBcStat();
+}
+
+function _bcstatCsBreakdown(b){
+  var byCS = {};
+  Object.keys(b.sent || {}).forEach(function(ph){
+    var rec = b.sent[ph];
+    if (!rec || (rec.status || 'sent') !== 'sent') return;
+    var cs = (careData[ph] && careData[ph].cs) || '(chưa gán)';
+    byCS[cs] = (byCS[cs] || 0) + 1;
+  });
+  return byCS;
+}
+
+async function bcstatToggle(id, toStatus){
+  if (!gsUrl) return;
+  try {
+    var r = await fetch(gsUrl, {method:'POST', redirect:'follow', body: JSON.stringify({action:'broadcastSetStatus', id: id, status: toStatus})});
+    var d = await r.json();
+    if (d.ok){
+      var b = broadcastHistory.find(function(x){ return x.id === id; });
+      if (b) b.status = d.status;
+      renderBcStat();
+      toast(toStatus === 'active' ? '✓ Đã kích hoạt chiến dịch' : '✓ Đã tắt chiến dịch');
+    } else toast('Lỗi: ' + (d.error || 'không rõ'));
+  } catch(e){ toast('Lỗi kết nối: ' + e.message); }
+}
+
+function renderBcStat(){
+  var box = document.getElementById('bcstat-table');
+  if (!box) return;
+  var q = (document.getElementById('bcstat-search').value || '').toLowerCase();
+  var stF = document.getElementById('bcstat-status').value;
+  var rows = broadcastHistory.filter(function(b){
+    if (q && !(b.label || b.id).toLowerCase().includes(q)) return false;
+    var st = b.status || 'active';
+    if (stF && st !== stF) return false;
+    return true;
+  });
+  if (!rows.length){ box.innerHTML = '<div style="padding:16px;text-align:center;color:#6b7280;font-size:12px">Không có chiến dịch nào khớp bộ lọc.</div>'; return; }
+  box.innerHTML = rows.map(function(b){
+    var st = b.status || 'active';
+    var total = (b.phones || []).length;
+    var sentOk = 0;
+    Object.keys(b.sent || {}).forEach(function(ph){ var r=b.sent[ph]; if (r && (r.status||'sent')==='sent') sentOk++; });
+    var pct = total ? Math.round(sentOk / total * 100) : 0;
+    var byCS = _bcstatCsBreakdown(b);
+    var csChips = Object.keys(byCS).sort().map(function(cs){
+      return '<span style="background:#dcfce7;color:#166534;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:600;margin-right:4px">'+esc(cs)+': '+byCS[cs]+'</span>';
+    }).join('') || '<span style="font-size:10px;color:#9ca3af">chưa gửi khách nào</span>';
+    var stBadge = st === 'active'
+      ? '<span style="background:#dcfce7;color:#15803d;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700">ĐANG KÍCH HOẠT</span>'
+      : st === 'paused'
+      ? '<span style="background:#fef9c3;color:#a16207;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700">ĐANG TẮT</span>'
+      : '<span style="background:#f3f4f6;color:#6b7280;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700">ĐÃ HỦY</span>';
+    var togBtn = st === 'cancelled' ? '' :
+      '<button onclick="bcstatToggle(\''+esc(b.id)+'\',\''+(st==='active'?'paused':'active')+'\')" style="padding:3px 10px;border:1px solid '+(st==='active'?'#d1d5db':'#00b14f')+';background:#fff;color:'+(st==='active'?'#6b7280':'#00b14f')+';border-radius:5px;cursor:pointer;font-size:11px;font-weight:600">'+(st==='active'?'⏻ Tắt':'⏻ Kích hoạt')+'</button>';
+    var dateStr = b.createdAt ? new Date(b.createdAt).toLocaleString('vi-VN') : '';
+    return '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#fff">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">'+
+        '<span style="font-weight:700;font-size:13px;flex:1;min-width:0">'+esc(b.label || b.id)+'</span>'+stBadge+togBtn+
+      '</div>'+
+      '<div style="font-size:11px;color:#6b7280;margin-bottom:6px">'+(dateStr?'Tạo: '+esc(dateStr)+' · ':'')+(b.csName?'CS: '+esc(b.csName)+' · ':'')+'Đã gửi <b style="color:#15803d">'+sentOk+'</b>/'+total+' khách ('+pct+'%)</div>'+
+      '<div style="background:#f3f4f6;border-radius:4px;height:6px;margin-bottom:6px;overflow:hidden"><div style="background:#00b14f;height:100%;width:'+pct+'%"></div></div>'+
+      '<div style="font-size:11px;color:#374151"><b>Đã gửi theo CS:</b><br>'+csChips+'</div>'+
+    '</div>';
+  }).join('');
 }
 </script>
 </body>

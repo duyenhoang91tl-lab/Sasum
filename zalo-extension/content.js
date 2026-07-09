@@ -1,4 +1,4 @@
-// OME Zalo AI Helper - content script phien ban 15.58.9.7.2026 (gio.phut.ngay.thang.nam xuat ban)
+// OME Zalo AI Helper - content script phien ban 16.48.9.7.2026 (gio.phut.ngay.thang.nam xuat ban)
 // v15.3: Tu dong cap nhat tinh trang ket ban Zalo ve Sasum khi chay chien dich
 //        (Gui ket ban->Chua ket ban; Da gui/Huy yeu cau->Chua dong y; ten co CTN->Chan;
 //         ten co NHD->Zalo ngung hd; khong thay gi->Da ket ban; trung trang thai cu->bo qua)
@@ -43,6 +43,13 @@
   // Co kiem tra khop Nick Zalo dang dung voi Nick phu trach cua chien dich truoc khi gui khong
   // (mac dinh TAT vi du lieu Nick Zalo theo khach/chien dich chua duoc dong bo day du)
   let _bcCheckNick = false;
+  // Bo loc + an/hien danh sach chien dich
+  let _bcSearch = '';
+  let _bcDateFrom = '';
+  let _bcDateTo = '';
+  let _bcHidden = {};        // {campId: true} — luu rieng tung may (chrome.storage)
+  let _bcShowHidden = false; // dang xem danh sach da an?
+  let _bcRunningCampId = ''; // chien dich dang chay (nut ⏸/⏹ hien theo tung the)
 
   const POLL_INTERVAL_MS = 6000; // dong bo gan-tuc-thoi: kiem tra du lieu moi moi 6 giay khi panel dang mo
 
@@ -298,6 +305,7 @@
       tonesDiv.querySelectorAll('.zai-tone').forEach(b => b.classList.remove('active'));
       tb.classList.add('active'); _activeTone = tb.dataset.tone;
     });
+    chrome.storage.local.get(['ome_bc_hidden'], (res) => { _bcHidden = res.ome_bc_hidden || {}; });
     chrome.storage.local.get(['ome_gas_url','ome_current_cs','ome_current_nz'], (res) => {
       GAS_URL = res.ome_gas_url || '';
       if (GAS_URL) { inpGas.value = GAS_URL; loadCSNames_(); loadNickZaloList_(); loadCareStatusTree_(); loadProductCodeMap_(); }
@@ -1327,66 +1335,143 @@ async function startReminderPoll_() {
     }
   }
 
+  function _bcToggleHide_(id, hide) {
+    if (hide) _bcHidden[id] = true; else delete _bcHidden[id];
+    chrome.storage.local.set({ ome_bc_hidden: _bcHidden });
+    renderBroadcastList_();
+  }
+
+  async function _bcSetStatus_(camp, status) {
+    if (!GAS_URL) return;
+    try {
+      const r = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'broadcastSetStatus', id: camp.id, status }), redirect: 'follow' });
+      const d = await r.json();
+      if (d && d.ok) { camp.status = d.status; renderBroadcastList_(); }
+      else if (d && d.error) bcLog_('Lỗi đổi trạng thái: ' + d.error);
+    } catch (e) { bcLog_('Lỗi đổi trạng thái: ' + e.message); }
+  }
+
+  function _bcCampVisible_(camp) {
+    if (!!_bcHidden[camp.id] !== _bcShowHidden) return false;
+    if (_bcSearch && !(camp.label || camp.id).toLowerCase().includes(_bcSearch.toLowerCase())) return false;
+    const cd = camp.createdAt ? String(camp.createdAt).slice(0, 10) : '';
+    if (_bcDateFrom && cd && cd < _bcDateFrom) return false;
+    if (_bcDateTo && cd && cd > _bcDateTo) return false;
+    return true;
+  }
+
   function renderBroadcastList_() {
     const box = document.getElementById('zai-bc-body');
     if (!box) return;
     box.innerHTML = '';
 
-    // Toggle: co kiem tra khop Nick Zalo truoc khi gui khong (tuy chon, de danh cho sau nay khi du lieu Nick dong bo day du)
+    // Toggle: co kiem tra khop Nick Zalo truoc khi gui khong
     const nickRow = document.createElement('label');
-    nickRow.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:11px;color:#166534;margin-bottom:8px;cursor:pointer;';
+    nickRow.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:11px;color:#166534;margin-bottom:6px;cursor:pointer;';
     nickRow.innerHTML = '<input type="checkbox" id="zai-bc-checknick" style="margin:0"> Kiểm tra khớp Nick Zalo trước khi gửi (bật khi đã đồng bộ Nick theo khách)';
     box.appendChild(nickRow);
     const checknickEl = nickRow.querySelector('#zai-bc-checknick');
     checknickEl.checked = _bcCheckNick;
     checknickEl.addEventListener('change', () => { _bcCheckNick = checknickEl.checked; });
 
-    if (!_bcQueue.length) {
-      box.innerHTML = '<div style="font-size:11px;color:#6b7280;padding:6px 0">Không có chiến dịch nào đang chờ gửi.</div>';
+    // Bo loc: tim ten + khoang ngay tao
+    const filterRow = document.createElement('div');
+    filterRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;align-items:center;';
+    filterRow.innerHTML =
+      '<input id="zai-bc-search" type="text" placeholder="🔍 Tìm tên chiến dịch..." value="' + escHtml(_bcSearch) + '" style="flex:1;min-width:120px;padding:4px 8px;border:1px solid #d1d5db;border-radius:5px;font-size:11px;">' +
+      '<input id="zai-bc-from" type="date" value="' + _bcDateFrom + '" title="Từ ngày" style="padding:3px 4px;border:1px solid #d1d5db;border-radius:5px;font-size:10px;width:105px;">' +
+      '<input id="zai-bc-to" type="date" value="' + _bcDateTo + '" title="Đến ngày" style="padding:3px 4px;border:1px solid #d1d5db;border-radius:5px;font-size:10px;width:105px;">';
+    box.appendChild(filterRow);
+    filterRow.querySelector('#zai-bc-search').addEventListener('input', (e) => { _bcSearch = e.target.value; renderBroadcastList_(); setTimeout(() => { const el = document.getElementById('zai-bc-search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0); });
+    filterRow.querySelector('#zai-bc-from').addEventListener('change', (e) => { _bcDateFrom = e.target.value; renderBroadcastList_(); });
+    filterRow.querySelector('#zai-bc-to').addEventListener('change', (e) => { _bcDateTo = e.target.value; renderBroadcastList_(); });
+
+    // Danh sach chien dich — khung CUON
+    const listWrap = document.createElement('div');
+    listWrap.style.cssText = 'max-height:240px;overflow-y:auto;padding-right:2px;';
+    const visible = _bcQueue.filter(_bcCampVisible_);
+    if (!visible.length) {
+      listWrap.innerHTML = '<div style="font-size:11px;color:#6b7280;padding:6px 0">' + (_bcShowHidden ? 'Không có chiến dịch nào đã ẩn.' : 'Không có chiến dịch nào đang chờ gửi (khớp bộ lọc).') + '</div>';
     } else {
-      _bcQueue.forEach(camp => {
+      visible.forEach(camp => {
+        const isActive = (camp.status || 'active') === 'active';
+        const isRunningThis = _bcRunning && _bcRunningCampId === camp.id;
         const card = document.createElement('div');
-        card.style.cssText = 'background:#fff;border:1px solid #bbf7d0;border-radius:7px;padding:8px 10px;margin-bottom:6px;font-size:12px;';
-        card.innerHTML = '<div style="font-weight:700;margin-bottom:3px">' + escHtml(camp.label || camp.id) + '</div>' +
-          '<div style="color:#6b7280;font-size:11px;margin-bottom:6px">Còn ' + camp.pendingPhones.length + '/' + camp.total +
-          ' khách chưa gửi &middot; ' + (camp.images || []).length + ' ảnh</div>';
+        card.style.cssText = 'background:#fff;border:1px solid ' + (isActive ? '#bbf7d0' : '#e5e7eb') + ';border-radius:7px;padding:8px 10px;margin-bottom:6px;font-size:12px;' + (isActive ? '' : 'opacity:.75;');
+        const dateStr = camp.createdAt ? new Date(camp.createdAt).toLocaleDateString('vi-VN') : '';
+        card.innerHTML =
+          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">' +
+            '<span style="font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(camp.label || camp.id) + '</span>' +
+            '<span style="font-size:9px;font-weight:700;border-radius:10px;padding:1px 7px;' + (isActive ? 'background:#dcfce7;color:#15803d' : 'background:#f3f4f6;color:#6b7280') + '">' + (isActive ? 'ĐANG KÍCH HOẠT' : 'ĐANG TẮT') + '</span>' +
+          '</div>' +
+          '<div style="color:#6b7280;font-size:11px;margin-bottom:6px">Còn ' + camp.pendingPhones.length + '/' + camp.total + ' khách chưa gửi &middot; ' + (camp.images || []).length + ' ảnh' + (dateStr ? ' &middot; tạo ' + dateStr : '') + '</div>';
         const btnRow = document.createElement('div');
-        btnRow.style.cssText = 'display:flex;gap:5px;';
-        const startBtn = document.createElement('button');
-        startBtn.className = 'zai-btn zai-btn-primary zai-btn-sm';
-        startBtn.textContent = '▶ Bắt đầu';
-        startBtn.disabled = _bcRunning;
-        startBtn.addEventListener('click', () => startBroadcast_(camp));
-        btnRow.appendChild(startBtn);
+        btnRow.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap;';
+
+        if (isRunningThis) {
+          const pauseBtn = document.createElement('button');
+          pauseBtn.className = 'zai-btn zai-btn-ghost zai-btn-sm';
+          pauseBtn.textContent = _bcPaused ? '▶ Tiếp tục' : '⏸ Tạm dừng';
+          pauseBtn.addEventListener('click', () => {
+            _bcPaused = !_bcPaused;
+            pauseBtn.textContent = _bcPaused ? '▶ Tiếp tục' : '⏸ Tạm dừng';
+            bcLog_(_bcPaused ? 'Đã tạm dừng.' : 'Tiếp tục gửi.');
+          });
+          const stopBtn = document.createElement('button');
+          stopBtn.className = 'zai-btn zai-btn-ghost zai-btn-sm';
+          stopBtn.textContent = '⏹ Dừng hẳn';
+          stopBtn.addEventListener('click', () => { _bcStopFlag = true; bcLog_('Đã yêu cầu dừng — sẽ dừng sau khách hiện tại.'); });
+          btnRow.appendChild(pauseBtn);
+          btnRow.appendChild(stopBtn);
+        } else {
+          const startBtn = document.createElement('button');
+          startBtn.className = 'zai-btn zai-btn-primary zai-btn-sm';
+          startBtn.textContent = '▶ Bắt đầu';
+          startBtn.disabled = _bcRunning || !isActive;
+          startBtn.title = !isActive ? 'Chiến dịch đang TẮT — bấm "Kích hoạt" trước' : (_bcRunning ? 'Đang có chiến dịch khác chạy' : '');
+          startBtn.addEventListener('click', () => startBroadcast_(camp));
+          btnRow.appendChild(startBtn);
+        }
+
+        const togBtn = document.createElement('button');
+        togBtn.className = 'zai-btn zai-btn-secondary zai-btn-sm';
+        togBtn.textContent = isActive ? '⏻ Tắt' : '⏻ Kích hoạt';
+        togBtn.disabled = isRunningThis;
+        togBtn.addEventListener('click', () => _bcSetStatus_(camp, isActive ? 'paused' : 'active'));
+        btnRow.appendChild(togBtn);
+
+        const hideBtn = document.createElement('button');
+        hideBtn.className = 'zai-btn zai-btn-ghost zai-btn-sm';
+        hideBtn.textContent = _bcShowHidden ? '👁 Bỏ ẩn' : '🙈 Ẩn';
+        hideBtn.disabled = isRunningThis;
+        hideBtn.addEventListener('click', () => _bcToggleHide_(camp.id, !_bcShowHidden));
+        btnRow.appendChild(hideBtn);
+
         card.appendChild(btnRow);
-        box.appendChild(card);
+        listWrap.appendChild(card);
       });
     }
+    box.appendChild(listWrap);
 
-    // Thanh dieu khien + log — chi hien khi dang chay 1 chien dich
+    // Link xem/an danh sach da an
+    const hiddenCount = _bcQueue.filter(c => _bcHidden[c.id]).length;
+    if (hiddenCount || _bcShowHidden) {
+      const hl = document.createElement('a');
+      hl.href = '#';
+      hl.style.cssText = 'display:block;font-size:10px;color:#6b7280;text-decoration:underline;margin-top:2px;';
+      hl.textContent = _bcShowHidden ? '← Quay lại danh sách chính' : ('Xem ' + hiddenCount + ' chiến dịch đã ẩn');
+      hl.addEventListener('click', (e) => { e.preventDefault(); _bcShowHidden = !_bcShowHidden; renderBroadcastList_(); });
+      box.appendChild(hl);
+    }
+
+    // Trang thai + log — hien khi dang chay
     const ctrl = document.createElement('div');
     ctrl.id = 'zai-bc-ctrl';
     ctrl.style.cssText = 'margin-top:6px;display:' + (_bcRunning ? 'block' : 'none') + ';';
     ctrl.innerHTML =
-      '<div style="display:flex;gap:5px;margin-bottom:5px;">' +
-        '<button class="zai-btn zai-btn-ghost zai-btn-sm" id="zai-bc-pause">⏸ Tạm dừng</button>' +
-        '<button class="zai-btn zai-btn-ghost zai-btn-sm" id="zai-bc-stop">⏹ Dừng hẳn</button>' +
-      '</div>' +
       '<div id="zai-bc-status" style="font-size:11px;color:#166534;margin-bottom:4px;"></div>' +
       '<div id="zai-bc-log" style="font-size:10px;color:#6b7280;max-height:120px;overflow-y:auto;background:#f9fafb;border:1px solid #e5e7eb;border-radius:5px;padding:5px;"></div>';
     box.appendChild(ctrl);
-
-    const pb = document.getElementById('zai-bc-pause');
-    if (pb) pb.addEventListener('click', () => {
-      _bcPaused = !_bcPaused;
-      pb.textContent = _bcPaused ? '▶ Tiếp tục' : '⏸ Tạm dừng';
-      bcLog_(_bcPaused ? 'Đã tạm dừng.' : 'Tiếp tục gửi.');
-    });
-    const sb = document.getElementById('zai-bc-stop');
-    if (sb) sb.addEventListener('click', () => {
-      _bcStopFlag = true;
-      bcLog_('Đã yêu cầu dừng hẳn — sẽ dừng sau khi xử lý xong khách hiện tại.');
-    });
   }
 
   // Tim va mo doan chat cua 1 SDT bang cach go vao o tim kiem cua Zalo
@@ -1571,6 +1656,7 @@ async function startReminderPoll_() {
 
   async function startBroadcast_(camp) {
     if (_bcRunning) { bcLog_('Đang có chiến dịch chạy, vui lòng dừng trước khi bắt đầu chiến dịch khác.'); return; }
+    if ((camp.status || 'active') !== 'active') { alert('Chiến dịch "' + (camp.label || camp.id) + '" đang TẮT. Bấm "⏻ Kích hoạt" trước khi gửi.'); return; }
 
     // Kiem tra khop Nick Zalo (chi khi nguoi dung bat tuy chon nay)
     if (_bcCheckNick) {
@@ -1593,6 +1679,7 @@ async function startReminderPoll_() {
     if (!window.confirm(confirmMsg)) return;
 
     _bcRunning = true; _bcPaused = false; _bcStopFlag = false;
+    _bcRunningCampId = camp.id;
     _bcLog = [];
     renderBroadcastList_();
     bcLog_('Bắt đầu chiến dịch "' + (camp.label || camp.id) + '" — ' + camp.pendingPhones.length + ' khách.');
@@ -1662,6 +1749,7 @@ async function startReminderPoll_() {
     }
 
     _bcRunning = false;
+    _bcRunningCampId = '';
     const statusEl = document.getElementById('zai-bc-status');
     const summary = 'Hoàn tất: ' + sentCount + ' đã gửi, ' + failCount + ' lỗi, ' + skipCount + ' bỏ qua.';
     if (statusEl) statusEl.textContent = summary;

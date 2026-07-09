@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script — PHIEN BAN 15.58.9.7.2026 (gio.phut.ngay.thang.nam)
+//  OME CS Portal — Google Apps Script — PHIEN BAN 16.48.9.7.2026 (gio.phut.ngay.thang.nam)
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)
@@ -484,6 +484,8 @@ function doPost(e) {
     if (action === 'uploadBroadcastImg')   return uploadBroadcastImage_(data.base64, data.filename, data.mimeType);
     // ── BROADCAST: huy 1 chien dich (dung gui tiep) ──
     if (action === 'broadcastCancel')      return broadcastCancel_(data.id);
+    // ── BROADCAST: bat/tat (kich hoat/tam tat) 1 chien dich ──
+    if (action === 'broadcastSetStatus')   return broadcastSetStatus_(data.id, data.status);
     // ── HOI THAM TU DONG: nhan ket qua quet ten Zalo tu extension (du phong khi thieu OrderData) ──
     if (action === 'saveZaloScan')         return saveZaloScan_(data.rows);
     // ── HOI THAM TU DONG: luu bang mau tin (UI Sasum) ──
@@ -1050,7 +1052,10 @@ function broadcastMark_(id, phone, status) {
 // Danh sach chien dich dang active + cac SDT CHUA gui, loc theo CS dang dung extension
 // (neu chien dich khong gan csName cu the thi hien cho tat ca CS)
 function broadcastQueueForCS_(csName) {
-  var all = readBroadcasts_().filter(function (b) { return (b.status || 'active') === 'active'; });
+  var all = readBroadcasts_().filter(function (b) {
+    var st = b.status || 'active';
+    return st === 'active' || st === 'paused';
+  });
   var out = [];
   all.forEach(function (b) {
     if (csName && b.csName) {
@@ -1067,6 +1072,8 @@ function broadcastQueueForCS_(csName) {
         pendingPhones: pending,
         total: b.phones.length,
         doneCount: b.phones.length - pending.length,
+        status: b.status || 'active',
+        createdAt: b.createdAt || '',
         expectedNick: b.expectedNick || '',
         perPhoneMsg: b.perPhoneMsg || {},
         perPhoneNick: b.perPhoneNick || {}
@@ -1095,6 +1102,19 @@ function uploadBroadcastImage_(base64, filename, mimeType) {
 }
 
 // Huy 1 chien dich (khong xoa du lieu, chi doi status de extension ngung lay ve)
+function broadcastSetStatus_(id, status) {
+  if (!id) return jsonOut_({ ok: false, error: 'Thieu id' });
+  status = (status === 'paused') ? 'paused' : 'active';
+  var sh = getBroadcastSheet_();
+  var last = sh.getLastRow();
+  if (last < 2) return jsonOut_({ ok: false, error: 'Chua co chien dich' });
+  var ids = sh.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === id) { sh.getRange(i + 2, 9).setValue(status); return jsonOut_({ ok: true, status: status }); }
+  }
+  return jsonOut_({ ok: false, error: 'Khong tim thay chien dich' });
+}
+
 function broadcastCancel_(id) {
   var sh = getBroadcastSheet_();
   var last = sh.getLastRow();
