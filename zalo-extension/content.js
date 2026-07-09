@@ -1,4 +1,8 @@
-// OME Zalo AI Helper - content script phien ban 17.2.9.7.2026 (gio.phut.ngay.thang.nam xuat ban)
+// OME Zalo AI Helper - content script phien ban 18.3.9.7.2026 (gio.phut.ngay.thang.nam xuat ban)
+// v15.4: Gioi han 200 khach/ngay cho gui hang loat (dem chung moi chien dich tren may nay,
+//        dat moc thi tu dong tam ngung + canh bao, CS phai bam "Kich hoat lai" moi gui tiep);
+//        Them "4 kich ban AI" moi chien dich (AI viet lai giu noi dung goc, CS xem/sua/duyet
+//        truoc khi luu) - khi gui se tu dong luan phien qua cac kich ban da duyet
 // v15.3: Tu dong cap nhat tinh trang ket ban Zalo ve Sasum khi chay chien dich
 //        (Gui ket ban->Chua ket ban; Da gui/Huy yeu cau->Chua dong y; ten co CTN->Chan;
 //         ten co NHD->Zalo ngung hd; khong thay gi->Da ket ban; trung trang thai cu->bo qua)
@@ -51,6 +55,17 @@
   let _bcActive = {};        // {campId: true} — KICH HOAT rieng tung may: ai bat thi may do moi chay duoc
   let _bcShowHidden = false; // dang xem danh sach da an?
   let _bcRunningCampId = ''; // chien dich dang chay (nut ⏸/⏹ hien theo tung the)
+
+  // ── GIOI HAN 200 KHACH/NGAY (rieng tung may, CS tu kich hoat lai neu muon gui tiep) ──
+  const BC_DAILY_LIMIT = 200;
+  let _bcDailyDate = '';     // 'YYYY-MM-DD' cua lan dem gan nhat
+  let _bcDailyCount = 0;     // so khach da gui THANH CONG hom nay (tinh chung moi chien dich, tren may nay)
+  let _bcDailyUnlocked = false; // CS da bam "Kich hoat lai" de vuot moc 200 hom nay chua
+
+  // ── 4 KICH BAN AI (moi campId co the co toi 4 ban tin da CS duyet, gui luan phien) ──
+  let _bcVariants = {};      // {campId: [text, ...]} — da CS duyet & luu, luu rieng tung may
+  let _bcVariantOpenId = ''; // campId dang mo khung soan kich ban (chi 1 the mo cung luc)
+  let _bcVariantDraft = {};  // {campId: [text,...]} — 4 ban AI vua sinh, CHUA luu
 
   const POLL_INTERVAL_MS = 6000; // dong bo gan-tuc-thoi: kiem tra du lieu moi moi 6 giay khi panel dang mo
 
@@ -306,7 +321,16 @@
       tonesDiv.querySelectorAll('.zai-tone').forEach(b => b.classList.remove('active'));
       tb.classList.add('active'); _activeTone = tb.dataset.tone;
     });
-    chrome.storage.local.get(['ome_bc_hidden','ome_bc_active'], (res) => { _bcHidden = res.ome_bc_hidden || {}; _bcActive = res.ome_bc_active || {}; });
+    chrome.storage.local.get(['ome_bc_hidden','ome_bc_active','ome_bc_daily','ome_bc_variants'], (res) => {
+      _bcHidden = res.ome_bc_hidden || {};
+      _bcActive = res.ome_bc_active || {};
+      const daily = res.ome_bc_daily || {};
+      _bcDailyDate = daily.date || '';
+      _bcDailyCount = daily.count || 0;
+      _bcDailyUnlocked = !!daily.unlocked;
+      _bcVariants = res.ome_bc_variants || {};
+      _bcCheckDailyReset_();
+    });
     chrome.storage.local.get(['ome_gas_url','ome_current_cs','ome_current_nz'], (res) => {
       GAS_URL = res.ome_gas_url || '';
       if (GAS_URL) { inpGas.value = GAS_URL; loadCSNames_(); loadNickZaloList_(); loadCareStatusTree_(); loadProductCodeMap_(); }
@@ -1301,6 +1325,50 @@ async function startReminderPoll_() {
   function sleep_(ms) { return new Promise(res => setTimeout(res, ms)); }
   function randDelayMs_(minSec, maxSec) { return (minSec + Math.random() * (maxSec - minSec)) * 1000; }
 
+  // ── GIOI HAN 200 KHACH/NGAY ──
+  function todayStr_() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function _bcSaveDaily_() {
+    chrome.storage.local.set({ ome_bc_daily: { date: _bcDailyDate, count: _bcDailyCount, unlocked: _bcDailyUnlocked } });
+  }
+  // Sang ngay moi -> tu dong reset ve 0/chua kich hoat lai
+  function _bcCheckDailyReset_() {
+    const t = todayStr_();
+    if (_bcDailyDate !== t) {
+      _bcDailyDate = t; _bcDailyCount = 0; _bcDailyUnlocked = false;
+      _bcSaveDaily_();
+    }
+  }
+  function _bcDailyLocked_() {
+    _bcCheckDailyReset_();
+    return _bcDailyCount >= BC_DAILY_LIMIT && !_bcDailyUnlocked;
+  }
+  function _bcIncrementDaily_() {
+    _bcCheckDailyReset_();
+    _bcDailyCount++;
+    _bcSaveDaily_();
+  }
+  function _bcUnlockDaily_() {
+    _bcCheckDailyReset_();
+    _bcDailyUnlocked = true;
+    _bcSaveDaily_();
+    renderBroadcastList_();
+  }
+
+  // ── 4 KICH BAN AI (luu rieng tung may, theo campId) ──
+  function _bcSaveVariants_(campId, arr) {
+    if (arr && arr.length) _bcVariants[campId] = arr; else delete _bcVariants[campId];
+    chrome.storage.local.set({ ome_bc_variants: _bcVariants });
+  }
+  // Chon kich ban theo vong luan phien dua tren so thu tu da gui (0,1,2,3,0,1,...)
+  function _bcPickVariantMsg_(camp, sentSoFar) {
+    const arr = _bcVariants[camp.id];
+    if (arr && arr.length) return { text: arr[sentSoFar % arr.length], variantNo: (sentSoFar % arr.length) + 1 };
+    return { text: camp.message || '', variantNo: 0 };
+  }
+
   function bcLog_(msg) {
     const ts = new Date().toLocaleTimeString('vi-VN');
     _bcLog.unshift('[' + ts + '] ' + msg);
@@ -1358,10 +1426,119 @@ async function startReminderPoll_() {
     return true;
   }
 
+  const VARIANT_DELIM = '@@@KB@@@';
+
+  // Goi AI (Grok, qua GAS) de sinh 4 kich ban giu nguyen noi dung cot loi, chi doi cau chu.
+  // CS BAT BUOC phai xem/sua/duyet truoc khi luu — ham nay chi tao BAN NHAP.
+  async function doGenerateVariants_(camp, coreText, container) {
+    if (!GAS_URL) { alert('Chưa cài đặt URL GAS.'); return; }
+    const text = (coreText || '').trim();
+    if (!text) { alert('Nhập nội dung cốt lõi cần gửi trước đã.'); return; }
+    const btn = container.querySelector('.zai-kb-gen-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'AI đang soạn 4 kịch bản...'; }
+    try {
+      const prompt = '[Nội dung cốt lõi cần gửi]\n' + text +
+        '\n\nHãy viết lại thành đúng 4 phiên bản tin nhắn Zalo chăm sóc khách hàng khác nhau. ' +
+        'BẮT BUỘC giữ nguyên đầy đủ thông tin, ý nghĩa và lời đề nghị cốt lõi ở trên — ' +
+        'chỉ thay đổi cách diễn đạt, câu chữ, thứ tự câu cho đa dạng, giọng văn tự nhiên tiếng Việt, ' +
+        'độ dài tương đương bản gốc. Không thêm thông tin mới, không thêm giải thích. ' +
+        'Trả về đúng 4 phiên bản, phân cách bằng dòng riêng chứa duy nhất "' + VARIANT_DELIM + '", không đánh số, không ghi chú gì thêm.';
+      const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'ai', prompt }), headers: { 'Content-Type': 'text/plain' } });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'GAS lỗi');
+      let parts = (data.text || '').split(VARIANT_DELIM).map(s => s.trim()).filter(Boolean);
+      if (parts.length < 2) parts = (data.text || '').split(/\n\s*\n/).map(s => s.trim()).filter(Boolean); // fallback neu AI khong theo dung dinh dang
+      parts = parts.slice(0, 4);
+      if (!parts.length) throw new Error('AI không trả về kịch bản nào, thử lại.');
+      _bcVariantDraft[camp.id] = parts;
+      renderVariantEditor_(camp, container);
+    } catch (e) {
+      alert('Lỗi tạo kịch bản: ' + e.message);
+    } finally {
+      const b = container.querySelector('.zai-kb-gen-btn');
+      if (b) { b.disabled = false; b.textContent = '✨ Tạo 4 kịch bản AI'; }
+    }
+  }
+
+  // Ve khung soan/duyet kich ban cho 1 chien dich. CS sua truc tiep tren textarea,
+  // bo tich o kich ban nao khong muon dung, roi bam Luu — chi kich ban da duyet moi duoc gui.
+  function renderVariantEditor_(camp, container) {
+    container.innerHTML = '';
+    const saved = _bcVariants[camp.id] || [];
+    const draft = _bcVariantDraft[camp.id] || (saved.length ? saved.slice() : [camp.message || '']);
+
+    addEl(container, 'div', { style: 'font-size:10px;color:#6b7280;margin:6px 0 4px', textContent: 'Nội dung cốt lõi (dùng làm gốc để AI viết lại 4 phiên bản):' });
+    const coreTa = addEl(container, 'textarea', { rows: 2 });
+    coreTa.style.cssText = 'width:100%;box-sizing:border-box;font-size:11px;padding:6px;border:1px solid #d1d5db;border-radius:5px;resize:vertical;font-family:inherit;margin-bottom:5px';
+    coreTa.value = camp.message || '';
+
+    const genBtn = addEl(container, 'button', { className: 'zai-btn zai-btn-secondary zai-btn-sm zai-kb-gen-btn', textContent: '✨ Tạo 4 kịch bản AI' });
+    genBtn.style.marginBottom = '6px';
+    genBtn.addEventListener('click', () => doGenerateVariants_(camp, coreTa.value, container));
+
+    const listWrap = addEl(container, 'div', {});
+    draft.forEach((v, i) => {
+      const row = addEl(listWrap, 'div', { style: 'display:flex;gap:6px;align-items:flex-start;margin-bottom:5px;' });
+      const cb = addEl(row, 'input', { type: 'checkbox' });
+      cb.checked = true; cb.style.marginTop = '6px';
+      const col = addEl(row, 'div', { style: 'flex:1;min-width:0' });
+      addEl(col, 'div', { style: 'font-size:10px;color:#15803d;font-weight:700;margin-bottom:2px', textContent: 'Kịch bản ' + (i + 1) });
+      const ta = addEl(col, 'textarea', { rows: 3 });
+      ta.style.cssText = 'width:100%;box-sizing:border-box;font-size:11px;padding:6px;border:1px solid #d1d5db;border-radius:5px;resize:vertical;font-family:inherit';
+      ta.value = v;
+      row.dataset.idx = i;
+    });
+
+    const btnRow2 = addEl(container, 'div', { style: 'display:flex;gap:6px;margin-top:4px' });
+    const saveBtn = addEl(btnRow2, 'button', { className: 'zai-btn zai-btn-primary zai-btn-sm', textContent: '💾 Lưu kịch bản đã duyệt' });
+    saveBtn.addEventListener('click', () => {
+      const rows = [...listWrap.children];
+      const approved = rows
+        .filter(r => r.querySelector('input[type="checkbox"]').checked)
+        .map(r => r.querySelector('textarea').value.trim())
+        .filter(Boolean);
+      if (!approved.length) { alert('Chưa chọn kịch bản nào để lưu.'); return; }
+      _bcSaveVariants_(camp.id, approved);
+      delete _bcVariantDraft[camp.id];
+      _bcVariantOpenId = '';
+      renderBroadcastList_();
+    });
+    const clearBtn = addEl(btnRow2, 'button', { className: 'zai-btn zai-btn-ghost zai-btn-sm', textContent: '🗑 Bỏ kịch bản, dùng 1 tin gốc' });
+    clearBtn.addEventListener('click', () => {
+      if (!window.confirm('Bỏ hết kịch bản đã lưu cho chiến dịch này? Sẽ quay lại gửi 1 nội dung gốc cho mọi khách.')) return;
+      _bcSaveVariants_(camp.id, null);
+      delete _bcVariantDraft[camp.id];
+      _bcVariantOpenId = '';
+      renderBroadcastList_();
+    });
+    const closeBtn = addEl(btnRow2, 'button', { className: 'zai-btn zai-btn-ghost zai-btn-sm', textContent: 'Đóng' });
+    closeBtn.addEventListener('click', () => { delete _bcVariantDraft[camp.id]; _bcVariantOpenId = ''; renderBroadcastList_(); });
+  }
+
   function renderBroadcastList_() {
     const box = document.getElementById('zai-bc-body');
     if (!box) return;
     box.innerHTML = '';
+
+    // ── Bang dem 200 khach/ngay (rieng may nay) ──
+    _bcCheckDailyReset_();
+    const locked = _bcDailyLocked_();
+    const dailyBox = document.createElement('div');
+    dailyBox.style.cssText = 'border-radius:6px;padding:6px 8px;margin-bottom:8px;font-size:11px;' +
+      (locked ? 'background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;' : 'background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;');
+    dailyBox.innerHTML = '<div>📊 Hôm nay: <b>' + _bcDailyCount + '/' + BC_DAILY_LIMIT + '</b> khách đã gửi (tính chung mọi chiến dịch, trên máy này)</div>' +
+      (locked ? '<div style="margin-top:3px">⚠️ Đã đạt ' + BC_DAILY_LIMIT + ' khách hôm nay — chiến dịch tạm ngưng. Bấm nút bên dưới nếu vẫn muốn gửi tiếp.</div>' : '');
+    box.appendChild(dailyBox);
+    if (locked) {
+      const unlockBtn = document.createElement('button');
+      unlockBtn.className = 'zai-btn zai-btn-secondary zai-btn-sm';
+      unlockBtn.textContent = '🔓 Kích hoạt lại để gửi tiếp hôm nay';
+      unlockBtn.style.marginBottom = '8px';
+      unlockBtn.addEventListener('click', () => {
+        if (window.confirm('Đã gửi ' + _bcDailyCount + ' khách hôm nay (vượt mốc ' + BC_DAILY_LIMIT + '). Vẫn muốn tiếp tục gửi thêm?')) _bcUnlockDaily_();
+      });
+      box.appendChild(unlockBtn);
+    }
 
     // Toggle: co kiem tra khop Nick Zalo truoc khi gui khong
     const nickRow = document.createElement('label');
@@ -1406,6 +1583,13 @@ async function startReminderPoll_() {
             '<span style="font-size:9px;font-weight:700;border-radius:10px;padding:1px 7px;' + badgeCss + '">' + badge + '</span>' +
           '</div>' +
           '<div style="color:#6b7280;font-size:11px;margin-bottom:6px">Còn ' + camp.pendingPhones.length + '/' + camp.total + ' khách chưa gửi &middot; ' + (camp.images || []).length + ' ảnh' + (dateStr ? ' &middot; tạo ' + dateStr : '') + '</div>';
+        const varCount = (_bcVariants[camp.id] || []).length;
+        if (varCount) {
+          const vb = document.createElement('div');
+          vb.style.cssText = 'font-size:10px;color:#15803d;margin:-3px 0 6px;';
+          vb.textContent = '🔀 Đang luân phiên ' + varCount + ' kịch bản đã duyệt';
+          card.appendChild(vb);
+        }
         const btnRow = document.createElement('div');
         btnRow.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap;';
 
@@ -1428,8 +1612,8 @@ async function startReminderPoll_() {
           const startBtn = document.createElement('button');
           startBtn.className = 'zai-btn zai-btn-primary zai-btn-sm';
           startBtn.textContent = '▶ Bắt đầu';
-          startBtn.disabled = _bcRunning || !isActive;
-          startBtn.title = serverOff ? 'Admin đã tắt chiến dịch này trên Sasum' : (!isActive ? 'Bấm "⏻ Kích hoạt" trước — chỉ áp dụng trên máy của bạn' : (_bcRunning ? 'Đang có chiến dịch khác chạy' : ''));
+          startBtn.disabled = _bcRunning || !isActive || locked;
+          startBtn.title = serverOff ? 'Admin đã tắt chiến dịch này trên Sasum' : (!isActive ? 'Bấm "⏻ Kích hoạt" trước — chỉ áp dụng trên máy của bạn' : (locked ? 'Đã đạt ' + BC_DAILY_LIMIT + ' khách hôm nay — bấm "🔓 Kích hoạt lại" ở trên trước' : (_bcRunning ? 'Đang có chiến dịch khác chạy' : '')));
           startBtn.addEventListener('click', () => startBroadcast_(camp));
           btnRow.appendChild(startBtn);
         }
@@ -1449,7 +1633,26 @@ async function startReminderPoll_() {
         hideBtn.addEventListener('click', () => _bcToggleHide_(camp.id, !_bcShowHidden));
         btnRow.appendChild(hideBtn);
 
+        const kbBtn = document.createElement('button');
+        kbBtn.className = 'zai-btn zai-btn-ghost zai-btn-sm';
+        kbBtn.textContent = _bcVariantOpenId === camp.id ? '✕ Đóng kịch bản' : '🤖 Kịch bản';
+        kbBtn.title = 'Soạn 4 kịch bản AI (đa dạng câu chữ, giữ nội dung gốc) để luân phiên gửi';
+        kbBtn.disabled = isRunningThis;
+        kbBtn.addEventListener('click', () => {
+          _bcVariantOpenId = (_bcVariantOpenId === camp.id) ? '' : camp.id;
+          renderBroadcastList_();
+        });
+        btnRow.appendChild(kbBtn);
+
         card.appendChild(btnRow);
+
+        if (_bcVariantOpenId === camp.id) {
+          const kbContainer = document.createElement('div');
+          kbContainer.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed #d1d5db;';
+          card.appendChild(kbContainer);
+          renderVariantEditor_(camp, kbContainer);
+        }
+
         listWrap.appendChild(card);
       });
     }
@@ -1666,6 +1869,7 @@ async function startReminderPoll_() {
     if (_bcRunning) { bcLog_('Đang có chiến dịch chạy, vui lòng dừng trước khi bắt đầu chiến dịch khác.'); return; }
     if ((camp.status || 'active') === 'paused') { alert('Chiến dịch "' + (camp.label || camp.id) + '" đã bị Admin tắt trên Sasum.'); return; }
     if (!_bcActive[camp.id]) { alert('Chiến dịch "' + (camp.label || camp.id) + '" chưa được kích hoạt trên máy này. Bấm "⏻ Kích hoạt" trước khi gửi.'); return; }
+    if (_bcDailyLocked_()) { alert('Đã đạt ' + BC_DAILY_LIMIT + ' khách hôm nay trên máy này. Bấm "🔓 Kích hoạt lại để gửi tiếp hôm nay" ở phía trên trước khi bắt đầu.'); return; }
 
     // Kiem tra khop Nick Zalo (chi khi nguoi dung bat tuy chon nay)
     if (_bcCheckNick) {
@@ -1681,9 +1885,13 @@ async function startReminderPoll_() {
       }
     }
 
+    const varCount = (_bcVariants[camp.id] || []).length;
+    const remainToday = Math.max(0, BC_DAILY_LIMIT - _bcDailyCount);
     const confirmMsg = 'Sẽ TỰ ĐỘNG gửi tin + ' + (camp.images || []).length + ' ảnh cho ' +
       camp.pendingPhones.length + ' khách trong chiến dịch "' + (camp.label || camp.id) +
-      '".\n\nExtension sẽ tự mở từng đoạn chat và gửi, có nghỉ giữa các khách để tránh bị Zalo hạn chế. ' +
+      '".\n' + (varCount ? ('Sẽ luân phiên ' + varCount + ' kịch bản đã duyệt.\n') : '') +
+      'Còn được gửi ' + remainToday + '/' + BC_DAILY_LIMIT + ' khách hôm nay trên máy này (đạt mốc sẽ tự dừng).' +
+      '\n\nExtension sẽ tự mở từng đoạn chat và gửi, có nghỉ giữa các khách để tránh bị Zalo hạn chế. ' +
       'Bạn có thể Tạm dừng / Dừng hẳn bất cứ lúc nào.\n\nTiếp tục?';
     if (!window.confirm(confirmMsg)) return;
 
@@ -1698,10 +1906,18 @@ async function startReminderPoll_() {
     let sentCount = 0, failCount = 0, skipCount = 0;
     const total = camp.pendingPhones.length;
 
+    let dailyCapHit = false;
+
     for (let idx = 0; idx < camp.pendingPhones.length; idx++) {
       if (_bcStopFlag) break;
       while (_bcPaused && !_bcStopFlag) { await sleep_(1000); }
       if (_bcStopFlag) break;
+
+      if (_bcDailyLocked_()) {
+        dailyCapHit = true;
+        bcLog_('🛑 Đã đạt ' + BC_DAILY_LIMIT + ' khách hôm nay trên máy này — tạm ngưng chiến dịch.');
+        break;
+      }
 
       const phone = camp.pendingPhones[idx];
       const statusEl = document.getElementById('zai-bc-status');
@@ -1740,13 +1956,20 @@ async function startReminderPoll_() {
             bcLog_('❌ Không tìm thấy ô soạn tin cho: ' + phone + ' (sẽ thử lại ở lần chạy sau)');
           } else {
             if (camp.images && camp.images.length) await attachZaloImages_(camp.images);
-            const personalMsg = (camp.perPhoneMsg && camp.perPhoneMsg[phone]) ? camp.perPhoneMsg[phone] : (camp.message || '');
+            let personalMsg, variantNo;
+            if (camp.perPhoneMsg && camp.perPhoneMsg[phone]) {
+              personalMsg = camp.perPhoneMsg[phone]; variantNo = 0;
+            } else {
+              const picked = _bcPickVariantMsg_(camp, sentCount);
+              personalMsg = picked.text; variantNo = picked.variantNo;
+            }
             insertZaloText_(inputEl, personalMsg);
             await sleep_(400);
             clickZaloSendOrEnter_(inputEl);
             sentCount++;
+            _bcIncrementDaily_();
             await markBroadcastServer_(camp.id, phone, 'sent');
-            bcLog_('✅ Đã gửi: ' + phone);
+            bcLog_('✅ Đã gửi' + (variantNo ? ' (kịch bản ' + variantNo + ')' : '') + ': ' + phone + ' — hôm nay ' + _bcDailyCount + '/' + BC_DAILY_LIMIT);
           }
         }
       } catch (e) {
@@ -1768,7 +1991,8 @@ async function startReminderPoll_() {
     _bcRunning = false;
     _bcRunningCampId = '';
     const statusEl = document.getElementById('zai-bc-status');
-    const summary = 'Hoàn tất: ' + sentCount + ' đã gửi, ' + failCount + ' lỗi, ' + skipCount + ' bỏ qua.';
+    const summary = 'Hoàn tất: ' + sentCount + ' đã gửi, ' + failCount + ' lỗi, ' + skipCount + ' bỏ qua.' +
+      (dailyCapHit ? ' Đã dừng vì đạt ' + BC_DAILY_LIMIT + ' khách/ngày — bấm "🔓 Kích hoạt lại" nếu muốn gửi tiếp.' : '');
     if (statusEl) statusEl.textContent = summary;
     bcLog_('🏁 ' + summary);
     await loadBroadcastQueue_();
