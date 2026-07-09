@@ -978,6 +978,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
           <button class="btn sm secondary" id="assign-btn" onclick="openAssignModal()" title="Chia data đang lọc cho CS">
             👥 Chia data
           </button>
+          <button class="btn sm secondary" id="bct-open-btn" onclick="openBctModal()" title="Lọc khách theo sản phẩm chi tiết / số đơn / thời gian mua / nguồn / phân loại rồi soạn tin bắn">🎯 CD theo điều kiện</button>
           <button class="btn sm secondary" id="futpl-inline-btn" onclick="openFuTplModal()" title="Mẫu tin hỏi thăm tự động theo mốc ngày sau mua — máy tự tạo chiến dịch mỗi sáng">📨 Hỏi thăm tự động</button>
           <button class="btn sm secondary" id="broadcast-filter-btn" onclick="openBroadcastFromCurrentFilter()" title="Tạo chiến dịch bắn trực tiếp từ danh sách đang lọc (CS, sản phẩm, nguồn, trạng thái, ngày mua...) — không cần qua Chia data">
             📢 Tạo chiến dịch bắn
@@ -10252,6 +10253,159 @@ setTimeout(function(){
     hdrR.insertBefore(b, hdrR.firstChild);
   }
 }, 400);
+</script>
+
+<!-- ═══ TẠO CHIẾN DỊCH BẮN THEO ĐIỀU KIỆN ═══ -->
+<div class="modal-overlay" id="bct-modal" style="z-index:2600">
+<div class="modal" style="max-width:720px;width:95vw">
+  <div class="modal-hdr">
+    <div class="modal-title">🎯 Tạo chiến dịch theo điều kiện</div>
+    <div class="modal-sub">Chọn điều kiện để lọc khách, xem số lượng, rồi soạn tin gửi hàng loạt.</div>
+  </div>
+  <div class="modal-body" style="max-height:62vh;overflow-y:auto">
+
+    <div style="font-weight:600;font-size:12px;margin-bottom:5px">1. Sản phẩm (theo sản phẩm chi tiết)</div>
+    <div style="display:flex;gap:14px;margin-bottom:6px;font-size:12px">
+      <label style="cursor:pointer"><input type="radio" name="bct-mode" value="any" checked> Tất cả SP khách <b>đã từng mua</b></label>
+      <label style="cursor:pointer"><input type="radio" name="bct-mode" value="latest"> Chỉ tính SP của <b>đơn mới nhất</b></label>
+    </div>
+    <div id="bct-codes" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px;font-size:12px"></div>
+    <div style="font-size:10px;color:#6b7280;margin:-8px 0 12px">Không tích mã nào = mọi sản phẩm. Mã lấy từ sheet "Mã Zalo" — so khớp với chữ trong Sản phẩm/SP chi tiết của đơn.</div>
+
+    <div style="font-weight:600;font-size:12px;margin-bottom:5px">2. Số đơn đã mua &amp; khoảng thời gian mua</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;font-size:12px;flex-wrap:wrap">
+      <span>Số đơn từ</span><input id="bct-min-orders" type="number" min="0" style="width:60px;padding:4px;border:1px solid #d1d5db;border-radius:5px">
+      <span>đến</span><input id="bct-max-orders" type="number" min="0" style="width:60px;padding:4px;border:1px solid #d1d5db;border-radius:5px">
+      <span style="margin-left:10px">Mua từ</span><input id="bct-date-from" type="date" style="padding:4px;border:1px solid #d1d5db;border-radius:5px">
+      <span>đến</span><input id="bct-date-to" type="date" style="padding:4px;border:1px solid #d1d5db;border-radius:5px">
+    </div>
+
+    <div style="font-weight:600;font-size:12px;margin-bottom:5px">3. Nguồn đơn</div>
+    <div id="bct-sources" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px;font-size:12px"></div>
+
+    <div style="font-weight:600;font-size:12px;margin-bottom:5px">4. Phân loại KH</div>
+    <div id="bct-tiers" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px;font-size:12px"></div>
+
+    <div id="bct-count" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px 12px;font-size:13px;color:#166534;font-weight:600;display:none"></div>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid #e5e7eb">
+    <button onclick="document.getElementById('bct-modal').classList.remove('open')" style="padding:8px 16px;border:1px solid #d1d5db;background:#fff;border-radius:6px;cursor:pointer;font-size:13px">Hủy</button>
+    <button onclick="bctPreview()" style="padding:8px 16px;border:1.5px solid #00b14f;background:#fff;color:#00b14f;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">🔍 Xem số khách</button>
+    <button onclick="bctContinue()" style="padding:8px 16px;border:none;background:#00b14f;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">Tiếp tục soạn tin →</button>
+  </div>
+</div>
+</div>
+<script>
+var _bctCodeMap = null;
+var _bctLastPhones = [];
+
+async function openBctModal(){
+  if (!allCustomers || !allCustomers.length){ toast('Chưa có dữ liệu khách hàng'); return; }
+  document.getElementById('bct-modal').classList.add('open');
+  document.getElementById('bct-count').style.display = 'none';
+  _bctLastPhones = [];
+  // Ma san pham tu sheet "Mã Zalo" (qua GAS)
+  if (!_bctCodeMap && gsUrl){
+    try {
+      var sep = gsUrl.includes('?') ? '&' : '?';
+      var r = await fetch(gsUrl + sep + 'action=productCodeMap', {redirect:'follow'});
+      var d = await r.json();
+      if (Array.isArray(d.map) && d.map.length) _bctCodeMap = d.map;
+    } catch(e){}
+  }
+  var codesBox = document.getElementById('bct-codes');
+  if (_bctCodeMap){
+    codesBox.innerHTML = _bctCodeMap.map(function(m){
+      return '<label style="display:inline-flex;align-items:center;gap:4px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;padding:3px 10px;cursor:pointer"><input type="checkbox" class="bct-code" value="'+esc(m[0])+'"> '+esc(m[0])+' <span style="color:#9ca3af;font-size:10px">('+esc((m[1]||[]).slice(0,3).join(', '))+')</span></label>';
+    }).join('');
+  } else {
+    codesBox.innerHTML = '<span style="color:#dc2626;font-size:11px">Không tải được bảng mã (kiểm tra kết nối GAS)</span>';
+  }
+  // Nguon don: liet ke tu du lieu
+  var srcSet = {};
+  allCustomers.forEach(function(c){ (c.orders||[]).forEach(function(o){ var v=(o.source||'').trim(); if(v) srcSet[v]=1; }); });
+  document.getElementById('bct-sources').innerHTML = Object.keys(srcSet).sort().map(function(v){
+    return '<label style="display:inline-flex;align-items:center;gap:4px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;padding:3px 10px;cursor:pointer"><input type="checkbox" class="bct-src" value="'+esc(v)+'"> '+esc(v)+'</label>';
+  }).join('');
+  // Phan loai KH
+  document.getElementById('bct-tiers').innerHTML = ['VIP','Thân thiết','Tiềm năng','Chưa bán lại được'].map(function(v){
+    return '<label style="display:inline-flex;align-items:center;gap:4px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px;padding:3px 10px;cursor:pointer"><input type="checkbox" class="bct-tier" value="'+esc(v)+'"> '+esc(v)+'</label>';
+  }).join('');
+}
+
+function _bctOrderDate(o){
+  if (o.date instanceof Date && !isNaN(o.date)) return o.date;
+  var y = o.year ? (o.year < 100 ? 2000 + o.year : o.year) : 0;
+  if (y && o.month) return new Date(y, o.month - 1, 1);
+  return null;
+}
+function _bctCodeKws(codes){
+  var out = [];
+  (_bctCodeMap||[]).forEach(function(m){ if (codes.includes(m[0])) out = out.concat(m[1]||[]); });
+  return out;
+}
+function _bctCollectPhones(){
+  var mode = document.querySelector('input[name=bct-mode]:checked').value;
+  var codes = [...document.querySelectorAll('.bct-code:checked')].map(function(x){return x.value;});
+  var kws = _bctCodeKws(codes);
+  var srcs = [...document.querySelectorAll('.bct-src:checked')].map(function(x){return x.value.toLowerCase();});
+  var tiers = [...document.querySelectorAll('.bct-tier:checked')].map(function(x){return x.value;});
+  var minO = parseInt(document.getElementById('bct-min-orders').value,10) || 0;
+  var maxO = parseInt(document.getElementById('bct-max-orders').value,10) || 0;
+  var from = document.getElementById('bct-date-from').value ? new Date(document.getElementById('bct-date-from').value) : null;
+  var to   = document.getElementById('bct-date-to').value ? new Date(document.getElementById('bct-date-to').value + 'T23:59:59') : null;
+
+  function orderOk(o){
+    if (from || to){
+      var od = _bctOrderDate(o);
+      if (!od) return false;
+      if (from && od < from) return false;
+      if (to && od > to) return false;
+    }
+    if (srcs.length && !srcs.includes((o.source||'').trim().toLowerCase())) return false;
+    if (kws.length){
+      var txt = ((o.productDetail||'') + ' ' + (o.product||'')).toLowerCase();
+      if (!kws.some(function(k){ return txt.indexOf(k) !== -1; })) return false;
+    }
+    return true;
+  }
+
+  return allCustomers.filter(function(c){
+    if (tiers.length && !tiers.includes(c.tier)) return false;
+    var tot = c.totalOrders || (c.orders||[]).length;
+    if (minO && tot < minO) return false;
+    if (maxO && tot > maxO) return false;
+    var orders = c.orders || [];
+    if (!orders.length) return false;
+    if (mode === 'latest'){
+      var latest = orders.reduce(function(a,b){
+        var da=_bctOrderDate(a), db=_bctOrderDate(b);
+        return ((db?db.getTime():0) > (da?da.getTime():0)) ? b : a;
+      });
+      return orderOk(latest);
+    }
+    return orders.some(orderOk);
+  }).map(function(c){ return c.phone; }).filter(Boolean);
+}
+
+function bctPreview(){
+  _bctLastPhones = [...new Set(_bctCollectPhones())];
+  var el = document.getElementById('bct-count');
+  el.style.display = 'block';
+  el.textContent = '🎯 Khớp điều kiện: ' + _bctLastPhones.length + ' khách';
+}
+function bctContinue(){
+  if (!_bctLastPhones.length) bctPreview();
+  if (!_bctLastPhones.length){ toast('Không có khách nào khớp điều kiện — nới bớt bộ lọc'); return; }
+  var phones = _bctLastPhones;
+  document.getElementById('bct-modal').classList.remove('open');
+  _showBroadcastComposeModal({
+    id: 'targetbc_' + Date.now(),
+    label: 'Chiến dịch điều kiện - ' + new Date().toLocaleDateString('vi-VN'),
+    phones: phones,
+    csName: ''
+  }, 'Theo điều kiện đã chọn — ' + phones.length + ' khách');
+}
 </script>
 </body>
 </html>
