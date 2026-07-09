@@ -1,4 +1,4 @@
-// OME Zalo AI Helper - content script phien ban 16.48.9.7.2026 (gio.phut.ngay.thang.nam xuat ban)
+// OME Zalo AI Helper - content script phien ban 16.55.9.7.2026 (gio.phut.ngay.thang.nam xuat ban)
 // v15.3: Tu dong cap nhat tinh trang ket ban Zalo ve Sasum khi chay chien dich
 //        (Gui ket ban->Chua ket ban; Da gui/Huy yeu cau->Chua dong y; ten co CTN->Chan;
 //         ten co NHD->Zalo ngung hd; khong thay gi->Da ket ban; trung trang thai cu->bo qua)
@@ -1487,15 +1487,17 @@ async function startReminderPoll_() {
     for (const sel of SEARCH_SELS) {
       try { const el = document.querySelector(sel); if (el) { searchEl = el; break; } } catch (e) {}
     }
-    if (!searchEl) { bcLog_('❌ Không tìm thấy ô tìm kiếm Zalo cho: ' + phone); return false; }
+    if (!searchEl) { bcLog_('⏭ Không tìm thấy ô tìm kiếm Zalo — bỏ qua: ' + phone); return false; }
 
+    // Tim bang 9 SO CUOI (bo so 0 dau) — Zalo khop ca so luu 84xxx / 0xxx
+    const q9 = phone.slice(-9);
     searchEl.focus();
     try {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-      setter.call(searchEl, phone);
-    } catch (e) { searchEl.value = phone; }
+      setter.call(searchEl, q9);
+    } catch (e) { searchEl.value = q9; }
     searchEl.dispatchEvent(new Event('input', { bubbles: true }));
-    await sleep_(1000);
+    await sleep_(1200);
 
     const RESULT_SELS = [
       '[class*="search-result"] [class*="item"]',
@@ -1508,18 +1510,22 @@ async function startReminderPoll_() {
     for (const sel of RESULT_SELS) {
       try {
         const items = [...document.querySelectorAll(sel)];
-        target = items.find(it => (it.textContent || '').includes(phone));
+        // Khop theo CHU SO trong ket qua (bo khoang trang/dinh dang): chua 9 so cuoi la trung
+        target = items.find(it => ((it.textContent || '').replace(/\D/g, '')).includes(q9));
         if (target) break;
       } catch (e) {}
     }
-    if (!target) { bcLog_('❌ Không tìm thấy khách trong kết quả tìm kiếm: ' + phone); return false; }
+    if (!target) { bcLog_('⏭ Không tìm thấy — bỏ qua: ' + phone); return false; }
 
     target.click();
     await sleep_(1200);
 
     for (let i = 0; i < 8; i++) {
       const name = getCurrentChatName();
-      if (name && extractPhone(name) === phone) return true;
+      if (name) {
+        const nd = name.replace(/\D/g, '');
+        if (extractPhone(name) === phone || nd.includes(q9)) return true;
+      }
       await sleep_(400);
     }
     bcLog_('⚠️ Đã mở chat nhưng chưa xác nhận khớp đúng khách: ' + phone + ' (vẫn thử gửi)');
@@ -1678,6 +1684,8 @@ async function startReminderPoll_() {
       'Bạn có thể Tạm dừng / Dừng hẳn bất cứ lúc nào.\n\nTiếp tục?';
     if (!window.confirm(confirmMsg)) return;
 
+    if (!_currentCS) { alert('Chưa chọn CS ở thanh 👤 CS phía trên. Chọn đúng tên CS của bạn rồi mới bắn được.'); return; }
+
     _bcRunning = true; _bcPaused = false; _bcStopFlag = false;
     _bcRunningCampId = camp.id;
     _bcLog = [];
@@ -1696,6 +1704,14 @@ async function startReminderPoll_() {
       const statusEl = document.getElementById('zai-bc-status');
       if (statusEl) statusEl.textContent = 'Đang gửi ' + (idx + 1) + '/' + total + ' — ' + phone;
 
+      // BAT BUOC: chi gui khach co CS CHAM SOC = CS dang chon tren Zalo AI
+      const custCS = ((camp.perPhoneCS && camp.perPhoneCS[phone]) || '').toLowerCase();
+      if (custCS !== _currentCS.toLowerCase()) {
+        skipCount++;
+        bcLog_('⏭ Bỏ qua (CS chăm sóc: ' + (custCS || 'chưa gán') + '): ' + phone);
+        continue;
+      }
+
       // Dinh tuyen theo Nick Zalo: neu khach da co du lieu nick ket ban (tu CareData.nickZalos)
       // va nick dang dung KHONG nam trong do -> bo qua NHUNG KHONG danh dau len server,
       // de CS mo dung nick van gui duoc cho khach nay.
@@ -1709,10 +1725,8 @@ async function startReminderPoll_() {
       try {
         const opened = await openZaloChatByPhone_(phone);
         if (!opened) {
-          // KHONG danh dau len server — co the khach la ban cua nick khac,
-          // CS mo dung nick se van thay khach nay trong hang doi.
+          // KHONG danh dau len server — nick khac van gui duoc cho khach nay
           skipCount++;
-          bcLog_('⏭ Bỏ qua (không mở được chat — có thể chưa kết bạn nick này): ' + phone);
         } else {
           await sleep_(600);
           // Tu dong doc tinh trang ket ban tu giao dien chat -> update ve Sasum (khong chan luong gui)

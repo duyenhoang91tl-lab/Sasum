@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script — PHIEN BAN 16.48.9.7.2026 (gio.phut.ngay.thang.nam)
+//  OME CS Portal — Google Apps Script — PHIEN BAN 16.55.9.7.2026 (gio.phut.ngay.thang.nam)
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)
@@ -1056,6 +1056,14 @@ function broadcastQueueForCS_(csName) {
     var st = b.status || 'active';
     return st === 'active' || st === 'paused';
   });
+  // CS cham soc tung khach (CareData) -> extension chi gui khach cua CS dang chon
+  var csMap = {};
+  try {
+    var careRowsQ = readCare_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH_CARE));
+    for (var cqi = 0; cqi < careRowsQ.length; cqi++) {
+      csMap[normPhone_(careRowsQ[cqi].phone)] = String(careRowsQ[cqi].cs || '').trim().toLowerCase();
+    }
+  } catch (e) {}
   var out = [];
   all.forEach(function (b) {
     if (csName && b.csName) {
@@ -1076,7 +1084,12 @@ function broadcastQueueForCS_(csName) {
         createdAt: b.createdAt || '',
         expectedNick: b.expectedNick || '',
         perPhoneMsg: b.perPhoneMsg || {},
-        perPhoneNick: b.perPhoneNick || {}
+        perPhoneNick: b.perPhoneNick || {},
+        perPhoneCS: (function () {
+          var m = {};
+          for (var pqi = 0; pqi < pending.length; pqi++) m[pending[pqi]] = csMap[pending[pqi]] || '';
+          return m;
+        })()
       });
     }
   });
