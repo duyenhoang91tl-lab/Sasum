@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script — PHIEN BAN 10.50.10.7.2026 (gio.phut.ngay.thang.nam)
+//  OME CS Portal — Google Apps Script — PHIEN BAN 11.04.10.7.2026 (gio.phut.ngay.thang.nam)
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)
@@ -1392,6 +1392,16 @@ function dedupeCare_() {
 
 // Dọn ĐƠN bị lặp trong OrderData (cùng SĐT + ngày + năm + tháng + doanh thu + sản phẩm).
 // Giữ 1 dòng/đơn; nếu bản trùng có careCS thì giữ lại careCS đó. KHÔNG gộp các đơn khác nhau.
+// ─── CHAY TAY TU APPS SCRIPT EDITOR (chon ham roi bam Run, xem ket qua o Executions) ───
+function runDedupeOrders() {
+  var res = dedupeOrders_();
+  Logger.log('DEDUPE ORDERS: ' + res.getContent());
+}
+function runDedupeCare() {
+  var res = dedupeCare_();
+  Logger.log('DEDUPE CARE: ' + res.getContent());
+}
+
 function dedupeOrders_() {
   var ss = getOrderSS_();
   var totalRemoved = 0, totalKept = 0, detail = [];
