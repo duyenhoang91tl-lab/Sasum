@@ -1,4 +1,4 @@
-// OME Zalo AI Helper - content script phien ban 18.4.9.7.2026 (gio.phut.ngay.thang.nam xuat ban)
+// OME Zalo AI Helper - content script phien ban 10.40.10.7.2026 (gio.phut.ngay.thang.nam xuat ban)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai

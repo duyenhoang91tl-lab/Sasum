@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OME CS Portal 10.21.10.7.2026</title>
+<title>OME CS Portal 10.40.10.7.2026</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -829,7 +829,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 <header>
   <div class="logo">
     <div class="logo-mark"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">10.21.10.7.2026</span>
+    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">10.40.10.7.2026</span>
   </div>
   <div class="hdr-r">
     <span class="fstatus" id="fstatus">Chưa có dữ liệu</span>
@@ -2766,6 +2766,12 @@ function markDone(id) {
       }
       saveLS('ome_care', careData);
     }
+    // Lịch auto đã Done → ghi nhớ để không tái tạo lại
+    if (it.autoDao) {
+      var delSet = loadLS('ome_dao_deleted') || {};
+      delSet[it.id] = true;
+      saveLS('ome_dao_deleted', delSet);
+    }
     saveLS('ome_sched',schedules);
     // Tính lại mốc auto sắp tới (bỏ mốc đã Done) → cập nhật ô Hẹn cho đúng
     try { if (typeof syncAutoHenToCareData==='function') syncAutoHenToCareData(); } catch(e){}
@@ -2773,6 +2779,12 @@ function markDone(id) {
     if (gsUrl) pushCareToGS(it.phone);
     renderScheduleTab(); renderOverdueTab(); updateSchedBadges();
     renderReminderPanel();
+    // Cập nhật panel chi tiết nếu đang mở tab Lịch hẹn của chính khách này
+    if (typeof currentPhone !== 'undefined' && currentPhone === it.phone && currentDpTab === 'schedule') {
+      var _cdp = allCustomers.find(function(x){ return x.phone === it.phone; });
+      var _body = document.getElementById('dp-body');
+      if (_cdp && _body) _body.innerHTML = renderSchedTabHtml(_cdp);
+    }
     toast('✓ Đã đánh dấu hoàn thành');
   }
 }
@@ -3879,6 +3891,7 @@ function checkDataDaoRenewSchedules() {
 
   if (typeof allCustomers === 'undefined') return;
 
+  var _daoDeleted = loadLS('ome_dao_deleted') || {};
   var daoExclude = loadLS('ome_dao_exclude') || {};
   allCustomers.forEach(function(c) {
     if (daoExclude[c.phone]) return; // Khách đã bị bỏ lịch auto
@@ -3924,6 +3937,8 @@ function checkDataDaoRenewSchedules() {
         // ID duy nhất theo phone + ngày đơn + mốc → tránh tạo trùng
         var autoId = 'dao_' + c.phone + '_' + baseDate + '_' + (m.days||('m'+m.months));
 
+        // Đã bị CS xóa tay → không tạo lại
+        if (_daoDeleted[autoId]) return;
         var exists = schedules.find(function(x){ return x.id === autoId; });
         if (exists) return;
 
@@ -4244,6 +4259,12 @@ function _schedEditSave(id, eid, phone) {
 
 function delSched(id) {
   const it = schedules.find(x=>x.id===id);
+  // Lịch auto Data Đảo: ghi nhớ id đã xóa để checkDataDaoRenewSchedules KHÔNG tạo lại
+  if (it && it.autoDao) {
+    var delSet = loadLS('ome_dao_deleted') || {};
+    delSet[id] = true;
+    saveLS('ome_dao_deleted', delSet);
+  }
   schedules = schedules.filter(x=>x.id!==id);
   saveLS('ome_sched', schedules);
   if (it) logAudit('del', it.phone, `${schedTypeLabel(it.type)} · ${it.date}`, 'Đã xóa lịch');

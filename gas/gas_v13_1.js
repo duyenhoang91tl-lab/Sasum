@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script — PHIEN BAN 16.55.9.7.2026 (gio.phut.ngay.thang.nam)
+//  OME CS Portal — Google Apps Script — PHIEN BAN 10.40.10.7.2026 (gio.phut.ngay.thang.nam)
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)
@@ -370,7 +370,7 @@ function doGet(e) {
       if (!shR || shR.getLastRow() < 2) return jsonOut_({ reminders: [] });
       var valsR = shR.getDataRange().getValues();
       var today = new Date(); today.setHours(0,0,0,0);
-      var reminders = [];
+      var reminders = [], seenR = {};
       for (var ri = 1; ri < valsR.length; ri++) {
         if (!valsR[ri][0]) continue;
         var rcs = String(valsR[ri][3]||'').trim();
@@ -378,13 +378,17 @@ function doGet(e) {
         var rhen = valsR[ri][12];
         if (!rhen) continue;
         var rdate = new Date(rhen); rdate.setHours(0,0,0,0);
-        if (rdate <= today) {
-          reminders.push({
-            phone: String(valsR[ri][0]), schedHen: String(rhen),
-            schedHenNote: String(valsR[ri][13]||''), cs: rcs,
-            status: String(valsR[ri][1]||''), overdue: rdate < today
-          });
-        }
+        // CHỈ hẹn TRONG NGÀY hôm nay (không lấy quá hạn) — extension chỉ nhắc lịch của ngày
+        if (rdate.getTime() !== today.getTime()) continue;
+        // Gộp trùng: mỗi SĐT chỉ 1 nhắc (tránh nhân bản do CareData có dòng trùng)
+        var npR = normPhone_(String(valsR[ri][0]));
+        if (seenR[npR]) continue;
+        seenR[npR] = true;
+        reminders.push({
+          phone: String(valsR[ri][0]), schedHen: String(rhen),
+          schedHenNote: String(valsR[ri][13]||''), cs: rcs,
+          status: String(valsR[ri][1]||''), overdue: false
+        });
       }
       return jsonOut_({ reminders: reminders });
     }
@@ -421,6 +425,7 @@ function doGet(e) {
     if (action === 'runFollowUpScan') {
       return jsonOut_(runFollowUpScan_());
     }
+    if (action === 'dedupeCare') return dedupeCare_();
 
     // default — backward compat voi appweb v10
     var resD = { rows: readCare_(ss.getSheetByName(SH_CARE)), orders: [] };
@@ -488,6 +493,8 @@ function doPost(e) {
     if (action === 'broadcastSetStatus')   return broadcastSetStatus_(data.id, data.status);
     // ── HOI THAM TU DONG: nhan ket qua quet ten Zalo tu extension (du phong khi thieu OrderData) ──
     if (action === 'saveZaloScan')         return saveZaloScan_(data.rows);
+    // Dọn dòng CareData bị nhân bản (giữ dòng đầy đủ nhất cho mỗi SĐT)
+    if (action === 'dedupeCare')           return dedupeCare_();
     // ── HOI THAM TU DONG: luu bang mau tin (UI Sasum) ──
     if (action === 'saveFollowUpTemplates') return saveFollowUpTemplates_(data.templates);
     return jsonOut_({ error: 'Unknown action: ' + action });
@@ -530,9 +537,12 @@ function saveAllCare_(rows) {
 function saveSingleCare_(r) {
   var sh = getSheet_(SH_CARE, CARE_HEADERS);
   var last = sh.getLastRow(); var rowIdx = -1;
+  var npR = normPhone_(String(r.phone));
   if (last >= 2) {
-    var cell = sh.getRange(2, 1, last-1, 1).createTextFinder(String(r.phone)).matchEntireCell(true).findNext();
-    if (cell) rowIdx = cell.getRow();
+    var colP = sh.getRange(2, 1, last-1, 1).getValues();
+    for (var pi = 0; pi < colP.length; pi++) {
+      if (normPhone_(String(colP[pi][0])) === npR) { rowIdx = pi + 2; break; }
+    }
   }
   if (rowIdx > 0) {
     // Doc du lieu hien tai de bao toan truong mo rong neu incoming khong co
@@ -554,10 +564,10 @@ function saveBatchCare_(rows) {
   var sh = getSheet_(SH_CARE, CARE_HEADERS);
   var data = sh.getDataRange().getValues();
   var index = {};
-  for (var i = 1; i < data.length; i++) { if (data[i][0]) index[String(data[i][0])] = i; }
+  for (var i = 1; i < data.length; i++) { if (data[i][0]) index[normPhone_(String(data[i][0]))] = i; }
   var appended = 0, updated = 0;
   for (var k = 0; k < rows.length; k++) {
-    var r = rows[k]; var key = String(r.phone);
+    var r = rows[k]; var key = normPhone_(String(r.phone));
     if (index[key] !== undefined) {
       mergeExtFields_(r, { khStatus: data[index[key]][15]||'', nickZalos: data[index[key]][16]||'[]', birthday: data[index[key]][17]||'' });
       data[index[key]] = careRow_(r); updated++;
@@ -1355,6 +1365,29 @@ function readZaloScanByPhone_() {
 }
 
 // Nhan mang cac ban ghi quet tu extension: [{phone, rawName, nameGuess, orderDateGuess, productCodeGuess, scannedBy}]
+function dedupeCare_() {
+  var sh = getSheet_(SH_CARE, CARE_HEADERS);
+  var last = sh.getLastRow();
+  if (last < 3) return jsonOut_({ ok: true, removed: 0 });
+  var data = sh.getDataRange().getValues();
+  var best = {}; // np -> {rowVals, score}
+  function score(row){ var n=0; for (var j=1;j<row.length;j++){ if (String(row[j]||'').trim()) n++; } return n; }
+  for (var i = 1; i < data.length; i++) {
+    if (!data[i][0]) continue;
+    var np = normPhone_(String(data[i][0]));
+    if (!np) continue;
+    var sc = score(data[i]);
+    if (!best[np] || sc > best[np].score) best[np] = { row: data[i], score: sc };
+  }
+  var out = [CARE_HEADERS];
+  Object.keys(best).forEach(function(np){ out.push(best[np].row); });
+  var removed = (data.length - 1) - (out.length - 1);
+  sh.clearContents();
+  sh.getRange(1, 1, out.length, CARE_HEADERS.length).setValues(out);
+  try { CacheService.getScriptCache().remove('customers_v12'); } catch(ec) {}
+  return jsonOut_({ ok: true, removed: removed, kept: out.length - 1 });
+}
+
 function saveZaloScan_(rows) {
   if (!rows || !rows.length) return jsonOut_({ ok: false, error: 'Khong co du lieu quet' });
   var sh = getSheet_(SH_ZALO_SCAN, ZALO_SCAN_HEADERS);
