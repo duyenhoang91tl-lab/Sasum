@@ -35,11 +35,11 @@ var ORDER_SHEETS = [
 ];
 var SH_ORDER_DEFAULT = 'OrderData26';
 
-// CARE_HEADERS: 18 cols (v10.0 co 15, v11.2 co 17, v12.0 them birthday)
+// CARE_HEADERS: 19 cols (v10.0 co 15, v11.2 co 17, v12.0 them birthday, v13.1 them zaloSetBy)
 var CARE_HEADERS = ['phone','status','zalo','cs','note','schedules',
   'schedGoi','schedGoiNote','schedSP','schedSPNote',
   'schedCS','schedCSNote','schedHen','schedHenNote','updated',
-  'khStatus','nickZalos','birthday'];
+  'khStatus','nickZalos','birthday','zaloSetBy'];
 
 var ORDER_HEADERS  = ['phone','name','date','year','month','cs','source','revenue',
   'product','productDetail','status','zalo','note','careCS'];
@@ -55,6 +55,16 @@ function getSheet_(name, headers) {
   var sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
   if (sh.getLastRow() === 0 && headers) sh.appendRow(headers);
+  else if (headers && sh.getLastRow() > 0) {
+    // Neu sheet da co san (tao tu ban cu, it cot hon) -> bo sung cac cot header con thieu
+    // o cuoi, KHONG dung lai/xoa du lieu hien co. Vi du: them cot 'zaloSetBy' o ban v13.1.
+    var curLastCol = sh.getLastColumn();
+    if (curLastCol < headers.length) {
+      var curHeaders = curLastCol > 0 ? sh.getRange(1, 1, 1, curLastCol).getValues()[0] : [];
+      var missing = headers.slice(curHeaders.length);
+      if (missing.length) sh.getRange(1, curHeaders.length + 1, 1, missing.length).setValues([missing]);
+    }
+  }
   return sh;
 }
 function getOrderSheet_(name) {
@@ -130,6 +140,7 @@ function readCareStatus_(ss) {
 // Chuyen 1 hang sheet thanh object care (xu ly graceful neu sheet co it cot hon)
 function careObjFromRow_(row) {
   var parseNZ = function(v) { try { return JSON.parse(v||'[]'); } catch(e) { return []; } };
+  var parseSetBy = function(v) { try { return JSON.parse(v||'null'); } catch(e) { return null; } };
   return {
     phone:        String(row[0]||''),
     status:       row[1]||'',
@@ -148,7 +159,8 @@ function careObjFromRow_(row) {
     updated:      row[14]||'',
     khStatus:     row[15]||'',
     nickZalos:    parseNZ(row[16]),
-    birthday:     row[17]||''
+    birthday:     row[17]||'',
+    zaloSetBy:    parseSetBy(row[18]) // { cs, nick, at } - ai/nick nao vua ghi trang thai 'zalo' gan nhat
   };
 }
 
@@ -176,20 +188,22 @@ function findCareByPhone_(phone) {
   return null;
 }
 
-// careRow_: 18 cols. Neu truong khong co thi de trong.
+// careRow_: 19 cols. Neu truong khong co thi de trong.
 function careRow_(r) {
   var nz = r.nickZalos;
   if (!Array.isArray(nz)) { try { nz = JSON.parse(nz||'[]'); } catch(e) { nz = []; } }
+  var setBy = r.zaloSetBy;
+  if (setBy && typeof setBy !== 'string') { try { setBy = JSON.stringify(setBy); } catch(e) { setBy = ''; } }
   return [
     r.phone||'', r.status||'', r.zalo||'', r.cs||'', r.note||'', r.schedules||'',
     r.schedGoi||'', r.schedGoiNote||'', r.schedSP||'', r.schedSPNote||'',
     r.schedCS||'', r.schedCSNote||'', r.schedHen||'', r.schedHenNote||'',
     new Date().toISOString(),
-    r.khStatus||'', JSON.stringify(nz), r.birthday||''
+    r.khStatus||'', JSON.stringify(nz), r.birthday||'', setBy||''
   ];
 }
 
-// Doc du lieu existing de bao toan truong mo rong (khStatus, nickZalos, birthday)
+// Doc du lieu existing de bao toan truong mo rong (khStatus, nickZalos, birthday, zaloSetBy)
 // khi appweb gui len khong co cac truong nay
 function readExistingExtFields_(sh) {
   var map = {};
@@ -200,7 +214,8 @@ function readExistingExtFields_(sh) {
     map[String(vals[i][0])] = {
       khStatus:  vals[i][15]||'',
       nickZalos: vals[i][16]||'[]',
-      birthday:  vals[i][17]||''
+      birthday:  vals[i][17]||'',
+      zaloSetBy: vals[i][18]||''
     };
   }
   return map;
@@ -211,6 +226,7 @@ function mergeExtFields_(r, ex) {
   if (!ex) return r;
   if (r.khStatus  === undefined || r.khStatus  === null || r.khStatus  === '') r.khStatus  = ex.khStatus  || '';
   if (r.birthday  === undefined || r.birthday  === null || r.birthday  === '') r.birthday  = ex.birthday  || '';
+  if (r.zaloSetBy === undefined || r.zaloSetBy === null || r.zaloSetBy === '') r.zaloSetBy = ex.zaloSetBy || '';
   if (r.nickZalos === undefined || r.nickZalos === null ||
       (Array.isArray(r.nickZalos) && r.nickZalos.length === 0)) {
     try { r.nickZalos = JSON.parse(ex.nickZalos||'[]'); } catch(e) { r.nickZalos = []; }
@@ -493,6 +509,10 @@ function doPost(e) {
     if (action === 'broadcastSetStatus')   return broadcastSetStatus_(data.id, data.status);
     // ── HOI THAM TU DONG: nhan ket qua quet ten Zalo tu extension (du phong khi thieu OrderData) ──
     if (action === 'saveZaloScan')         return saveZaloScan_(data.rows);
+    // ── ZALO AI: dong bo trang thai ket ban (Da ket ban/Chan/...) tu nut "Quet man hinh" trong extension.
+    //     dryRun=true -> CHI kiem tra xung dot (SDT nao dang duoc CS/Nick khac ghi nhan khac trang thai),
+    //     khong ghi gi ca; extension se hoi CS xac nhan roi moi goi lai voi dryRun=false (that su ghi). ──
+    if (action === 'syncZaloFriendStatus') return syncZaloFriendStatus_(data.rows, !!data.dryRun);
     // Dọn dòng CareData bị nhân bản (giữ dòng đầy đủ nhất cho mỗi SĐT)
     if (action === 'dedupeCare')           return dedupeCare_();
     // ── HOI THAM TU DONG: luu bang mau tin (UI Sasum) ──
@@ -547,7 +567,7 @@ function saveSingleCare_(r) {
   if (rowIdx > 0) {
     // Doc du lieu hien tai de bao toan truong mo rong neu incoming khong co
     var existRow = sh.getRange(rowIdx, 1, 1, CARE_HEADERS.length).getValues()[0];
-    mergeExtFields_(r, { khStatus: existRow[15]||'', nickZalos: existRow[16]||'[]', birthday: existRow[17]||'' });
+    mergeExtFields_(r, { khStatus: existRow[15]||'', nickZalos: existRow[16]||'[]', birthday: existRow[17]||'', zaloSetBy: existRow[18]||'' });
     sh.getRange(rowIdx, 1, 1, CARE_HEADERS.length).setValues([careRow_(r)]);
   } else {
     sh.appendRow(careRow_(r));
@@ -569,7 +589,7 @@ function saveBatchCare_(rows) {
   for (var k = 0; k < rows.length; k++) {
     var r = rows[k]; var key = normPhone_(String(r.phone));
     if (index[key] !== undefined) {
-      mergeExtFields_(r, { khStatus: data[index[key]][15]||'', nickZalos: data[index[key]][16]||'[]', birthday: data[index[key]][17]||'' });
+      mergeExtFields_(r, { khStatus: data[index[key]][15]||'', nickZalos: data[index[key]][16]||'[]', birthday: data[index[key]][17]||'', zaloSetBy: data[index[key]][18]||'' });
       data[index[key]] = careRow_(r); updated++;
     } else {
       data.push(careRow_(r)); index[key] = data.length - 1; appended++;
@@ -578,6 +598,80 @@ function saveBatchCare_(rows) {
   sh.getRange(1, 1, data.length, CARE_HEADERS.length).setValues(data);
   try { CacheService.getScriptCache().remove('customers_v12'); } catch(ec) {}
   invalidateLookupCache_(rows.map(function(r){ return r.phone; }));
+  return jsonOut_({ ok: true, updated: updated, appended: appended });
+}
+
+// ── ZALO AI: dong bo trang thai ket ban tu nut "Quet man hinh hien tai" trong extension ──
+// rows: [{phone, zalo, scannedBy, nick}]
+// CHI cap nhat cot 'zalo' (trang thai ket ban) + nickZalos + zaloSetBy, KHONG dung careRow_/saveBatchCare_
+// vi careRow_ se ghi de rong cac cot status/cs/note/schedules neu incoming row thieu cac truong do.
+//
+// dryRun = true: CHI kiem tra xem SDT nao dang doi trang thai ma truoc do da duoc 1 CS/Nick KHAC ghi nhan
+//          (zaloSetBy.cs khac scannedBy hien tai) VA gia tri zalo thuc su khac nhau -> tra ve danh sach
+//          conflicts de extension hoi CS "co muon ghi de khong", KHONG ghi gi vao sheet ca.
+// dryRun = false (mac dinh): ghi that su. Cac dong CS da xac nhan de-o het thi gui nguyen rows nhu binh thuong.
+function syncZaloFriendStatus_(rows, dryRun) {
+  if (!rows || !rows.length) return jsonOut_({ ok: false, error: 'Khong co du lieu de dong bo' });
+  var sh = getSheet_(SH_CARE, CARE_HEADERS);
+  var data = sh.getDataRange().getValues();
+  if (!data.length) data = [CARE_HEADERS];
+  var index = {};
+  for (var i = 1; i < data.length; i++) { if (data[i][0]) index[normPhone_(String(data[i][0]))] = i; }
+
+  if (dryRun) {
+    var conflicts = [];
+    for (var c = 0; c < rows.length; c++) {
+      var rc = rows[c];
+      var phoneC = normPhone_(String(rc.phone || ''));
+      if (!phoneC || index[phoneC] === undefined) continue;
+      var rowC = data[index[phoneC]];
+      var oldZalo = rowC[2] || '';
+      if (!oldZalo || oldZalo === (rc.zalo || '')) continue; // chua tung ghi, hoac gia tri khong doi -> khong tinh la xung dot
+      var oldSetBy = null;
+      try { oldSetBy = JSON.parse(rowC[18] || 'null'); } catch (e) { oldSetBy = null; }
+      var oldCs = oldSetBy ? (oldSetBy.cs || '') : '';
+      var oldNick = oldSetBy ? (oldSetBy.nick || '') : '';
+      if (oldCs && oldCs !== (rc.scannedBy || '')) {
+        conflicts.push({ phone: rc.phone, oldZalo: oldZalo, oldCs: oldCs, oldNick: oldNick, newZalo: rc.zalo || '' });
+      }
+    }
+    return jsonOut_({ ok: true, dryRun: true, conflicts: conflicts });
+  }
+
+  var updated = 0, appended = 0;
+  var now = new Date().toISOString();
+  for (var k = 0; k < rows.length; k++) {
+    var r = rows[k];
+    var phone = normPhone_(String(r.phone || ''));
+    if (!phone) continue;
+    var zaloStatus = r.zalo || '';
+    var nick = String(r.nick || '').trim();
+    var setBy = JSON.stringify({ cs: r.scannedBy || '', nick: nick, at: now });
+
+    if (index[phone] !== undefined) {
+      var idx = index[phone];
+      data[idx][2] = zaloStatus;   // cot 'zalo' (trang thai ket ban)
+      data[idx][14] = now;         // cot 'updated'
+      if (nick) {
+        var nz = [];
+        try { nz = JSON.parse(data[idx][16] || '[]'); } catch (e) { nz = []; }
+        if (!Array.isArray(nz)) nz = [];
+        if (nz.indexOf(nick) === -1) nz.push(nick);
+        data[idx][16] = JSON.stringify(nz);
+      }
+      data[idx][18] = setBy;       // cot 'zaloSetBy'
+      updated++;
+    } else {
+      var newRow = careRow_({ phone: phone, zalo: zaloStatus, nickZalos: nick ? [nick] : [], zaloSetBy: setBy });
+      data.push(newRow);
+      index[phone] = data.length - 1;
+      appended++;
+    }
+  }
+
+  sh.getRange(1, 1, data.length, CARE_HEADERS.length).setValues(data);
+  try { CacheService.getScriptCache().remove('customers_v12'); } catch (ec) {}
+  invalidateLookupCache_(rows.map(function (r) { return r.phone; }));
   return jsonOut_({ ok: true, updated: updated, appended: appended });
 }
 
