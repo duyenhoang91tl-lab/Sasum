@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script — PHIEN BAN 11.04.10.7.2026 (gio.phut.ngay.thang.nam)
+//  OME CS Portal — Google Apps Script — PHIEN BAN 11.18.10.7.2026 (gio.phut.ngay.thang.nam)
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)
@@ -1402,6 +1402,18 @@ function runDedupeCare() {
   Logger.log('DEDUPE CARE: ' + res.getContent());
 }
 
+// Doanh thu chuẩn hoá: 947 và 947000 coi là như nhau (quy về nghìn)
+function _rev1k_(v) {
+  var n = Number(v) || 0;
+  if (n < 0) n = -n;
+  return n >= 1000 ? Math.round(n / 1000) : Math.round(n);
+}
+// Khoá ngày giờ đặt đơn: ưu tiên chuỗi ISO đầy đủ (giữ cả giờ); nếu là Date thì lấy ISO.
+function _ordDateKey_(v) {
+  if (v instanceof Date && !isNaN(v)) return v.toISOString();
+  return String(v || '').trim();
+}
+
 function dedupeOrders_() {
   var ss = getOrderSS_();
   var totalRemoved = 0, totalKept = 0, detail = [];
@@ -1415,9 +1427,15 @@ function dedupeOrders_() {
       var r = vals[i];
       if (!r[0]) continue;
       before++;
-      // Khoá nhận diện 1 đơn
-      var key = normPhone_(String(r[0])) + '|' + String(r[2]) + '|' + String(r[3]) + '|' +
-                String(r[4]) + '|' + String(r[7]) + '|' + String(r[8]) + '|' + String(r[9]);
+      // Khoá nhận diện 1 đơn TRÙNG (theo đúng định nghĩa):
+      //   SĐT (9 số cuối) + NGÀY GIỜ đặt đơn + tên CS + nguồn + sản phẩm chi tiết + doanh thu.
+      //   Doanh thu chuẩn hoá: 947 và 947000 coi là như nhau (quy về đơn vị nghìn).
+      var key = normPhone_(String(r[0])) + '|' +
+                _ordDateKey_(r[2]) + '|' +
+                String(r[5]||'').trim().toLowerCase() + '|' +
+                String(r[6]||'').trim().toLowerCase() + '|' +
+                String(r[9]||'').trim().toLowerCase() + '|' +
+                _rev1k_(r[7]);
       if (seen[key] !== undefined) {
         // đã có → nếu dòng này có careCS mà dòng giữ chưa có thì bổ sung careCS
         var kept = out[seen[key]];
