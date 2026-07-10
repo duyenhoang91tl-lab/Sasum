@@ -1,4 +1,7 @@
-// OME Zalo AI Helper - content script phien ban 18.3.9.7.2026 (gio.phut.ngay.thang.nam xuat ban)
+// OME Zalo AI Helper - content script phien ban 18.4.9.7.2026 (gio.phut.ngay.thang.nam xuat ban)
+// v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
+//        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
+//        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
 // v15.4: Gioi han 200 khach/ngay cho gui hang loat (dem chung moi chien dich tren may nay,
 //        dat moc thi tu dong tam ngung + canh bao, CS phai bam "Kich hoat lai" moi gui tiep);
 //        Them "4 kich ban AI" moi chien dich (AI viet lai giu noi dung goc, CS xem/sua/duyet
@@ -227,8 +230,11 @@
     // Grab row
     const msgHdr = addEl(aiWrap, 'div', {style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:4px'});
     addEl(msgHdr, 'div', {className:'zai-section-label', style:'margin:0', textContent:'Tin nhắn khách'});
-    addEl(msgHdr, 'button', {className:'zai-btn zai-btn-ghost zai-btn-sm', id:'zai-grab-btn',
+    const msgHdrBtns = addEl(msgHdr, 'div', {style:'display:flex;gap:4px'});
+    addEl(msgHdrBtns, 'button', {className:'zai-btn zai-btn-ghost zai-btn-sm', id:'zai-grab-btn',
       textContent:'📥 Lấy TN', title:'Tự động lấy 100 tin nhắn gần nhất của khách'});
+    const msgZoomBtn = addEl(msgHdrBtns, 'button', {className:'zai-btn zai-btn-ghost zai-btn-sm',
+      textContent:'⛶', title:'Phóng to để xem/sửa cho dễ'});
 
     // History status (hien thi sau khi grab, co link xem)
     const histStatus = addEl(aiWrap, 'div', {id:'zai-hist-status', style:'font-size:11px;color:#6b7280;margin-bottom:4px;display:none'});
@@ -237,6 +243,7 @@
     const msgTa = addEl(aiWrap, 'textarea', {className:'zai-msg-area', id:'zai-msg',
       placeholder:'Dán thủ công nếu cần...'});
     msgTa.style.display = 'none';
+    msgZoomBtn.addEventListener('click', () => openZoomModal_(msgTa, {title:'Tin nhắn khách'}));
 
     // Nguyen canh input
     addEl(aiWrap, 'div', {style:'margin-top:5px;font-size:11px;color:#6b7280', textContent:'Ngữ cảnh / Sản phẩm (tuỳ chọn)'});
@@ -906,6 +913,7 @@
       const ta = addEl(sug,'textarea',{id:'zai-sug-edit', rows:4});
       ta.style.cssText='width:100%;box-sizing:border-box;font-size:12px;padding:8px;border:1px solid #d1d5db;border-radius:6px;resize:vertical;margin-top:4px;font-family:inherit';
       ta.value = text;
+      attachExpandBtn_(sug, ta, 'Gợi ý trả lời');
 
       const btnRow = addEl(sug,'div',{style:'display:flex;gap:6px;margin-top:6px'});
 
@@ -1428,27 +1436,94 @@ async function startReminderPoll_() {
 
   const VARIANT_DELIM = '@@@KB@@@';
 
-  // Goi AI (Grok, qua GAS) de sinh 4 kich ban giu nguyen noi dung cot loi, chi doi cau chu.
+  // ── Mo khung LON de xem/sua noi dung mot o textarea cho de doc (dong la ap dung vao o goc) ──
+  function openZoomModal_(textareaEl, opts) {
+    opts = opts || {};
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:10px;padding:14px;width:min(560px,92vw);max-height:86vh;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.3);';
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;';
+    const hdrTitle = document.createElement('span');
+    hdrTitle.style.cssText = 'font-weight:700;font-size:13px;color:#111827';
+    hdrTitle.textContent = opts.title || 'Xem nội dung';
+    const closeX = document.createElement('button');
+    closeX.textContent = '✕';
+    closeX.style.cssText = 'border:none;background:none;font-size:16px;cursor:pointer;color:#6b7280;line-height:1;padding:2px 4px;';
+    hdr.appendChild(hdrTitle); hdr.appendChild(closeX);
+    box.appendChild(hdr);
+
+    const readOnly = !!textareaEl.readOnly || !!textareaEl.disabled;
+    const bigTa = document.createElement('textarea');
+    bigTa.value = textareaEl.value;
+    bigTa.readOnly = readOnly;
+    bigTa.style.cssText = 'flex:1;width:100%;box-sizing:border-box;font-size:15px;line-height:1.55;padding:12px;border:1px solid #d1d5db;border-radius:8px;resize:vertical;min-height:260px;font-family:inherit;';
+    box.appendChild(bigTa);
+
+    const footer = document.createElement('div');
+    footer.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:10px;';
+    const doneBtn = document.createElement('button');
+    doneBtn.className = 'zai-btn zai-btn-primary zai-btn-sm';
+    doneBtn.textContent = readOnly ? 'Đóng' : '✓ Xong, áp dụng & đóng';
+    footer.appendChild(doneBtn);
+    box.appendChild(footer);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    bigTa.focus();
+
+    function close_(apply) {
+      if (apply && !readOnly) {
+        textareaEl.value = bigTa.value;
+        textareaEl.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      overlay.remove();
+      document.removeEventListener('keydown', escHandler);
+    }
+    function escHandler(e) { if (e.key === 'Escape') close_(false); }
+    document.addEventListener('keydown', escHandler);
+    closeX.addEventListener('click', () => close_(false));
+    doneBtn.addEventListener('click', () => close_(true));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close_(false); });
+  }
+
+  // Them nut "⛶ Phóng to" ngay duoi 1 textarea, mo khung lon cho de doc/sua roi dong lai
+  function attachExpandBtn_(parent, textareaEl, title) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'zai-btn zai-btn-ghost zai-btn-sm';
+    btn.textContent = '⛶ Phóng to';
+    btn.title = 'Mở khung lớn để xem/sửa cho dễ, đọc xong bấm Đóng';
+    btn.style.cssText = 'margin-top:3px;display:inline-block;';
+    btn.addEventListener('click', (e) => { e.preventDefault(); openZoomModal_(textareaEl, { title: title }); });
+    parent.appendChild(btn);
+    return btn;
+  }
+
+  // Goi AI (Grok, qua GAS) de sinh 3 kich ban THEM (ngoai kich ban goc), chi doi cau chu rat it.
   // CS BAT BUOC phai xem/sua/duyet truoc khi luu — ham nay chi tao BAN NHAP.
   async function doGenerateVariants_(camp, coreText, container) {
     if (!GAS_URL) { alert('Chưa cài đặt URL GAS.'); return; }
     const text = (coreText || '').trim();
-    if (!text) { alert('Nhập nội dung cốt lõi cần gửi trước đã.'); return; }
+    if (!text) { alert('Nhập nội dung kịch bản gốc cần gửi trước đã.'); return; }
     const btn = container.querySelector('.zai-kb-gen-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'AI đang soạn 4 kịch bản...'; }
+    if (btn) { btn.disabled = true; btn.textContent = 'AI đang soạn 3 kịch bản...'; }
     try {
-      const prompt = '[Nội dung cốt lõi cần gửi]\n' + text +
-        '\n\nHãy viết lại thành đúng 4 phiên bản tin nhắn Zalo chăm sóc khách hàng khác nhau. ' +
-        'BẮT BUỘC giữ nguyên đầy đủ thông tin, ý nghĩa và lời đề nghị cốt lõi ở trên — ' +
-        'chỉ thay đổi cách diễn đạt, câu chữ, thứ tự câu cho đa dạng, giọng văn tự nhiên tiếng Việt, ' +
-        'độ dài tương đương bản gốc. Không thêm thông tin mới, không thêm giải thích. ' +
-        'Trả về đúng 4 phiên bản, phân cách bằng dòng riêng chứa duy nhất "' + VARIANT_DELIM + '", không đánh số, không ghi chú gì thêm.';
+      const prompt = '[Kịch bản gốc — đây là tin nhắn Zalo nhắn hỏi thăm khách ĐÃ MUA hàng, KHÔNG phải kịch bản gọi điện, KHÔNG phải lời chào mời/giới thiệu sản phẩm mới]\n' +
+        text +
+        '\n\nHãy viết lại thành đúng 3 phiên bản KHÁC của CHÍNH tin nhắn trên.\n' +
+        'QUY TẮC BẮT BUỘC — chỉ được thay đổi RẤT ÍT:\n' +
+        '- Giữ nguyên 100% nội dung, ý, câu hỏi, số liệu (nếu có) và giọng điệu thân mật, xưng hô như bản gốc.\n' +
+        '- Chỉ được đổi một vài từ/cách diễn đạt tương đương nghĩa (ví dụ: "được khoảng 10 ngày rồi" ⇄ "mấy hôm rồi"; "Có cần em hỗ trợ thêm gì không chị?" ⇄ "chị cần em hỗ trợ gì nhắn em tư vấn thêm nhé ạ").\n' +
+        '- TUYỆT ĐỐI KHÔNG: thêm ý mới, bớt ý, đổi cấu trúc câu hỏi, đổi thành văn phong trang trọng/khác thể loại, tự xưng "nhân viên CSKH", nhắc tới gọi điện, giới thiệu sản phẩm mới, hay chương trình ưu đãi nếu bản gốc không có.\n' +
+        '- Độ dài từng phiên bản xấp xỉ bản gốc.\n' +
+        'Trả về đúng 3 phiên bản, phân cách bằng dòng riêng chứa duy nhất "' + VARIANT_DELIM + '", không đánh số, không ghi chú gì thêm.';
       const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'ai', prompt }), headers: { 'Content-Type': 'text/plain' } });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'GAS lỗi');
       let parts = (data.text || '').split(VARIANT_DELIM).map(s => s.trim()).filter(Boolean);
       if (parts.length < 2) parts = (data.text || '').split(/\n\s*\n/).map(s => s.trim()).filter(Boolean); // fallback neu AI khong theo dung dinh dang
-      parts = parts.slice(0, 4);
+      parts = parts.slice(0, 3);
       if (!parts.length) throw new Error('AI không trả về kịch bản nào, thử lại.');
       _bcVariantDraft[camp.id] = parts;
       renderVariantEditor_(camp, container);
@@ -1456,47 +1531,61 @@ async function startReminderPoll_() {
       alert('Lỗi tạo kịch bản: ' + e.message);
     } finally {
       const b = container.querySelector('.zai-kb-gen-btn');
-      if (b) { b.disabled = false; b.textContent = '✨ Tạo 4 kịch bản AI'; }
+      if (b) { b.disabled = false; b.textContent = '✨ Tạo 3 kịch bản AI'; }
     }
   }
 
-  // Ve khung soan/duyet kich ban cho 1 chien dich. CS sua truc tiep tren textarea,
-  // bo tich o kich ban nao khong muon dung, roi bam Luu — chi kich ban da duyet moi duoc gui.
+  // Ve khung soan/duyet kich ban cho 1 chien dich: Kich ban 1 LUON la ban goc (CS go/sua truc tiep),
+  // Kich ban 2-4 la AI sinh THEM (chi doi cau chu rat it so voi goc). CS xem/sua/duyet truoc khi luu —
+  // chi kich ban da tich moi duoc dua vao vong luan phien khi gui.
   function renderVariantEditor_(camp, container) {
     container.innerHTML = '';
     const saved = _bcVariants[camp.id] || [];
-    const draft = _bcVariantDraft[camp.id] || (saved.length ? saved.slice() : [camp.message || '']);
+    // saved[0] la kich ban goc da luu lan truoc (neu co), con lai la cac ban AI da duyet
+    const savedCore = saved.length ? saved[0] : (camp.message || '');
+    const savedAi = saved.length > 1 ? saved.slice(1) : [];
+    const aiDraft = _bcVariantDraft[camp.id] || savedAi;
 
-    addEl(container, 'div', { style: 'font-size:10px;color:#6b7280;margin:6px 0 4px', textContent: 'Nội dung cốt lõi (dùng làm gốc để AI viết lại 4 phiên bản):' });
-    const coreTa = addEl(container, 'textarea', { rows: 2 });
-    coreTa.style.cssText = 'width:100%;box-sizing:border-box;font-size:11px;padding:6px;border:1px solid #d1d5db;border-radius:5px;resize:vertical;font-family:inherit;margin-bottom:5px';
-    coreTa.value = camp.message || '';
+    addEl(container, 'div', { style: 'font-size:10px;color:#6b7280;margin:6px 0 4px', textContent: 'Kịch bản gốc (kịch bản 1 — dùng làm gốc để AI viết lại, chỉ nên sửa rất ít):' });
+    const coreRow = addEl(container, 'div', { style: 'display:flex;gap:6px;align-items:flex-start;margin-bottom:6px;' });
+    const coreCb = addEl(coreRow, 'input', { type: 'checkbox' });
+    coreCb.checked = true; coreCb.style.marginTop = '6px';
+    const coreCol = addEl(coreRow, 'div', { style: 'flex:1;min-width:0' });
+    const coreTa = addEl(coreCol, 'textarea', { rows: 3 });
+    coreTa.style.cssText = 'width:100%;box-sizing:border-box;font-size:11px;padding:6px;border:1px solid #d1d5db;border-radius:5px;resize:vertical;font-family:inherit;';
+    coreTa.value = savedCore;
+    attachExpandBtn_(coreCol, coreTa, 'Kịch bản 1 (gốc) — ' + (camp.label || camp.id));
 
-    const genBtn = addEl(container, 'button', { className: 'zai-btn zai-btn-secondary zai-btn-sm zai-kb-gen-btn', textContent: '✨ Tạo 4 kịch bản AI' });
-    genBtn.style.marginBottom = '6px';
+    const genBtn = addEl(container, 'button', { className: 'zai-btn zai-btn-secondary zai-btn-sm zai-kb-gen-btn', textContent: '✨ Tạo 3 kịch bản AI' });
+    genBtn.title = 'AI viết lại kịch bản gốc ở trên thành 3 bản khác, chỉ đổi câu chữ rất ít';
+    genBtn.style.cssText = 'margin-bottom:6px;';
     genBtn.addEventListener('click', () => doGenerateVariants_(camp, coreTa.value, container));
 
     const listWrap = addEl(container, 'div', {});
-    draft.forEach((v, i) => {
+    aiDraft.forEach((v, i) => {
       const row = addEl(listWrap, 'div', { style: 'display:flex;gap:6px;align-items:flex-start;margin-bottom:5px;' });
       const cb = addEl(row, 'input', { type: 'checkbox' });
       cb.checked = true; cb.style.marginTop = '6px';
       const col = addEl(row, 'div', { style: 'flex:1;min-width:0' });
-      addEl(col, 'div', { style: 'font-size:10px;color:#15803d;font-weight:700;margin-bottom:2px', textContent: 'Kịch bản ' + (i + 1) });
+      addEl(col, 'div', { style: 'font-size:10px;color:#15803d;font-weight:700;margin-bottom:2px', textContent: 'Kịch bản ' + (i + 2) + ' (AI, chỉ khác câu chữ)' });
       const ta = addEl(col, 'textarea', { rows: 3 });
       ta.style.cssText = 'width:100%;box-sizing:border-box;font-size:11px;padding:6px;border:1px solid #d1d5db;border-radius:5px;resize:vertical;font-family:inherit';
       ta.value = v;
+      attachExpandBtn_(col, ta, 'Kịch bản ' + (i + 2) + ' — ' + (camp.label || camp.id));
       row.dataset.idx = i;
     });
 
-    const btnRow2 = addEl(container, 'div', { style: 'display:flex;gap:6px;margin-top:4px' });
+    const btnRow2 = addEl(container, 'div', { style: 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;' });
     const saveBtn = addEl(btnRow2, 'button', { className: 'zai-btn zai-btn-primary zai-btn-sm', textContent: '💾 Lưu kịch bản đã duyệt' });
     saveBtn.addEventListener('click', () => {
-      const rows = [...listWrap.children];
-      const approved = rows
-        .filter(r => r.querySelector('input[type="checkbox"]').checked)
-        .map(r => r.querySelector('textarea').value.trim())
-        .filter(Boolean);
+      const approved = [];
+      if (coreCb.checked && coreTa.value.trim()) approved.push(coreTa.value.trim());
+      [...listWrap.children].forEach(r => {
+        if (r.querySelector('input[type="checkbox"]').checked) {
+          const v = r.querySelector('textarea').value.trim();
+          if (v) approved.push(v);
+        }
+      });
       if (!approved.length) { alert('Chưa chọn kịch bản nào để lưu.'); return; }
       _bcSaveVariants_(camp.id, approved);
       delete _bcVariantDraft[camp.id];
@@ -1636,7 +1725,7 @@ async function startReminderPoll_() {
         const kbBtn = document.createElement('button');
         kbBtn.className = 'zai-btn zai-btn-ghost zai-btn-sm';
         kbBtn.textContent = _bcVariantOpenId === camp.id ? '✕ Đóng kịch bản' : '🤖 Kịch bản';
-        kbBtn.title = 'Soạn 4 kịch bản AI (đa dạng câu chữ, giữ nội dung gốc) để luân phiên gửi';
+        kbBtn.title = '1 kịch bản gốc + 3 kịch bản AI (chỉ khác câu chữ rất ít) để luân phiên gửi';
         kbBtn.disabled = isRunningThis;
         kbBtn.addEventListener('click', () => {
           _bcVariantOpenId = (_bcVariantOpenId === camp.id) ? '' : camp.id;
