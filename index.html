@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OME CS Portal 10.43.10.7.2026</title>
+<title>OME CS Portal 10.46.10.7.2026</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -829,7 +829,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 <header>
   <div class="logo">
     <div class="logo-mark"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">10.43.10.7.2026</span>
+    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">10.46.10.7.2026</span>
   </div>
   <div class="hdr-r">
     <span class="fstatus" id="fstatus">Chưa có dữ liệu</span>
@@ -841,6 +841,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
     <button class="btn sm" id="syncbtn" style="display:none" onclick="syncFromGS({pullOrders:true,manual:true})" title="Tải dữ liệu (đơn hàng + CS) từ GSheets">↓ Sync GS <span id="sync-countdown" style="font-size:10px;opacity:0.7"></span></button>
     <button class="btn sm" id="pushbtn" style="display:none" onclick="pushOrdersToGS()" title="Thêm nhanh các đơn MỚI lên Google Sheets (không xóa/sửa đơn cũ)">📤 Đẩy dữ liệu</button>
     <button class="btn sm" id="fullsyncbtn" style="display:none" onclick="fullSyncOrdersToGS()" title="Đồng bộ 2 chiều (GỘP): tải đơn từ Google Sheets về máy + đẩy đơn mới của máy lên Sheets. KHÔNG xóa đơn nào.">🔁 Đồng bộ 2 chiều</button>
+    <button class="btn sm" id="dedupebtn" onclick="dedupeCareData()" title="Gộp các dòng CareData bị nhân bản (cùng SĐT). Chỉ giữ dòng đầy đủ nhất cho mỗi khách.">🧹 Dọn trùng KH</button>
     <button class="btn primary" onclick="document.getElementById('fi').click()">
       <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
       Tải Excel
@@ -1827,6 +1828,26 @@ function showSyncErrorBanner() {
     <button onclick="this.parentElement.remove()" style="margin-left:auto;background:none;border:none;color:#991b1b;cursor:pointer;font-size:14px">✕</button>`;
   bar.insertBefore(banner, bar.firstChild);
 }
+// Dọn các dòng CareData bị nhân bản (cùng SĐT) — gọi GAS action=dedupeCare
+async function dedupeCareData() {
+  if (!gsUrl) { toast('Chưa kết nối Google Sheets'); return; }
+  if (!confirm('Gộp các dòng khách bị NHÂN BẢN trong CareData?\n\n• Mỗi SĐT chỉ giữ 1 dòng đầy đủ nhất\n• Các dòng trùng còn lại sẽ bị xóa\n\nNên bấm "↓ Sync GS" trước để chắc chắn dữ liệu mới nhất đã được đẩy lên.')) return;
+  const btn = document.getElementById('dedupebtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Đang dọn...'; }
+  try {
+    const r = await fetch(gsUrl, { method:'POST', redirect:'follow', body: JSON.stringify({ action:'dedupeCare' }) });
+    const d = await r.json();
+    if (d && d.ok) {
+      toast(`✓ Đã dọn: xóa ${d.removed} dòng trùng, giữ ${d.kept} khách`);
+      // Tải lại dữ liệu CS sạch từ Sheets
+      try { await syncFromGS({ pullOrders:false, manual:true }); } catch(e){}
+    } else {
+      toast('Lỗi dọn trùng: ' + (d && d.error ? d.error : 'GAS chưa hỗ trợ — cập nhật GAS mới'));
+    }
+  } catch(e) { toast('Lỗi kết nối: ' + e.message); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '🧹 Dọn trùng KH'; } }
+}
+
 async function pushCareToGS(phone) {
   if (!gsUrl) return;
   const care = careData[phone] || {};
