@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OME CS Portal 10.06.10.7.2026</title>
+<title>OME CS Portal 10.11.10.7.2026</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -829,7 +829,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 <header>
   <div class="logo">
     <div class="logo-mark"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">10.06.10.7.2026</span>
+    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">10.11.10.7.2026</span>
   </div>
   <div class="hdr-r">
     <span class="fstatus" id="fstatus">Chưa có dữ liệu</span>
@@ -3689,35 +3689,42 @@ function _renderNickZaloModalList() {
   }).join('');
 }
 
-function addNickZaloToList() {
+async function addNickZaloToList() {
   var inp = document.getElementById('nz-new-input');
   var val = inp ? inp.value.trim() : '';
   if (!val) { if(inp){inp.style.border='1px solid var(--red)';setTimeout(function(){inp.style.border='';},1200);} return; }
   if (_nickZaloList.indexOf(val) >= 0) { toast('Nick "' + val + '" đã có trong danh sách'); return; }
+  // Hiển thị ngay (lạc quan) rồi ghi lên GAS bằng addZaloNick (GỘP phía server, không ghi đè nick người khác)
   _nickZaloList.push(val);
   _saveNickZaloList(_nickZaloList);
-  // Sync lên GAS
-  fetch(gsUrl, {
-    method: 'post',
-    payload: JSON.stringify({action: 'setSetting', key: 'nickZaloList', value: JSON.stringify(_nickZaloList)})
-  }).catch(function(e){});
   if (inp) inp.value = '';
   _renderNickZaloModalList();
-  toast('✓ Đã thêm "' + val + '"');
+  try {
+    var r = await fetch(gsUrl, { method:'POST', redirect:'follow', body: JSON.stringify({action:'addZaloNick', nick: val}) });
+    var d = await r.json();
+    if (d && d.error) {
+      // GAS cũ chưa có addZaloNick → fallback setSetting (ghi cả danh sách)
+      await fetch(gsUrl, { method:'POST', redirect:'follow', body: JSON.stringify({action:'setSetting', key:'nickZaloList', value: JSON.stringify(_nickZaloList)}) });
+    } else if (d && Array.isArray(d.list)) {
+      _nickZaloList = d.list; _saveNickZaloList(_nickZaloList); _renderNickZaloModalList();
+    }
+    toast('✓ Đã thêm "' + val + '"');
+  } catch(e) { toast('⚠ Đã thêm cục bộ nhưng lưu máy chủ lỗi: ' + e.message); }
 }
 
-function deleteNickZaloFromList(idx) {
+async function deleteNickZaloFromList(idx) {
   var name = _nickZaloList[idx];
   if (!confirm('Xóa nick "' + name + '" khỏi danh sách?\n(Các khách đã chọn nick này sẽ không bị ảnh hưởng)')) return;
-  _nickZaloList.splice(idx, 1);
+  // Lấy bản mới nhất từ GAS trước để không vô tình ghi đè nick người khác vừa thêm
+  try { var latest = await _syncNickZaloListFromGAS(); if (Array.isArray(latest)) _nickZaloList = latest; } catch(e){}
+  var pos = _nickZaloList.indexOf(name);
+  if (pos >= 0) _nickZaloList.splice(pos, 1);
   _saveNickZaloList(_nickZaloList);
-  // Sync lên GAS
-  fetch(gsUrl, {
-    method: 'post',
-    payload: JSON.stringify({action: 'setSetting', key: 'nickZaloList', value: JSON.stringify(_nickZaloList)})
-  }).catch(function(e){});
   _renderNickZaloModalList();
-  toast('Đã xóa "' + name + '"');
+  try {
+    await fetch(gsUrl, { method:'POST', redirect:'follow', body: JSON.stringify({action:'setSetting', key:'nickZaloList', value: JSON.stringify(_nickZaloList)}) });
+    toast('Đã xóa "' + name + '"');
+  } catch(e) { toast('⚠ Xóa cục bộ nhưng lưu máy chủ lỗi: ' + e.message); }
 }
 
 // ═══════════════════════════════════════════════════════
