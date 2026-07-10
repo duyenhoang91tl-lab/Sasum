@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script — PHIEN BAN 11.26.10.7.2026 (gio.phut.ngay.thang.nam)
+//  OME CS Portal — Google Apps Script — PHIEN BAN 11.29.10.7.2026 (gio.phut.ngay.thang.nam)
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)
@@ -1379,11 +1379,18 @@ function dedupeCare_() {
     var sc = score(data[i]);
     if (!best[np] || sc > best[np].score) best[np] = { row: data[i], score: sc };
   }
-  var out = [CARE_HEADERS];
-  Object.keys(best).forEach(function(np){ out.push(best[np].row); });
+  var W = CARE_HEADERS.length;
+  // Chuẩn hoá mỗi dòng đúng W cột (dòng cũ có thể thiếu cột birthday → pad; thừa → cắt)
+  function fit(row){
+    var r = (row || []).slice(0, W);
+    while (r.length < W) r.push('');
+    return r;
+  }
+  var out = [CARE_HEADERS.slice()];
+  Object.keys(best).forEach(function(np){ out.push(fit(best[np].row)); });
   var removed = (data.length - 1) - (out.length - 1);
   sh.clearContents();
-  sh.getRange(1, 1, out.length, CARE_HEADERS.length).setValues(out);
+  sh.getRange(1, 1, out.length, W).setValues(out);
   try { CacheService.getScriptCache().remove('customers_v12'); } catch(ec) {}
   return jsonOut_({ ok: true, removed: removed, kept: out.length - 1 });
 }
