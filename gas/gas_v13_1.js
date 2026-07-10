@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script — PHIEN BAN 11.18.10.7.2026 (gio.phut.ngay.thang.nam)
+//  OME CS Portal — Google Apps Script — PHIEN BAN 11.26.10.7.2026 (gio.phut.ngay.thang.nam)
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)
@@ -426,7 +426,6 @@ function doGet(e) {
       return jsonOut_(runFollowUpScan_());
     }
     if (action === 'dedupeCare') return dedupeCare_();
-    if (action === 'dedupeOrders') return dedupeOrders_();
 
     // default — backward compat voi appweb v10
     var resD = { rows: readCare_(ss.getSheetByName(SH_CARE)), orders: [] };
@@ -496,7 +495,6 @@ function doPost(e) {
     if (action === 'saveZaloScan')         return saveZaloScan_(data.rows);
     // Dọn dòng CareData bị nhân bản (giữ dòng đầy đủ nhất cho mỗi SĐT)
     if (action === 'dedupeCare')           return dedupeCare_();
-    if (action === 'dedupeOrders')         return dedupeOrders_();
     // ── HOI THAM TU DONG: luu bang mau tin (UI Sasum) ──
     if (action === 'saveFollowUpTemplates') return saveFollowUpTemplates_(data.templates);
     return jsonOut_({ error: 'Unknown action: ' + action });
@@ -1390,73 +1388,11 @@ function dedupeCare_() {
   return jsonOut_({ ok: true, removed: removed, kept: out.length - 1 });
 }
 
-// Dọn ĐƠN bị lặp trong OrderData (cùng SĐT + ngày + năm + tháng + doanh thu + sản phẩm).
-// Giữ 1 dòng/đơn; nếu bản trùng có careCS thì giữ lại careCS đó. KHÔNG gộp các đơn khác nhau.
 // ─── CHAY TAY TU APPS SCRIPT EDITOR (chon ham roi bam Run, xem ket qua o Executions) ───
-function runDedupeOrders() {
-  var res = dedupeOrders_();
-  Logger.log('DEDUPE ORDERS: ' + res.getContent());
-}
 function runDedupeCare() {
   var res = dedupeCare_();
   Logger.log('DEDUPE CARE: ' + res.getContent());
 }
-
-// Doanh thu chuẩn hoá: 947 và 947000 coi là như nhau (quy về nghìn)
-function _rev1k_(v) {
-  var n = Number(v) || 0;
-  if (n < 0) n = -n;
-  return n >= 1000 ? Math.round(n / 1000) : Math.round(n);
-}
-// Khoá ngày giờ đặt đơn: ưu tiên chuỗi ISO đầy đủ (giữ cả giờ); nếu là Date thì lấy ISO.
-function _ordDateKey_(v) {
-  if (v instanceof Date && !isNaN(v)) return v.toISOString();
-  return String(v || '').trim();
-}
-
-function dedupeOrders_() {
-  var ss = getOrderSS_();
-  var totalRemoved = 0, totalKept = 0, detail = [];
-  for (var si = 0; si < ORDER_SHEETS.length; si++) {
-    var sh = ss.getSheetByName(ORDER_SHEETS[si].name);
-    if (!sh || sh.getLastRow() < 2) continue;
-    var vals = sh.getDataRange().getValues();
-    var seen = {}, out = [ORDER_HEADERS];
-    var before = 0;
-    for (var i = 1; i < vals.length; i++) {
-      var r = vals[i];
-      if (!r[0]) continue;
-      before++;
-      // Khoá nhận diện 1 đơn TRÙNG (theo đúng định nghĩa):
-      //   SĐT (9 số cuối) + NGÀY GIỜ đặt đơn + tên CS + nguồn + sản phẩm chi tiết + doanh thu.
-      //   Doanh thu chuẩn hoá: 947 và 947000 coi là như nhau (quy về đơn vị nghìn).
-      var key = normPhone_(String(r[0])) + '|' +
-                _ordDateKey_(r[2]) + '|' +
-                String(r[5]||'').trim().toLowerCase() + '|' +
-                String(r[6]||'').trim().toLowerCase() + '|' +
-                String(r[9]||'').trim().toLowerCase() + '|' +
-                _rev1k_(r[7]);
-      if (seen[key] !== undefined) {
-        // đã có → nếu dòng này có careCS mà dòng giữ chưa có thì bổ sung careCS
-        var kept = out[seen[key]];
-        if (!String(kept[13]||'').trim() && String(r[13]||'').trim()) kept[13] = r[13];
-        continue;
-      }
-      seen[key] = out.length;
-      out.push(r);
-    }
-    var kept = out.length - 1;
-    var removed = before - kept;
-    if (removed > 0) {
-      sh.clearContents();
-      sh.getRange(1, 1, out.length, ORDER_HEADERS.length).setValues(out);
-    }
-    totalRemoved += removed; totalKept += kept;
-    detail.push(ORDER_SHEETS[si].name + ': -' + removed);
-  }
-  return jsonOut_({ ok: true, removed: totalRemoved, kept: totalKept, detail: detail });
-}
-
 function saveZaloScan_(rows) {
   if (!rows || !rows.length) return jsonOut_({ ok: false, error: 'Khong co du lieu quet' });
   var sh = getSheet_(SH_ZALO_SCAN, ZALO_SCAN_HEADERS);
