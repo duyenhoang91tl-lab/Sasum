@@ -1,4 +1,4 @@
-// Duyen AI - content script Ver 14.58.10.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// Duyen AI - content script Ver 17.52.10.7.26 (gio.phut.ngay.thang.nam xuat ban)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
@@ -106,7 +106,7 @@
     // Header
     const hdr = document.createElement('div');
     hdr.className = 'zai-hdr';
-    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 14.58.10.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
+    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 17.52.10.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'zai-cfg-btn'; cfgBtn.id = 'zai-cfg-toggle'; cfgBtn.title = 'Cài đặt'; cfgBtn.textContent = '⚙';
     hdr.appendChild(cfgBtn); panel.appendChild(hdr);
@@ -1174,6 +1174,7 @@
     } catch(e) {}
   }
 
+  let _remindOpen = false; // lich hen mac dinh DONG — CS tu bam mo xem chi tiet
   function renderReminderPanel_(reminders) {
     let panel = document.getElementById('zai-remind-panel');
     const host = document.getElementById('ome-zai-panel');
@@ -1198,8 +1199,8 @@
     panel.innerHTML =
       '<div style="padding:5px 10px;background:#fca5a5;color:#7f1d1d;font-weight:bold;display:flex;justify-content:space-between;align-items:center;">'+
       '<span>🔔 ' + reminders.length + ' lịch hẹn</span>'+
-      '<span id="zai-remind-toggle" style="cursor:pointer;font-size:11px;user-select:none;">▲ thu gọn</span></div>'+
-      '<div id="zai-remind-list" style="max-height:180px;overflow-y:auto;"></div>';
+      '<span id="zai-remind-toggle" style="cursor:pointer;font-size:11px;user-select:none;">' + (_remindOpen ? '▲ thu gọn' : '▼ mở rộng') + '</span></div>'+
+      '<div id="zai-remind-list" style="max-height:180px;overflow-y:auto;display:' + (_remindOpen ? '' : 'none') + ';"></div>';
     const list = panel.querySelector('#zai-remind-list');
     reminders.forEach(rem => {
       const item = document.createElement('div');
@@ -1269,9 +1270,9 @@
       const l = panel.querySelector('#zai-remind-list');
       const tog = panel.querySelector('#zai-remind-toggle');
       if (!l) return;
-      const hidden = l.style.display === 'none';
-      l.style.display = hidden ? '' : 'none';
-      if (tog) tog.textContent = hidden ? '▲ thu gọn' : '▼ mở rộng';
+      _remindOpen = l.style.display === 'none';
+      l.style.display = _remindOpen ? '' : 'none';
+      if (tog) tog.textContent = _remindOpen ? '▲ thu gọn' : '▼ mở rộng';
     });
   }
 async function startReminderPoll_() {
