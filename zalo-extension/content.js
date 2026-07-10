@@ -23,6 +23,9 @@
   let _lookupCache = {};
   let _activeTone = 'Thân thiện';
   let _currentPhone = '';
+  let _chatNamePhoneMap = {}; // { 'ten hien thi doan chat (lowercase, trim)': phone } — HOC CUC BO tren may nay
+  // qua nut "🔗 Liên kết đoạn chat này". Zalo hien BIET DANH da luu cho khach da ket ban (khong con
+  // hien so DT) nen khong the tu tach so bang regex — phai de CS xac nhan 1 lan, sau do tu nhan dien.
   let _currentCustData = null;
   let _cfgVisible = false;
   let _chatHistory = []; // luu tin nhan khach, khong hien thi trong textarea
@@ -270,8 +273,10 @@
 
     const col2 = addEl(row1, 'div', {className:'zai-field-col'});
     addEl(col2, 'label', {textContent:'Kết bạn Zalo'});
-    const zaloSel = addEl(col2, 'select', {id:'zai-zalo-sel'});
+    const zaloSelRow = addEl(col2, 'div', {style:'display:flex;gap:4px;align-items:center;'});
+    const zaloSel = addEl(zaloSelRow, 'select', {id:'zai-zalo-sel', style:'flex:1;'});
     ZALO_STATUSES.forEach(s => addEl(zaloSel, 'option', {value:s, textContent:s||'— Chọn —'}));
+    const linkChatBtn = addEl(zaloSelRow, 'button', {className:'zai-btn zai-btn-ghost zai-btn-sm', id:'zai-link-chat-btn', type:'button', textContent:'🔗', title:'Liên kết đoạn chat Zalo ĐANG MỞ với khách này — làm 1 lần để lần sau tự nhận diện dù Zalo hiện biệt danh thay vì SĐT'});
 
     // CS chăm sóc & Nick Zalo CS đang dùng: KHÔNG hiển thị nữa,
     // tự động = CS / Nick đã chọn ở thanh trên cùng (đồng bộ 2 chiều với Sasum)
@@ -316,6 +321,13 @@
     saveBtn.addEventListener('click', saveConfig);
     document.getElementById('zai-lookup-btn').addEventListener('click', doLookup);
     document.getElementById('zai-save-btn').addEventListener('click', doSaveStatus);
+    linkChatBtn.addEventListener('click', () => {
+      const name = getCurrentChatName();
+      if (!name) { showError('Không đọc được tên đoạn chat Zalo đang mở.'); return; }
+      if (!_currentCustData || !_currentCustData.phone) { showError('Chưa tra cứu khách nào để liên kết.'); return; }
+      learnChatNameForPhone_(name, _currentCustData.phone);
+      showMsg('zai-save-status', '🔗 Đã liên kết "' + name.trim() + '" với ' + _currentCustData.phone + ' — lần sau tự nhận diện.', 3000);
+    });
     document.getElementById('zai-open-btn').addEventListener('click', doGenerateOpener);
     document.getElementById('zai-grab-btn').addEventListener('click', doGrabMessage);
     document.getElementById('zai-gen-btn').addEventListener('click', doGenerate);
@@ -341,6 +353,7 @@
     chrome.storage.local.get(['ome_gas_url','ome_current_cs','ome_current_nz'], (res) => {
       GAS_URL = res.ome_gas_url || '';
       if (GAS_URL) { inpGas.value = GAS_URL; loadCSNames_(); loadNickZaloList_(); loadCareStatusTree_(); loadProductCodeMap_(); }
+      loadChatNamePhoneMap_();
       if (!GAS_URL) { _cfgVisible = true; cfg.style.display = 'block'; }
       _currentCS = res.ome_current_cs || '';
       if (_currentCS) {
@@ -468,7 +481,7 @@
       const name = getCurrentChatName();
       if (!name || name === _last) return;
       _last = name;
-      const phone = extractPhone(name);
+      const phone = resolvePhoneForChatName_(name);
       if (phone && phone !== _currentPhone) {
         _currentPhone = phone;
         const inp = document.getElementById('zai-phone-input');
@@ -600,8 +613,9 @@
   // Chỉ chạy khi đoạn chat đang mở đúng là khách vừa tra cứu (tránh nhận nhầm số nhập tay).
   async function _syncZaloStatusForOpenChat(phone, existsInSystem) {
     if (!GAS_URL || !phone) return;
-    const openPhone = extractPhone(getCurrentChatName() || '');
+    const openPhone = resolvePhoneForChatName_(getCurrentChatName() || '');
     if (!openPhone || openPhone !== phone) return; // không phải đoạn chat của khách này
+    learnChatNameForPhone_(getCurrentChatName(), phone); // ghi nho co hoi: lan sau nhan dien duoc ca khi doi ten hien thi
     await sleep_(500); // đợi DOM Zalo ổn định để đọc đúng nút "Gửi kết bạn"
     const st = detectZaloFriendStatus_();
     const zaloSel = document.getElementById('zai-zalo-sel');
@@ -620,6 +634,31 @@
     } catch (e) {}
   }
 
+  // Kiem tra ngam voi server (khong phu thuoc panel dang mo/thu gon nhu pollCareTick_) —
+  // dung ngay sau khi hien du lieu tu cache, de bat kip thay doi Sasum vua luu ma cache
+  // cuc bo (toi da 5 phut) chua het han.
+  async function _revalidateFromServer_(phone) {
+    if (!GAS_URL) return;
+    try {
+      const sep = GAS_URL.includes('?') ? '&' : '?';
+      const r = await fetch(GAS_URL + sep + 'action=lookup&phone=' + encodeURIComponent(phone) + '&_ts=' + Date.now(), {redirect:'follow'});
+      const d = await r.json();
+      if (d.error) return;
+      const newCare   = d.care || null;
+      const newOrders = (d.orders||[]).slice().sort((a,b) => parseDate_(b.date)-parseDate_(a.date));
+      if (!_currentCustData || _currentCustData.phone !== phone) {
+        // CS da chuyen sang khach khac trong luc cho fetch — van cap nhat cache ngam, khong dong bo UI
+        _lookupCache[phone] = {care: newCare, orders: newOrders, ts: Date.now()};
+        return;
+      }
+      const oldUpdated = _lastServerCare && _lastServerCare.updated;
+      const newUpdated = newCare && newCare.updated;
+      const changed = (newUpdated || '') !== (oldUpdated || '') || newOrders.length !== (_currentCustData.orders||[]).length;
+      if (!changed) { _lookupCache[phone] = {care: newCare, orders: newOrders, ts: Date.now()}; return; }
+      applyPolledCare_(phone, newCare, newOrders);
+    } catch (e) { /* im lang, se thu lai o lan tra cuu/poll sau */ }
+  }
+
   async function doLookup() {
     const raw = (document.getElementById('zai-phone-input').value||'').trim();
     if (!raw) { showError('Vui lòng nhập số điện thoại.'); return; }
@@ -636,6 +675,10 @@
     if (hit && Date.now() - hit.ts < LOOKUP_TTL) {
       if (!hit.orders.length && !hit.care) { showNotFoundWithForm_(area, updSec, phone, raw); _syncZaloStatusForOpenChat(phone, false); }
       else { renderCard_(area, updSec, phone, raw, hit.care, hit.orders); _syncZaloStatusForOpenChat(phone, true); }
+      // Hien ngay du lieu cache cho nhanh, nhung LUON kiem tra lai server ngam —
+      // tranh truong hop Sasum vua duoc cap nhat (tu appweb hoac may khac) trong
+      // luc cache con "moi" (TTL 5 phut) ma CS lai khong thay gi doi.
+      _revalidateFromServer_(phone);
       return;
     }
 
@@ -1165,6 +1208,11 @@
       const henDate = rem.schedHen ? new Date(rem.schedHen) : null;
       if (henDate) henDate.setHours(0,0,0,0);
       const isOverdue = henDate && henDate < today;
+      // Ma CS ngan (vd: GL/HM/SD...) — hien truoc SDT de xem gon
+      const csBadge = document.createElement('span');
+      csBadge.textContent = rem.cs || '—';
+      csBadge.title = 'CS chăm sóc: ' + (rem.cs || 'chưa gán');
+      csBadge.style.cssText = 'background:#7f1d1d;color:#fff;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;flex-shrink:0;';
       // Phone copy button
       const phoneBtn = document.createElement('button');
       phoneBtn.textContent = '📋 ' + rem.phone;
@@ -1182,7 +1230,13 @@
       note.title = rem.schedHenNote || '';
       const tagColor = isOverdue ? '#ef4444' : '#f97316';
       const tagText = isOverdue ? 'Quá hạn' : 'Hôm nay';
-      note.innerHTML = '<span style="background:'+tagColor+';color:#fff;border-radius:2px;padding:0 3px;font-size:9px;margin-right:3px;">'+tagText+'</span>' + escHtml(rem.schedHenNote || '—');
+      // So sanh trang thai Zalo MOI NHAT tu server (rem.zalo) voi ban ghi CS dang cache cuc bo
+      // (_lookupCache) — neu lech nhau nghia la vua co ai do doi tren Sasum (appweb) nhung
+      // Zalo AI extension may nay chua tra cuu lai nen con hien cache cu.
+      const cachedCare = _lookupCache[rem.phone] && _lookupCache[rem.phone].care;
+      const staleZalo = cachedCare && rem.zalo && cachedCare.zalo && cachedCare.zalo !== rem.zalo;
+      const staleTag = staleZalo ? '<span title="Sasum vừa đổi Kết bạn Zalo thành \''+escHtml(rem.zalo)+'\' — bấm Mở KH để cập nhật lại cache" style="background:#facc15;color:#7c2d12;border-radius:2px;padding:0 3px;font-size:9px;margin-right:3px;">⚠ lệch Zalo</span>' : '';
+      note.innerHTML = '<span style="background:'+tagColor+';color:#fff;border-radius:2px;padding:0 3px;font-size:9px;margin-right:3px;">'+tagText+'</span>' + staleTag + escHtml(rem.schedHenNote || '—');
       // Mở KH → tra cứu ngay trong panel Zalo AI (điền SDT + lookup, đồng bộ về Sasum khi lưu)
       const openBtn = document.createElement('button');
       openBtn.textContent = 'Mở KH';
@@ -1190,6 +1244,7 @@
       openBtn.addEventListener('click', () => {
         const inp = document.getElementById('zai-phone-input');
         if (inp) inp.value = rem.phone;
+        delete _lookupCache[rem.phone]; // buoc tra cuu lai moi, khong dung cache cu (tranh lech nhu tren)
         doLookup();
         const bodyEl = document.getElementById('zai-body');
         if (bodyEl) bodyEl.scrollTop = 0;
@@ -1210,6 +1265,7 @@
           }
         }, 700);
       });
+      item.appendChild(csBadge);
       item.appendChild(phoneBtn);
       item.appendChild(note);
       item.appendChild(openBtn);
@@ -1249,6 +1305,34 @@ async function startReminderPoll_() {
     setInterval(checkReminders, 5 * 60 * 1000);
   }
 
+
+  // Tai "danh ba nguoc" (ten doan chat -> SDT) da hoc cuc bo tren may nay
+  function loadChatNamePhoneMap_() {
+    chrome.storage.local.get(['ome_chat_name_map'], (res) => {
+      _chatNamePhoneMap = res.ome_chat_name_map || {};
+    });
+  }
+  function saveChatNamePhoneMap_() {
+    chrome.storage.local.set({ ome_chat_name_map: _chatNamePhoneMap });
+  }
+  // Ghi nho: ten doan chat dang mo HIEN LA cua SDT nay (CS xac nhan 1 lan, sau do tu nhan dien)
+  function learnChatNameForPhone_(name, phone) {
+    if (!name || !phone) return;
+    const key = name.trim().toLowerCase();
+    if (!key) return;
+    _chatNamePhoneMap[key] = phone;
+    saveChatNamePhoneMap_();
+  }
+
+  // Tim SDT cua doan chat dang mo: uu tien tach so tu ten (khach chua ket ban Zalo thuong
+  // hien thi thang so DT), neu khong co so thi tra trong danh ba nguoc da hoc cuc bo.
+  function resolvePhoneForChatName_(name) {
+    if (!name) return null;
+    const byDigits = extractPhone(name);
+    if (byDigits) return byDigits;
+    const key = name.trim().toLowerCase();
+    return _chatNamePhoneMap[key] || null;
+  }
 
   async function loadNickZaloList_() {
     if (!GAS_URL) return;
@@ -1655,6 +1739,32 @@ async function startReminderPoll_() {
       box.appendChild(unlockBtn);
     }
 
+    // ── Banner CANH BAO khi co chien dich dang chay/tam dung (giai thich vi sao nut "Bat dau" khac bi mo/disable) ──
+    if (_bcRunning) {
+      const runningCamp = _bcQueue.find(c => c.id === _bcRunningCampId);
+      const runBox = document.createElement('div');
+      runBox.style.cssText = 'border-radius:6px;padding:6px 8px;margin-bottom:8px;font-size:11px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;';
+      runBox.innerHTML = '<div>⚡ ' + (_bcPaused ? 'ĐANG TẠM DỪNG' : 'ĐANG CHẠY') + ' chiến dịch "' +
+        escHtml((runningCamp && (runningCamp.label || runningCamp.id)) || _bcRunningCampId || '?') +
+        '" — các chiến dịch khác không bấm "Bắt đầu" được cho tới khi chiến dịch này Dừng hẳn.</div>';
+      const forceResetBtn = document.createElement('button');
+      forceResetBtn.className = 'zai-btn zai-btn-ghost zai-btn-sm';
+      forceResetBtn.style.marginTop = '4px';
+      forceResetBtn.textContent = '🔄 Bị kẹt? Buộc dừng & đặt lại';
+      forceResetBtn.addEventListener('click', () => {
+        if (window.confirm('Buộc dừng chiến dịch đang chạy và đặt lại trạng thái? Chỉ dùng khi nút "Bắt đầu" bị kẹt không bấm được.')) {
+          _bcStopFlag = true;
+          _bcPaused = false;
+          _bcRunning = false;
+          _bcRunningCampId = '';
+          bcLog_('🔄 Đã buộc đặt lại trạng thái thủ công.');
+          renderBroadcastList_();
+        }
+      });
+      runBox.appendChild(forceResetBtn);
+      box.appendChild(runBox);
+    }
+
     // Toggle: co kiem tra khop Nick Zalo truoc khi gui khong
     const nickRow = document.createElement('label');
     nickRow.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:11px;color:#166534;margin-bottom:6px;cursor:pointer;';
@@ -2023,93 +2133,103 @@ async function startReminderPoll_() {
 
     let dailyCapHit = false;
 
-    for (let idx = 0; idx < camp.pendingPhones.length; idx++) {
-      if (_bcStopFlag) break;
-      while (_bcPaused && !_bcStopFlag) { await sleep_(1000); }
-      if (_bcStopFlag) break;
+    // BOC try/finally QUANH TOAN BO VONG LAP: neu co loi bat ngo (ngoai du kien) xay ra,
+    // _bcRunning VAN duoc dua ve false o cuoi cung — tranh ket cung "Bat dau" mai mai
+    // khien cac chien dich khac khong the bam nut chay duoc nua.
+    try {
+      for (let idx = 0; idx < camp.pendingPhones.length; idx++) {
+        if (_bcStopFlag) break;
+        while (_bcPaused && !_bcStopFlag) { await sleep_(1000); }
+        if (_bcStopFlag) break;
 
-      if (_bcDailyLocked_()) {
-        dailyCapHit = true;
-        bcLog_('🛑 Đã đạt ' + BC_DAILY_LIMIT + ' khách hôm nay trên máy này — tạm ngưng chiến dịch.');
-        break;
-      }
-
-      const phone = camp.pendingPhones[idx];
-      const statusEl = document.getElementById('zai-bc-status');
-      if (statusEl) statusEl.textContent = 'Đang gửi ' + (idx + 1) + '/' + total + ' — ' + phone;
-
-      // BAT BUOC: chi gui khach co CS CHAM SOC = CS dang chon tren Zalo AI
-      const custCS = ((camp.perPhoneCS && camp.perPhoneCS[phone]) || '').toLowerCase();
-      if (custCS !== _currentCS.toLowerCase()) {
-        skipCount++;
-        bcLog_('⏭ Bỏ qua (CS chăm sóc: ' + (custCS || 'chưa gán') + '): ' + phone);
-        continue;
-      }
-
-      // Dinh tuyen theo Nick Zalo: neu khach da co du lieu nick ket ban (tu CareData.nickZalos)
-      // va nick dang dung KHONG nam trong do -> bo qua NHUNG KHONG danh dau len server,
-      // de CS mo dung nick van gui duoc cho khach nay.
-      const custNicks = (camp.perPhoneNick && camp.perPhoneNick[phone]) || [];
-      if (_currentZaloNick && Array.isArray(custNicks) && custNicks.length && !custNicks.includes(_currentZaloNick)) {
-        skipCount++;
-        bcLog_('⏭ Bỏ qua (khách kết bạn nick khác: ' + custNicks.join(', ') + '): ' + phone);
-        continue;
-      }
-
-      try {
-        const opened = await openZaloChatByPhone_(phone);
-        if (!opened) {
-          // KHONG danh dau len server — nick khac van gui duoc cho khach nay
-          skipCount++;
-        } else {
-          await sleep_(600);
-          // Tu dong doc tinh trang ket ban tu giao dien chat -> update ve Sasum (khong chan luong gui)
-          autoUpdateZaloStatus_(phone).catch(() => {});
-          const inputEl = findZaloComposeInput_();
-          if (!inputEl) {
-            failCount++;
-            bcLog_('❌ Không tìm thấy ô soạn tin cho: ' + phone + ' (sẽ thử lại ở lần chạy sau)');
-          } else {
-            if (camp.images && camp.images.length) await attachZaloImages_(camp.images);
-            let personalMsg, variantNo;
-            if (camp.perPhoneMsg && camp.perPhoneMsg[phone]) {
-              personalMsg = camp.perPhoneMsg[phone]; variantNo = 0;
-            } else {
-              const picked = _bcPickVariantMsg_(camp, sentCount);
-              personalMsg = picked.text; variantNo = picked.variantNo;
-            }
-            insertZaloText_(inputEl, personalMsg);
-            await sleep_(400);
-            clickZaloSendOrEnter_(inputEl);
-            sentCount++;
-            _bcIncrementDaily_();
-            await markBroadcastServer_(camp.id, phone, 'sent');
-            bcLog_('✅ Đã gửi' + (variantNo ? ' (kịch bản ' + variantNo + ')' : '') + ': ' + phone + ' — hôm nay ' + _bcDailyCount + '/' + BC_DAILY_LIMIT);
-          }
+        if (_bcDailyLocked_()) {
+          dailyCapHit = true;
+          bcLog_('🛑 Đã đạt ' + BC_DAILY_LIMIT + ' khách hôm nay trên máy này — tạm ngưng chiến dịch.');
+          break;
         }
-      } catch (e) {
-        failCount++;
-        bcLog_('❌ Lỗi với ' + phone + ': ' + e.message + ' (sẽ thử lại ở lần chạy sau)');
-      }
 
-      if (_bcStopFlag) break;
+        const phone = camp.pendingPhones[idx];
+        const statusEl = document.getElementById('zai-bc-status');
+        if (statusEl) statusEl.textContent = 'Đang gửi ' + (idx + 1) + '/' + total + ' — ' + phone;
 
-      const doneSoFar = sentCount + failCount + skipCount;
-      if (doneSoFar > 0 && doneSoFar % _bcBatchPauseEvery === 0 && idx < camp.pendingPhones.length - 1) {
-        bcLog_('⏳ Nghỉ ' + _bcBatchPauseMin + ' phút sau ' + _bcBatchPauseEvery + ' tin để tránh bị Zalo hạn chế...');
-        await sleep_(_bcBatchPauseMin * 60 * 1000);
-      } else if (idx < camp.pendingPhones.length - 1) {
-        await sleep_(randDelayMs_(_bcDelayMinSec, _bcDelayMaxSec));
+        // BAT BUOC: chi gui khach co CS CHAM SOC = CS dang chon tren Zalo AI
+        const custCS = ((camp.perPhoneCS && camp.perPhoneCS[phone]) || '').toLowerCase();
+        if (custCS !== _currentCS.toLowerCase()) {
+          skipCount++;
+          bcLog_('⏭ Bỏ qua (CS chăm sóc: ' + (custCS || 'chưa gán') + '): ' + phone);
+          continue;
+        }
+
+        // Dinh tuyen theo Nick Zalo: neu khach da co du lieu nick ket ban (tu CareData.nickZalos)
+        // va nick dang dung KHONG nam trong do -> bo qua NHUNG KHONG danh dau len server,
+        // de CS mo dung nick van gui duoc cho khach nay.
+        const custNicks = (camp.perPhoneNick && camp.perPhoneNick[phone]) || [];
+        if (_currentZaloNick && Array.isArray(custNicks) && custNicks.length && !custNicks.includes(_currentZaloNick)) {
+          skipCount++;
+          bcLog_('⏭ Bỏ qua (khách kết bạn nick khác: ' + custNicks.join(', ') + '): ' + phone);
+          continue;
+        }
+
+        try {
+          const opened = await openZaloChatByPhone_(phone);
+          if (!opened) {
+            // KHONG danh dau len server — nick khac van gui duoc cho khach nay
+            skipCount++;
+          } else {
+            await sleep_(600);
+            // Tu dong doc tinh trang ket ban tu giao dien chat -> update ve Sasum (khong chan luong gui)
+            autoUpdateZaloStatus_(phone).catch(() => {});
+            const inputEl = findZaloComposeInput_();
+            if (!inputEl) {
+              failCount++;
+              bcLog_('❌ Không tìm thấy ô soạn tin cho: ' + phone + ' (sẽ thử lại ở lần chạy sau)');
+            } else {
+              if (camp.images && camp.images.length) await attachZaloImages_(camp.images);
+              let personalMsg, variantNo;
+              if (camp.perPhoneMsg && camp.perPhoneMsg[phone]) {
+                personalMsg = camp.perPhoneMsg[phone]; variantNo = 0;
+              } else {
+                const picked = _bcPickVariantMsg_(camp, sentCount);
+                personalMsg = picked.text; variantNo = picked.variantNo;
+              }
+              insertZaloText_(inputEl, personalMsg);
+              await sleep_(400);
+              clickZaloSendOrEnter_(inputEl);
+              sentCount++;
+              _bcIncrementDaily_();
+              await markBroadcastServer_(camp.id, phone, 'sent');
+              bcLog_('✅ Đã gửi' + (variantNo ? ' (kịch bản ' + variantNo + ')' : '') + ': ' + phone + ' — hôm nay ' + _bcDailyCount + '/' + BC_DAILY_LIMIT);
+            }
+          }
+        } catch (e) {
+          failCount++;
+          bcLog_('❌ Lỗi với ' + phone + ': ' + e.message + ' (sẽ thử lại ở lần chạy sau)');
+        }
+
+        if (_bcStopFlag) break;
+
+        const doneSoFar = sentCount + failCount + skipCount;
+        if (doneSoFar > 0 && doneSoFar % _bcBatchPauseEvery === 0 && idx < camp.pendingPhones.length - 1) {
+          bcLog_('⏳ Nghỉ ' + _bcBatchPauseMin + ' phút sau ' + _bcBatchPauseEvery + ' tin để tránh bị Zalo hạn chế...');
+          await sleep_(_bcBatchPauseMin * 60 * 1000);
+        } else if (idx < camp.pendingPhones.length - 1) {
+          await sleep_(randDelayMs_(_bcDelayMinSec, _bcDelayMaxSec));
+        }
       }
+    } catch (e) {
+      bcLog_('❌ Chiến dịch dừng do lỗi ngoài dự kiến: ' + (e && e.message ? e.message : e));
+    } finally {
+      // LUON LUON chay du co loi hay khong -> khong bao gio ket _bcRunning=true mai mai
+      _bcRunning = false;
+      _bcRunningCampId = '';
     }
 
-    _bcRunning = false;
-    _bcRunningCampId = '';
     const statusEl = document.getElementById('zai-bc-status');
     const summary = 'Hoàn tất: ' + sentCount + ' đã gửi, ' + failCount + ' lỗi, ' + skipCount + ' bỏ qua.' +
       (dailyCapHit ? ' Đã dừng vì đạt ' + BC_DAILY_LIMIT + ' khách/ngày — bấm "🔓 Kích hoạt lại" nếu muốn gửi tiếp.' : '');
     if (statusEl) statusEl.textContent = summary;
     bcLog_('🏁 ' + summary);
+    renderBroadcastList_();
     await loadBroadcastQueue_();
   }
 
