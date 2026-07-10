@@ -1,4 +1,4 @@
-// Duyen AI - content script Ver 11.14.10.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// Duyen AI - content script Ver 14.58.10.7.26 (gio.phut.ngay.thang.nam xuat ban)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
@@ -32,7 +32,6 @@
   let _histVisible = false;
   let _currentCS = ''; // CS dang dung, luu vao chrome.storage
   let _currentZaloNick = ''; // Nick Zalo CS dang dung, sticky
-  let _productCodeMap = null; // mang [code,[tu-khoa...]] doc dong tu sheet "Mã Zalo" (fallback ve ZALO_PRODUCT_MAP_ neu chua tai duoc)
   let _zaloNickList = []; // danh sach nick tu GAS
   let _lastServerCare = {}; // baseline lan tra cuu/poll gan nhat, dung de biet CS co dang sua field nao khong
   let _pollInFlight = false;
@@ -107,7 +106,7 @@
     // Header
     const hdr = document.createElement('div');
     hdr.className = 'zai-hdr';
-    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 11.14.10.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
+    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 14.58.10.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'zai-cfg-btn'; cfgBtn.id = 'zai-cfg-toggle'; cfgBtn.title = 'Cài đặt'; cfgBtn.textContent = '⚙';
     hdr.appendChild(cfgBtn); panel.appendChild(hdr);
@@ -184,15 +183,16 @@
     zsWrap.style.cssText = 'border-bottom:2px solid #e5e7eb;background:#f9fafb;flex-shrink:0;';
     const zsHdr = document.createElement('div');
     zsHdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 14px;cursor:pointer;';
-    zsHdr.innerHTML = '<span style="font-weight:700;color:#374151;font-size:12px">🔍 Quét danh bạ Zalo (dự phòng)</span><span id="zai-zs-toggle" style="color:#374151;font-size:11px">▼ mở</span>';
+    zsHdr.innerHTML = '<span style="font-weight:700;color:#374151;font-size:12px">🔍 Quét trạng thái kết bạn Zalo (dự phòng)</span><span id="zai-zs-toggle" style="color:#374151;font-size:11px">▼ mở</span>';
     const zsBody = document.createElement('div');
     zsBody.id = 'zai-zs-body';
     zsBody.style.cssText = 'display:none;padding:8px 14px 10px;';
     zsBody.innerHTML =
       '<div style="font-size:10px;color:#6b7280;margin-bottom:6px">' +
-      'Quét các tên hiển thị đang thấy trên màn hình theo cú pháp "ngày+tháng mã-sp Tên khách, SĐT" ' +
-      '(VD: 6+7 hh Nguyễn Văn A, 0901234567). Chỉ dùng cho khách CHƯA có đơn hàng nào trong Sasum — ' +
-      'có đơn thật thì hệ thống luôn ưu tiên dùng đơn thật, bỏ qua bản quét này.</div>' +
+      'Quét các số điện thoại đang thấy trên màn hình (danh bạ/tin nhắn Zalo) và tự đoán trạng thái ' +
+      'kết bạn tương ứng (Đã kết bạn / Chưa kết bạn / Chặn / Zalo ngừng hd...). ' +
+      'Bạn xem lại và sửa trạng thái nếu cần trước khi đồng bộ về Sasum — nick Zalo đang chọn ở trên (mục 💬 Nick) ' +
+      'sẽ được ghi kèm vào danh sách nick của từng khách.</div>' +
       '<button class="zai-btn zai-btn-secondary zai-btn-sm" id="zai-zs-scan-btn">🔍 Quét màn hình hiện tại</button>' +
       '<div id="zai-zs-preview" style="margin-top:8px"></div>';
     zsHdr.addEventListener('click', () => {
@@ -204,7 +204,7 @@
     zsWrap.appendChild(zsBody);
     panel.appendChild(zsWrap);
     zsBody.querySelector('#zai-zs-scan-btn').addEventListener('click', () => {
-      renderZsPreview_(scanZaloContactNames_());
+      renderZsPreview_(scanZaloFriendStatus_());
     });
 
     // Body
@@ -352,7 +352,7 @@
     });
     chrome.storage.local.get(['ome_gas_url','ome_current_cs','ome_current_nz'], (res) => {
       GAS_URL = res.ome_gas_url || '';
-      if (GAS_URL) { inpGas.value = GAS_URL; loadCSNames_(); loadNickZaloList_(); loadCareStatusTree_(); loadProductCodeMap_(); }
+      if (GAS_URL) { inpGas.value = GAS_URL; loadCSNames_(); loadNickZaloList_(); loadCareStatusTree_(); }
       loadChatNamePhoneMap_();
       if (!GAS_URL) { _cfgVisible = true; cfg.style.display = 'block'; }
       _currentCS = res.ome_current_cs || '';
@@ -441,7 +441,6 @@
     _lookupCache = {};
     loadCSNames_();
     loadCareStatusTree_();
-    loadProductCodeMap_();
     if (!key) showMsg('zai-save-status','✓ Đã lưu cài đặt',2000);
   }
 
@@ -1208,11 +1207,6 @@
       const henDate = rem.schedHen ? new Date(rem.schedHen) : null;
       if (henDate) henDate.setHours(0,0,0,0);
       const isOverdue = henDate && henDate < today;
-      // Ma CS ngan (vd: GL/HM/SD...) — hien truoc SDT de xem gon
-      const csBadge = document.createElement('span');
-      csBadge.textContent = rem.cs || '—';
-      csBadge.title = 'CS chăm sóc: ' + (rem.cs || 'chưa gán');
-      csBadge.style.cssText = 'background:#7f1d1d;color:#fff;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;flex-shrink:0;';
       // Phone copy button
       const phoneBtn = document.createElement('button');
       phoneBtn.textContent = '📋 ' + rem.phone;
@@ -1265,7 +1259,6 @@
           }
         }, 700);
       });
-      item.appendChild(csBadge);
       item.appendChild(phoneBtn);
       item.appendChild(note);
       item.appendChild(openBtn);
@@ -2234,48 +2227,17 @@ async function startReminderPoll_() {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  //  QUET DANH BA ZALO — du phong khi khach chua co don hang trong Sasum.
-  //  Doc cac ten hien thi (do CS tu dat khi ket ban) theo cu phap:
-  //    "<ngày>+<tháng> <mã sp> <Tên khách>, <SĐT>"  (VD: 6+7 hh Nguyễn Văn A, 0901234567)
-  //  Ma san pham dung chung voi backend (PRODUCT_CODE_MAP_ trong gas_v13.js).
-  //  CHI la du phong — KH da co don hang that trong OrderData luon duoc uu tien.
+  //  QUET DANH BA ZALO — du phong khi khach chua co du lieu trong Sasum.
+  //  Doc cac dong text co chua SDT dang hien tren man hinh (danh ba/tin nhan Zalo),
+  //  suy ra trang thai KET BAN theo quy uoc ten hien thi CS dang dung:
+  //    - Chi thay SDT, khong co ten rieng   -> "Chưa kết bạn" (Zalo hien SDT lam ten khi chua luu/chua ket ban)
+  //    - Ten co chu CTN                     -> "Chặn"
+  //    - Ten co chu NHD                     -> "Zalo ngừng hd"
+  //    - Con lai (co ten rieng da luu)      -> "Đã kết bạn"
+  //  Ket qua luon duoc CS xem lai va co the sua truoc khi dong bo — khong tu dong gui gi ca.
   // ═══════════════════════════════════════════════════════════════
-  const ZALO_PRODUCT_MAP_ = [
-    ['HH',  ['hh', 'healthouse']],
-    ['CF',  ['cf', 'cafe']],
-    ['M9',  ['m9', 'make9']],
-    ['LV',  ['lv', 'louisviel']],
-    ['TEA', ['tea', 'tb', 'tra', 'trà']],
-    ['VIK', ['vik', 'vikim', 'vi kim', 'fractional']],
-    ['EVE', ['eve', 'every']],
-    ['RS',  ['rs', 'reason']],
-    ['DA',  ['da', 'dear', 'dearglam']]
-  ];
-  function zaloProductCode_(token) {
-    const t = (token || '').toLowerCase();
-    const m = _productCodeMap || ZALO_PRODUCT_MAP_;
-    for (const [code, kws] of m) if (kws.includes(t)) return code;
-    return '';
-  }
-
-  // Tai bang ma san pham dong tu sheet "Mã Zalo" (qua GAS) - de sua/them ma san pham
-  // chi can sua trong Sheet, khong can sua code. Neu tai loi thi tu dong dung
-  // ZALO_PRODUCT_MAP_ (bang cung) da khai bao san o tren.
-  async function loadProductCodeMap_() {
-    if (!GAS_URL) return;
-    try {
-      const sep = GAS_URL.includes('?') ? '&' : '?';
-      const r = await fetch(GAS_URL + sep + 'action=productCodeMap', { redirect: 'follow' });
-      const d = await r.json();
-      if (Array.isArray(d.map) && d.map.length) _productCodeMap = d.map;
-    } catch (e) { /* giu nguyen bang cung neu tai loi */ }
-  }
-
-  // Quet toan bo text hien dang render tren trang (leaf element) tim ten khop cu phap.
-  // Best-effort — khong phu thuoc class cu the cua danh ba Zalo (de tranh gay khi Zalo doi DOM),
-  // ket qua luon duoc CS xem lai truoc khi dong bo, khong tu dong gui gi ca.
-  function scanZaloContactNames_() {
-    const RE = /(\d{1,2})[+\-\/](\d{1,2})\s+([A-Za-zÀ-ỹ]+)\s+(.+?)[,]?\s*(0[3-9]\d{8})\b/;
+  function scanZaloFriendStatus_() {
+    const RE = /^(.*?)\b(0[3-9]\d{8})\b(.*)$/;
     const seen = new Set();
     const results = [];
     const all = document.querySelectorAll('body *');
@@ -2285,19 +2247,16 @@ async function startReminderPoll_() {
       if (!text || text.length > 120) continue;
       const m = text.match(RE);
       if (!m) continue;
-      const phone = normPhone(m[5]);
+      const phone = normPhone(m[2]);
       if (!phone || seen.has(phone)) continue;
-      const day = parseInt(m[1], 10), month = parseInt(m[2], 10);
-      if (day < 1 || day > 31 || month < 1 || month > 12) continue;
       seen.add(phone);
-      let year = new Date().getFullYear();
-      let guess = new Date(year, month - 1, day);
-      if (guess.getTime() > Date.now()) guess = new Date(year - 1, month - 1, day);
-      results.push({
-        phone, rawName: text, nameGuess: m[4].trim(),
-        orderDateGuess: guess.toISOString().slice(0, 10),
-        productCodeGuess: zaloProductCode_(m[3])
-      });
+      const namePart = (m[1] || '').replace(/[,\-–]\s*$/, '').trim();
+      let status;
+      if (/\bNHD\b/i.test(text)) status = 'Zalo ngừng hd';
+      else if (/\bCTN\b/i.test(text)) status = 'Chặn';
+      else if (!namePart) status = 'Chưa kết bạn';
+      else status = 'Đã kết bạn';
+      results.push({ phone, rawName: text, nameGuess: namePart || phone, zaloStatus: status });
     }
     return results;
   }
@@ -2305,19 +2264,21 @@ async function startReminderPoll_() {
   function renderZsPreview_(rows) {
     const box = document.getElementById('zai-zs-preview');
     if (!box) return;
-    if (!rows.length) { box.innerHTML = '<div style="font-size:11px;color:#6b7280">Không tìm thấy tên nào khớp cú pháp trên màn hình hiện tại. Thử cuộn/mở danh bạ rồi quét lại.</div>'; return; }
+    if (!rows.length) { box.innerHTML = '<div style="font-size:11px;color:#6b7280">Không tìm thấy số điện thoại nào trên màn hình hiện tại. Thử cuộn/mở danh bạ rồi quét lại.</div>'; return; }
     box.innerHTML =
-      '<div style="font-size:11px;color:#166534;margin-bottom:5px">Tìm thấy ' + rows.length + ' khách — bỏ chọn dòng nào không đúng rồi bấm Đồng bộ:</div>' +
-      '<div style="max-height:180px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff;">' +
+      '<div style="font-size:11px;color:#166534;margin-bottom:5px">Tìm thấy ' + rows.length + ' khách — kiểm tra lại trạng thái (có thể sửa) rồi bấm Đồng bộ:</div>' +
+      '<div style="max-height:220px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff;">' +
       rows.map((r, i) =>
-        '<label style="display:flex;gap:6px;align-items:flex-start;padding:5px 8px;font-size:11px;border-bottom:1px solid #f3f4f6;cursor:pointer;">' +
-          '<input type="checkbox" class="zai-zs-chk" data-i="' + i + '" checked style="margin-top:2px">' +
-          '<span>' + escHtml(r.nameGuess || r.phone) + ' — <b>' + escHtml(r.phone) + '</b><br>' +
-          '<span style="color:#6b7280">' + escHtml(r.orderDateGuess) + (r.productCodeGuess ? ' · ' + escHtml(r.productCodeGuess) : ' · (chưa nhận diện SP)') + '</span></span>' +
-        '</label>'
+        '<div style="display:flex;gap:6px;align-items:center;padding:5px 8px;font-size:11px;border-bottom:1px solid #f3f4f6;">' +
+          '<input type="checkbox" class="zai-zs-chk" data-i="' + i + '" checked>' +
+          '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(r.nameGuess) + ' — <b>' + escHtml(r.phone) + '</b></span>' +
+          '<select class="zai-zs-status" data-i="' + i + '" style="font-size:10px;padding:1px 3px;border:1px solid #d1d5db;border-radius:4px;">' +
+            ZALO_STATUSES.filter(s => s).map(s => '<option value="' + escHtml(s) + '"' + (s === r.zaloStatus ? ' selected' : '') + '>' + escHtml(s) + '</option>').join('') +
+          '</select>' +
+        '</div>'
       ).join('') +
       '</div>' +
-      '<button class="zai-btn zai-btn-primary zai-btn-sm" id="zai-zs-sync-btn" style="margin-top:6px;width:100%">☁ Đồng bộ các dòng đã chọn lên GSheet</button>' +
+      '<button class="zai-btn zai-btn-primary zai-btn-sm" id="zai-zs-sync-btn" style="margin-top:6px;width:100%">☁ Đồng bộ trạng thái kết bạn lên Sasum</button>' +
       '<div id="zai-zs-sync-status" style="font-size:11px;color:#00b14f;margin-top:4px"></div>';
     document.getElementById('zai-zs-sync-btn').addEventListener('click', () => syncZsRows_(rows));
   }
@@ -2325,23 +2286,27 @@ async function startReminderPoll_() {
   async function syncZsRows_(rows) {
     if (!GAS_URL) { showError('Chưa cài đặt URL GAS.'); return; }
     const checks = [...document.querySelectorAll('.zai-zs-chk')].filter(c => c.checked);
-    const selected = checks.map(c => rows[parseInt(c.dataset.i, 10)]).map(r => ({ ...r, scannedBy: _currentCS || '' }));
+    const selected = checks.map(c => {
+      const i = parseInt(c.dataset.i, 10);
+      const selEl = document.querySelector('.zai-zs-status[data-i="' + i + '"]');
+      return { phone: rows[i].phone, zalo: selEl ? selEl.value : rows[i].zaloStatus, scannedBy: _currentCS || '', nick: _currentZaloNick || '' };
+    });
     if (!selected.length) { showMsg('zai-zs-sync-status', 'Chưa chọn dòng nào.', 2500); return; }
     const btn = document.getElementById('zai-zs-sync-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Đang đồng bộ...'; }
     try {
       const res = await fetch(GAS_URL, {
         method: 'POST',
-        body: JSON.stringify({ action: 'saveZaloScan', rows: selected }),
+        body: JSON.stringify({ action: 'syncZaloFriendStatus', rows: selected }),
         redirect: 'follow'
       });
       const d = await res.json();
-      if (d.ok) showMsg('zai-zs-sync-status', '✓ Đã đồng bộ ' + d.count + ' khách lên GSheet', 4000);
+      if (d.ok) showMsg('zai-zs-sync-status', '✓ Đã đồng bộ ' + ((d.updated||0) + (d.appended||0)) + ' khách lên Sasum', 4000);
       else showMsg('zai-zs-sync-status', 'Lỗi: ' + (d.error || 'không rõ'), 4000);
     } catch (e) {
       showMsg('zai-zs-sync-status', 'Lỗi kết nối: ' + e.message, 4000);
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = '☁ Đồng bộ các dòng đã chọn lên GSheet'; }
+      if (btn) { btn.disabled = false; btn.textContent = '☁ Đồng bộ trạng thái kết bạn lên Sasum'; }
     }
   }
 
