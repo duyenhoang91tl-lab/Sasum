@@ -1,4 +1,4 @@
-// Duyen AI - content script Ver 10.54.10.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// Duyen AI - content script Ver 11.14.10.7.26 (gio.phut.ngay.thang.nam xuat ban)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
@@ -104,7 +104,7 @@
     // Header
     const hdr = document.createElement('div');
     hdr.className = 'zai-hdr';
-    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 10.54.10.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
+    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 11.14.10.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'zai-cfg-btn'; cfgBtn.id = 'zai-cfg-toggle'; cfgBtn.title = 'Cài đặt'; cfgBtn.textContent = '⚙';
     hdr.appendChild(cfgBtn); panel.appendChild(hdr);
@@ -596,6 +596,30 @@
   }
 
   // ── LOOKUP ──
+  // Tự phát hiện trạng thái kết bạn Zalo của đoạn chat ĐANG MỞ và cập nhật về Sasum.
+  // Chỉ chạy khi đoạn chat đang mở đúng là khách vừa tra cứu (tránh nhận nhầm số nhập tay).
+  async function _syncZaloStatusForOpenChat(phone, existsInSystem) {
+    if (!GAS_URL || !phone) return;
+    const openPhone = extractPhone(getCurrentChatName() || '');
+    if (!openPhone || openPhone !== phone) return; // không phải đoạn chat của khách này
+    await sleep_(500); // đợi DOM Zalo ổn định để đọc đúng nút "Gửi kết bạn"
+    const st = detectZaloFriendStatus_();
+    const zaloSel = document.getElementById('zai-zalo-sel');
+    if (zaloSel) zaloSel.value = st; // hiển thị ngay trên dropdown
+    if (!existsInSystem) return; // khách chưa có trong hệ thống → chỉ điền sẵn, CS tự bấm Lưu
+    const care = (_currentCustData && _currentCustData.care) ||
+                 (_lookupCache[phone] && _lookupCache[phone].care) || null;
+    if (care && (care.zalo || '') === st) return; // đã đúng trạng thái → bỏ qua
+    const row = Object.assign({}, care || { phone: phone, cs: _currentCS || '' });
+    row.phone = phone; row.zalo = st;
+    try {
+      await fetch(GAS_URL, { method:'POST', body: JSON.stringify({ action:'saveSingle', row }), headers:{'Content-Type':'text/plain'} });
+      if (_currentCustData && _currentCustData.phone === phone) _currentCustData.care = Object.assign({}, care||{}, { zalo: st });
+      if (_lookupCache[phone] && _lookupCache[phone].care) _lookupCache[phone].care.zalo = st;
+      showMsg('zai-save-status', '🔗 Đã cập nhật kết bạn Zalo: ' + st, 3000);
+    } catch (e) {}
+  }
+
   async function doLookup() {
     const raw = (document.getElementById('zai-phone-input').value||'').trim();
     if (!raw) { showError('Vui lòng nhập số điện thoại.'); return; }
@@ -610,8 +634,8 @@
 
     const hit = _lookupCache[phone];
     if (hit && Date.now() - hit.ts < LOOKUP_TTL) {
-      if (!hit.orders.length && !hit.care) showNotFoundWithForm_(area, updSec, phone, raw);
-      else renderCard_(area, updSec, phone, raw, hit.care, hit.orders);
+      if (!hit.orders.length && !hit.care) { showNotFoundWithForm_(area, updSec, phone, raw); _syncZaloStatusForOpenChat(phone, false); }
+      else { renderCard_(area, updSec, phone, raw, hit.care, hit.orders); _syncZaloStatusForOpenChat(phone, true); }
       return;
     }
 
@@ -631,8 +655,10 @@
 
       if (!orders.length && !d.care) {
         showNotFoundWithForm_(area, updSec, phone, raw);
+        _syncZaloStatusForOpenChat(phone, false);
       } else {
         renderCard_(area, updSec, phone, raw, d.care||null, orders);
+        _syncZaloStatusForOpenChat(phone, true);
       }
     } catch(e) {
       area.innerHTML = '';
