@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OME CS Portal 10.16.10.7.2026</title>
+<title>OME CS Portal 10.21.10.7.2026</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -829,7 +829,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 <header>
   <div class="logo">
     <div class="logo-mark"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">10.16.10.7.2026</span>
+    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">10.21.10.7.2026</span>
   </div>
   <div class="hdr-r">
     <span class="fstatus" id="fstatus">Chưa có dữ liệu</span>
@@ -2758,10 +2758,18 @@ function markDone(id) {
       const field = typeToField[it.type];
       if (field && care[field] === it.date) {
         care[field] = ''; care[field+'Note'] = '';
-        saveLS('ome_care', careData);
       }
+      // Lịch auto (Data Đảo) được ghi vào ô schedHen (có tiền tố AUTO_HEN_TAG) —
+      // nếu ô Hẹn đang trỏ đúng mốc vừa Done thì xóa để extension ngừng nhắc.
+      if (care.schedHen === it.date && String(care.schedHenNote||'').indexOf(AUTO_HEN_TAG) === 0) {
+        care.schedHen = ''; care.schedHenNote = '';
+      }
+      saveLS('ome_care', careData);
     }
     saveLS('ome_sched',schedules);
+    // Tính lại mốc auto sắp tới (bỏ mốc đã Done) → cập nhật ô Hẹn cho đúng
+    try { if (typeof syncAutoHenToCareData==='function') syncAutoHenToCareData(); } catch(e){}
+    saveLS('ome_care', careData);
     if (gsUrl) pushCareToGS(it.phone);
     renderScheduleTab(); renderOverdueTab(); updateSchedBadges();
     renderReminderPanel();
