@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OME CS Portal 10.11.10.7.2026</title>
+<title>OME CS Portal 10.16.10.7.2026</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
@@ -829,7 +829,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
 <header>
   <div class="logo">
     <div class="logo-mark"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
-    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">10.11.10.7.2026</span>
+    OME CS Portal <span style="font-size:10px;font-weight:400;color:#2d9464;margin-left:3px">10.16.10.7.2026</span>
   </div>
   <div class="hdr-r">
     <span class="fstatus" id="fstatus">Chưa có dữ liệu</span>
@@ -7446,8 +7446,36 @@ function _careRow(phone){
     khStatus: care.khStatus||'', nickZalos: care.nickZalos||[], birthday: care.birthday||''
   };
 }
+// Chỉ đồng bộ CareData khi khách có DỮ LIỆU CS NHẬP THẬT.
+// Lịch auto (Data Đảo) hay việc chỉ mở/click khách KHÔNG được tạo dòng CareData → tránh nặng dữ liệu.
+function _hasRealCareData(phone){
+  var care = (typeof careData !== 'undefined' && careData[phone]) || {};
+  // Trường CS nhập tay
+  if ((care.status||'').toString().trim())   return true;
+  if ((care.zalo||'').toString().trim())     return true;
+  if ((care.cs||'').toString().trim())       return true;
+  if ((care.note||'').toString().trim())     return true;
+  if ((care.khStatus||'').toString().trim()) return true;
+  if ((care.birthday||'').toString().trim()) return true;
+  if (Array.isArray(care.nickZalos) && care.nickZalos.length) return true;
+  // Lịch nhanh đặt tay
+  if ((care.schedGoi||'').toString().trim()) return true;
+  if ((care.schedSP||'').toString().trim())  return true;
+  if ((care.schedCS||'').toString().trim())  return true;
+  // Hẹn mua đặt tay (không phải auto — auto có tiền tố AUTO_HEN_TAG ở note)
+  if ((care.schedHen||'').toString().trim() &&
+      String(care.schedHenNote||'').indexOf(AUTO_HEN_TAG) !== 0) return true;
+  // Lịch CS TỰ TẠO hoặc đã bấm "Xong" (auto nhưng CS đã tác động)
+  var acted = (typeof schedules !== 'undefined' ? schedules : []).some(function(x){
+    return x.phone === phone && (!x.autoDao || x.done);
+  });
+  if (acted) return true;
+  return false;
+}
 function queueCareSync(phone){
   if (!phone) return;
+  // Bỏ qua nếu chưa có tác động thật → không tạo dòng CareData rỗng cho khách
+  if (!_hasRealCareData(phone)) return;
   _careQueue.add(phone);
   if (_careTimer) return;
   _careTimer = setTimeout(flushCareSync, SYNC_BATCH_MS);
