@@ -3211,10 +3211,10 @@ function renderHistTab(c) {
             style="border:none;background:${isMissing?'var(--orange,#e8a04a)':'var(--surface2)'};color:${isMissing?'#fff':'var(--muted)'};border-radius:4px;padding:1px 7px;font-size:11px;cursor:pointer;margin-left:6px;border:1px solid ${isMissing?'var(--orange,#e8a04a)':'var(--border)'}">
             ${isMissing?'⚠ Cập nhật':'✏ Sửa'}
           </button>
-          ${(isMissing||!o.source)?`<button onclick="_histDeleteOrder('${esc(c.phone)}',${realIdx})" title="Xóa đơn này"
+          <button onclick="_histDeleteOrder('${esc(c.phone)}',${realIdx})" title="Xóa đơn này"
             style="border:1px solid var(--red-b,#fca5a5);background:var(--red-bg,#fff1f2);color:var(--red,#dc2626);border-radius:4px;padding:1px 7px;font-size:11px;cursor:pointer;margin-left:4px">
             🗑 Xóa
-          </button>`:''}
+          </button>
         </div>
         ${o.productDetail?`<div class="hist-prod" onclick="_toggleHistProd(this)" title="Bấm để xem đầy đủ sản phẩm">${esc(o.productDetail)}</div>`:''}
         <div class="hist-tags">
