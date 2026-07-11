@@ -642,7 +642,6 @@ function syncZaloFriendStatus_(rows, dryRun) {
 
   if (dryRun) {
     var conflicts = [];
-    var known = {}; // phone -> trang thai zalo hien co tren Sasum (de client loc bot KH khong doi)
     for (var c = 0; c < rows.length; c++) {
       var rc = rows[c];
       var phoneC = normPhone_(String(rc.phone || ''));
@@ -650,9 +649,7 @@ function syncZaloFriendStatus_(rows, dryRun) {
       if (!phoneC || rn === undefined) continue;
       // Chi doc 2 o can thiet (zalo + zaloSetBy) cho dong nay, khong doc ca dong/ca sheet
       var oldZalo = sh.getRange(rn, 3).getValue() || '';
-      if (!oldZalo) continue; // chua tung ghi -> coi nhu khach moi, van hien de CS xac nhan
-      known[phoneC] = oldZalo;
-      if (oldZalo === (rc.zalo || '')) continue; // gia tri khong doi -> khong tinh la xung dot
+      if (!oldZalo || oldZalo === (rc.zalo || '')) continue; // chua tung ghi, hoac gia tri khong doi -> khong tinh la xung dot
       var oldSetByRaw = sh.getRange(rn, 19).getValue();
       var oldSetBy = null;
       try { oldSetBy = JSON.parse(oldSetByRaw || 'null'); } catch (e) { oldSetBy = null; }
@@ -662,7 +659,7 @@ function syncZaloFriendStatus_(rows, dryRun) {
         conflicts.push({ phone: rc.phone, oldZalo: oldZalo, oldCs: oldCs, oldNick: oldNick, newZalo: rc.zalo || '' });
       }
     }
-    return jsonOut_({ ok: true, dryRun: true, conflicts: conflicts, known: known });
+    return jsonOut_({ ok: true, dryRun: true, conflicts: conflicts });
   }
 
   var lock = LockService.getScriptLock();
@@ -681,18 +678,33 @@ function syncZaloFriendStatus_(rows, dryRun) {
 
     var rowNum = index[phone];
     if (rowNum !== undefined) {
-      // Chi ghi dung 3 vung o thay doi cua dong nay: zalo(C), updated(O), zaloSetBy(S) [+ nickZalos(Q) neu co nick moi]
-      sh.getRange(rowNum, 3).setValue(zaloStatus);
-      sh.getRange(rowNum, 15).setValue(now);
+      // FIX: chi ghi neu THUC SU co gi thay doi (zalo status khac, hoac nick moi chua co).
+      // Truoc day ham nay luon ghi lai cot 'updated' (O) cho MOI dong duoc quet, ke ca khi
+      // trang thai zalo khong doi gi ca -> Sasum tuong lam la "khach vua co cap nhat moi"
+      // moi lan CS chi don gian mo lai doan chat / bam quet man hinh, gay bao dong gia.
+      var curZalo = sh.getRange(rowNum, 3).getValue() || '';
+      var nickAlreadyThere = true;
+      var curNzRaw = '';
       if (nick) {
-        var curNzRaw = sh.getRange(rowNum, 17).getValue();
+        curNzRaw = sh.getRange(rowNum, 17).getValue();
+        var nzChk = [];
+        try { nzChk = JSON.parse(curNzRaw || '[]'); } catch (e) { nzChk = []; }
+        if (!Array.isArray(nzChk)) nzChk = [];
+        nickAlreadyThere = nzChk.indexOf(nick) !== -1;
+      }
+      if (curZalo === zaloStatus && nickAlreadyThere) {
+        // Khong co gi thay doi -> bo qua hoan toan, KHONG dung vao cot 'updated'
+        continue;
+      }
+      // Chi ghi dung 3 vung o thay doi cua dong nay: zalo(C), updated(O), zaloSetBy(S) [+ nickZalos(Q) neu co nick moi]
+      if (curZalo !== zaloStatus) sh.getRange(rowNum, 3).setValue(zaloStatus);
+      sh.getRange(rowNum, 15).setValue(now);
+      if (nick && !nickAlreadyThere) {
         var nz = [];
         try { nz = JSON.parse(curNzRaw || '[]'); } catch (e) { nz = []; }
         if (!Array.isArray(nz)) nz = [];
-        if (nz.indexOf(nick) === -1) {
-          nz.push(nick);
-          sh.getRange(rowNum, 17).setValue(JSON.stringify(nz));
-        }
+        nz.push(nick);
+        sh.getRange(rowNum, 17).setValue(JSON.stringify(nz));
       }
       sh.getRange(rowNum, 19).setValue(setBy);
       updated++;
