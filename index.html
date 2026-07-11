@@ -1723,7 +1723,8 @@ async function syncFromGS(opts) {
             status: o.status||'', zalo: o.zalo||'', note: o.note||''
           }));
           if (rows.length) {
-            loadedFiles.push({name:'Google Sheets (đồng bộ)', rows:rows.length});
+            // Không thêm chip "Google Sheets (đồng bộ)" vào files-bar nữa — sync chạy nền
+            // (mỗi 3s / mỗi lần mở app) nên trước đây chip này bị lặp lại nhiều lần trên thanh file.
             mergeRows(rows);
             orderCount = rows.length;
           }
