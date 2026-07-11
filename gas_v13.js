@@ -1124,12 +1124,18 @@ var AI_PROVIDERS_ = [
 // Tra ve { ok:true, provider, text } neu thanh cong, hoac { ok:false, error, triedProviders } neu ca 3 deu that bai.
 function callAIWithFallback_(messages, overrides) {
   var tried = [];
+  var skipped = [];
   var lastError = '';
+  var cache = CacheService.getScriptCache();
 
   for (var i = 0; i < AI_PROVIDERS_.length; i++) {
     var p = AI_PROVIDERS_[i];
     var key = p.getKey();
     if (!key) continue; // chua cau hinh key cho provider nay -> bo qua, khong tinh la loi
+
+    // Provider vua bi loi quota/key sai gan day (xem duoi) -> bo qua ngay, khong
+    // mat thoi gian goi lai trong vai phut toi, chuyen thang provider tiep theo.
+    if (cache.get('aidown_' + p.name)) { skipped.push(p.name); continue; }
 
     var payload = {
       model: p.model,
@@ -1156,17 +1162,23 @@ function callAIWithFallback_(messages, overrides) {
         return { ok: true, provider: p.name, text: content || '' };
       }
 
-      // Loi (vd 401 sai key, 429 het quota, 5xx server loi) -> ghi lai va thu provider tiep theo
+      // 401/403 = key sai/het han, 429 = het quota -> day la loi "on dinh", se con sai
+      // trong it phut toi, nen nho lai de cac lan goi sau bo qua ngay cho nhanh.
+      // 5xx/loi khac co the chi la su co tam thoi cua provider -> khong cache, van thu lai binh thuong lan sau.
+      if (code === 401 || code === 403 || code === 429) {
+        cache.put('aidown_' + p.name, '1', 300); // tam ngung dung provider nay trong 5 phut
+      }
       lastError = p.name + ' loi ' + code + ': ' + txt.substring(0, 300);
     } catch (err) {
       lastError = p.name + ' loi ket noi: ' + err.message;
     }
   }
 
-  if (!tried.length) {
+  if (!tried.length && !skipped.length) {
     return { ok: false, error: 'Chua co API Key nao duoc cau hinh. Mo extension → banh rang → nhap it nhat 1 trong cac key Groq/Gemini/Cerebras → Luu.', triedProviders: [] };
   }
-  return { ok: false, error: 'Tat ca provider AI deu loi (' + tried.join(' → ') + '). Loi cuoi: ' + lastError, triedProviders: tried };
+  var skipNote = skipped.length ? ' (da bo qua ' + skipped.join(', ') + ' vi vua loi quota/key gan day)' : '';
+  return { ok: false, error: 'Tat ca provider AI deu loi hoac chua san sang' + skipNote + '. Loi cuoi: ' + (lastError || 'khong co provider nao con lai de thu'), triedProviders: tried };
 }
 
 function callGroqSummarize_(data) {

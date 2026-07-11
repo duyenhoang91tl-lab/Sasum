@@ -1278,7 +1278,12 @@
       if (!data.ok) throw new Error(data.error||'GAS lỗi');
       const text = (data.text||'').trim();
       sug.innerHTML='';
-      addEl(sug,'div',{className:'zai-section-label',textContent:'💡 Gợi ý — sửa nếu cần rồi copy/lưu'});
+      const labelRow = addEl(sug,'div',{style:'display:flex;align-items:center;justify-content:space-between;gap:6px'});
+      addEl(labelRow,'div',{className:'zai-section-label',style:'margin:0',textContent:'💡 Gợi ý — sửa nếu cần rồi copy/lưu'});
+      if (data.provider && data.provider !== 'Groq') {
+        addEl(labelRow,'span',{style:'font-size:10px;color:#b45309;background:#fef3c7;border-radius:4px;padding:1px 5px;white-space:nowrap;',
+          textContent:'⚡ qua '+data.provider+' (Groq đang bận/hết quota)'});
+      }
 
       const ta = addEl(sug,'textarea',{id:'zai-sug-edit', rows:4});
       ta.style.cssText='width:100%;box-sizing:border-box;font-size:12px;padding:8px;border:1px solid #d1d5db;border-radius:6px;resize:vertical;margin-top:4px;font-family:inherit';
@@ -1479,9 +1484,10 @@
 
       const { intent, reply_text, confidence } = d;
       const sensitive = _apIsSensitive_(intent, reply_text);
+      const providerNote = (d.provider && d.provider !== 'Groq') ? (' [qua '+d.provider+', Groq đang bận/hết quota]') : '';
 
       if (!reply_text || confidence < _apThreshold || sensitive) {
-        apLog_('⏸ CẦN CS DUYỆT — ' + phone + ' (intent: ' + (intent||'?') + ', tin cậy: ' + confidence + '%' + (sensitive?', có từ khoá nhạy cảm':'') + ')');
+        apLog_('⏸ CẦN CS DUYỆT — ' + phone + ' (intent: ' + (intent||'?') + ', tin cậy: ' + confidence + '%' + (sensitive?', có từ khoá nhạy cảm':'') + ')' + providerNote);
         // Van hien goi y trong khung soan de CS xem/sua/gui thu cong, khong tu dong gui
         const sug = document.getElementById('zai-sug-area');
         if (sug && _currentCustData && _currentCustData.phone === phone) {
@@ -1499,7 +1505,7 @@
       }
 
       // Du dieu kien: tin cay cao + khong nhay cam -> cho tre ngau nhien roi tu gui
-      apLog_('⏳ Sẽ tự gửi cho ' + phone + ' sau vài giây (intent: ' + intent + ', tin cậy: ' + confidence + '%)');
+      apLog_('⏳ Sẽ tự gửi cho ' + phone + ' sau vài giây (intent: ' + intent + ', tin cậy: ' + confidence + '%)' + providerNote);
       await sleep_(randDelayMs_(AP_DELAY_MIN_SEC, AP_DELAY_MAX_SEC));
 
       // Kiem tra lai: CS co the da chuyen chat / tat auto-pilot trong luc cho delay
@@ -1631,6 +1637,13 @@
       showError('Chưa có lịch sử hội thoại — bấm "📥 Lấy TN" để tự động lấy tin nhắn khách trước.');
       return;
     }
+    // Neu luc "Lay TN" da tu dong tom tat roi (hoi thoai dai) thi dung lai luon,
+    // khong goi AI lan 2 cho cung 1 doan chat (nhanh hon, do ton quota).
+    if (_chatSummary) {
+      if (noteNewEl) { noteNewEl.value = '🤖 Tóm tắt: ' + _chatSummary; noteNewEl.focus(); }
+      showMsg('zai-save-status', '✓ Dùng lại tóm tắt đã có — xem lại rồi bấm "+" để thêm vào ghi chú.', 4000);
+      return;
+    }
     const lines = _chatHistory.map(formatHistoryLine_);
     const oldLabel = btn ? btn.textContent : '';
     if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
@@ -1646,7 +1659,8 @@
           noteNewEl.value = '🤖 Tóm tắt: ' + d.summary;
           noteNewEl.focus();
         }
-        showMsg('zai-save-status', '✓ Đã tóm tắt — xem lại rồi bấm "+" để thêm vào ghi chú.', 4000);
+        const providerNote = (d.provider && d.provider !== 'Groq') ? (' (qua '+d.provider+')') : '';
+        showMsg('zai-save-status', '✓ Đã tóm tắt'+providerNote+' — xem lại rồi bấm "+" để thêm vào ghi chú.', 4000);
       } else {
         showError('Không tóm tắt được: ' + (d.error || 'lỗi không rõ'));
       }
