@@ -143,10 +143,14 @@
     cfg.className = 'zai-cfg'; cfg.id = 'zai-cfg'; cfg.style.display = 'none';
     addEl(cfg, 'label', {textContent:'URL Web App GAS (appweb Sasum)'});
     const inpGas = addEl(cfg, 'input', {id:'zai-gas-url', type:'text', placeholder:'https://script.google.com/macros/s/...'});
-    addEl(cfg, 'label', {textContent:'🔑 Groq API Key (lưu 1 lần dùng chung cả team)'});
+    addEl(cfg, 'label', {textContent:'🔑 Groq API Key (ưu tiên #1, lưu 1 lần dùng chung cả team)'});
     addEl(cfg, 'input', {id:'zai-gemini-key', type:'text', placeholder:'gsk_... (lấy miễn phí tại console.groq.com)'});
+    addEl(cfg, 'label', {style:'margin-top:6px;display:block;', textContent:'🔑 Gemini API Key (dự phòng #2, tự động dùng khi Groq lỗi/hết quota)'});
+    addEl(cfg, 'input', {id:'zai-gemini2-key', type:'text', placeholder:'AIza... (lấy miễn phí tại aistudio.google.com/apikey)'});
+    addEl(cfg, 'label', {style:'margin-top:6px;display:block;', textContent:'🔑 Cerebras API Key (dự phòng #3, tự động dùng khi cả 2 trên lỗi)'});
+    addEl(cfg, 'input', {id:'zai-cerebras-key', type:'text', placeholder:'csk-... (lấy miễn phí tại cloud.cerebras.ai)'});
     const saveBtn = addEl(cfg, 'button', {className:'zai-cfg-save', id:'zai-cfg-save', textContent:'💾 Lưu cài đặt'});
-    addEl(cfg, 'div', {className:'zai-cfg-hint', textContent:'Key Groq được lưu vào Google Sheets, dùng chung cho cả team.'});
+    addEl(cfg, 'div', {className:'zai-cfg-hint', textContent:'Chỉ cần nhập ít nhất 1 key. Hệ thống tự thử lần lượt Groq → Gemini → Cerebras, key nào để trống sẽ tự bỏ qua. Key được lưu vào Google Sheets, dùng chung cho cả team.'});
 
     // ── AUTO-PILOT settings (MẶC ĐỊNH TẮT) ──
     const apBox = addEl(cfg, 'div', {style:'margin-top:12px;padding:8px;border:1px solid #fecaca;border-radius:6px;background:#fff1f2;'});
@@ -664,22 +668,32 @@
     chrome.storage.local.set({ ome_ap_on: _apOn, ome_ap_threshold: _apThreshold, ome_ap_keywords: _apSensitiveKeywords });
     renderAutoPilotBanner_();
 
-    const keyEl = document.getElementById('zai-gemini-key');
-    const key = keyEl ? keyEl.value.trim() : '';
-    if (key) {
+    // Luu toi da 3 key AI (Groq / Gemini / Cerebras), moi key la tuy chon —
+    // chi luu key nao CS thuc su nhap (khong ghi de key da luu bang chuoi rong).
+    const aiKeyFields = [
+      { el: document.getElementById('zai-gemini-key'),    settingKey: 'geminiKey',   label: 'Groq' },
+      { el: document.getElementById('zai-gemini2-key'),   settingKey: 'geminiKey2',  label: 'Gemini' },
+      { el: document.getElementById('zai-cerebras-key'),  settingKey: 'cerebrasKey', label: 'Cerebras' }
+    ];
+    let anyKeySaved = false;
+    for (const f of aiKeyFields) {
+      const val = f.el ? f.el.value.trim() : '';
+      if (!val) continue;
       try {
-        const r = await fetch(GAS_URL, { method:'POST', body:JSON.stringify({action:'setSetting',key:'geminiKey',value:key}), headers:{'Content-Type':'text/plain'} });
+        const r = await fetch(GAS_URL, { method:'POST', body:JSON.stringify({action:'setSetting',key:f.settingKey,value:val}), headers:{'Content-Type':'text/plain'} });
         const d = await r.json();
-        if (d.ok) { showMsg('zai-save-status','✓ Đã lưu Groq Key!',3000); if(keyEl) keyEl.value=''; }
-        else { showError('Lỗi lưu key: '+JSON.stringify(d)); return; }
-      } catch(e) { showError('Lỗi kết nối GAS: '+e.message); return; }
+        if (d.ok) { anyKeySaved = true; if (f.el) f.el.value=''; }
+        else { showError('Lỗi lưu key '+f.label+': '+JSON.stringify(d)); return; }
+      } catch(e) { showError('Lỗi kết nối GAS (key '+f.label+'): '+e.message); return; }
     }
+    if (anyKeySaved) showMsg('zai-save-status','✓ Đã lưu key AI!',3000);
+
     _cfgVisible = false;
     document.getElementById('zai-cfg').style.display = 'none';
     _lookupCache = {};
     loadCSNames_();
     loadCareStatusTree_();
-    if (!key) showMsg('zai-save-status','✓ Đã lưu cài đặt',2000);
+    if (!anyKeySaved) showMsg('zai-save-status','✓ Đã lưu cài đặt',2000);
   }
 
   function normPhone(p) {

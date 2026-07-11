@@ -1086,9 +1086,90 @@ function logAIInteraction_(data) {
   return jsonOut_({ ok: true });
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  AI PROVIDER FALLBACK — thu lan luot Groq → Gemini → Cerebras
+//  Neu 1 provider loi (API loi, het quota, 401/429/5xx...) hoac chua co key,
+//  tu dong chuyen sang provider tiep theo trong danh sach.
+//
+//  Key luu trong Settings (sheet Settings), doc qua getSetting_:
+//    - 'geminiKey'   : Groq API key (ten cu, giu de tuong thich voi data da luu)
+//    - 'geminiKey2'  : Gemini API key that (lay tai aistudio.google.com/apikey)
+//    - 'cerebrasKey' : Cerebras API key (lay tai cloud.cerebras.ai)
+//  Provider nao chua co key se tu dong bi bo qua (khong tinh la loi).
+// ═══════════════════════════════════════════════════════════════
+var AI_PROVIDERS_ = [
+  {
+    name: 'Groq',
+    getKey: function () { return getSetting_('geminiKey'); },
+    url: 'https://api.groq.com/openai/v1/chat/completions',
+    model: 'llama-3.3-70b-versatile'
+  },
+  {
+    name: 'Gemini',
+    getKey: function () { return getSetting_('geminiKey2'); },
+    url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    model: 'gemini-2.5-flash'
+  },
+  {
+    name: 'Cerebras',
+    getKey: function () { return getSetting_('cerebrasKey'); },
+    url: 'https://api.cerebras.ai/v1/chat/completions',
+    model: 'llama-3.3-70b'
+  }
+];
+
+// Goi AI voi fallback tu dong.
+// messages: mang [{role, content}, ...] chuan OpenAI chat format.
+// overrides: {temperature, max_tokens} — model se luon lay theo tung provider, khong bi ghi de.
+// Tra ve { ok:true, provider, text } neu thanh cong, hoac { ok:false, error, triedProviders } neu ca 3 deu that bai.
+function callAIWithFallback_(messages, overrides) {
+  var tried = [];
+  var lastError = '';
+
+  for (var i = 0; i < AI_PROVIDERS_.length; i++) {
+    var p = AI_PROVIDERS_[i];
+    var key = p.getKey();
+    if (!key) continue; // chua cau hinh key cho provider nay -> bo qua, khong tinh la loi
+
+    var payload = {
+      model: p.model,
+      messages: messages,
+      temperature: (overrides && overrides.temperature != null) ? overrides.temperature : 0.7,
+      max_tokens: (overrides && overrides.max_tokens != null) ? overrides.max_tokens : 400
+    };
+
+    tried.push(p.name);
+    try {
+      var res = UrlFetchApp.fetch(p.url, {
+        method: 'post',
+        headers: { 'Authorization': 'Bearer ' + key },
+        contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+      var code = res.getResponseCode();
+      var txt  = res.getContentText();
+
+      if (code === 200) {
+        var d = JSON.parse(txt);
+        var content = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+        return { ok: true, provider: p.name, text: content || '' };
+      }
+
+      // Loi (vd 401 sai key, 429 het quota, 5xx server loi) -> ghi lai va thu provider tiep theo
+      lastError = p.name + ' loi ' + code + ': ' + txt.substring(0, 300);
+    } catch (err) {
+      lastError = p.name + ' loi ket noi: ' + err.message;
+    }
+  }
+
+  if (!tried.length) {
+    return { ok: false, error: 'Chua co API Key nao duoc cau hinh. Mo extension → banh rang → nhap it nhat 1 trong cac key Groq/Gemini/Cerebras → Luu.', triedProviders: [] };
+  }
+  return { ok: false, error: 'Tat ca provider AI deu loi (' + tried.join(' → ') + '). Loi cuoi: ' + lastError, triedProviders: tried };
+}
+
 function callGroqSummarize_(data) {
-  var key = getSetting_('geminiKey');
-  if (!key) return jsonOut_({ error: 'Chua co API Key. Mo extension → banh rang → nhap Groq Key → Luu.' });
   var messages = data.messages || [];
   if (!messages.length) return jsonOut_({ ok: true, summary: '' });
 
@@ -1098,38 +1179,16 @@ function callGroqSummarize_(data) {
     'nhu cau/san pham khach dang quan tam, van de/khieu nai da neu (va da giai quyet chua), trang thai don hang neu co nhac den, giong dieu/thai do khach (vd: khach de tinh, khach dang buc). ' +
     'Khong dien giai, khong lap lai nguyen van tin nhan, chi tom tat y chinh.';
 
-  var payload = {
-    model: 'llama-3.3-70b-versatile',
-    messages: [
-      { role: 'system', content: sysPrompt },
-      { role: 'user', content: joined }
-    ],
-    temperature: 0.3,
-    max_tokens: 300
-  };
+  var result = callAIWithFallback_([
+    { role: 'system', content: sysPrompt },
+    { role: 'user', content: joined }
+  ], { temperature: 0.3, max_tokens: 300 });
 
-  try {
-    var res = UrlFetchApp.fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'post',
-      headers: { 'Authorization': 'Bearer ' + key },
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    });
-    var code = res.getResponseCode();
-    var txt  = res.getContentText();
-    if (code !== 200) return jsonOut_({ error: 'Groq loi ' + code + ': ' + txt.substring(0, 300) });
-    var d = JSON.parse(txt);
-    var summary = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
-    return jsonOut_({ ok: true, summary: (summary || '').trim() });
-  } catch(err) {
-    return jsonOut_({ error: 'Loi goi Groq (summarize): ' + err.message });
-  }
+  if (!result.ok) return jsonOut_({ error: result.error });
+  return jsonOut_({ ok: true, summary: result.text.trim(), provider: result.provider });
 }
 
 function callGroqAI_(data) {
-  var key = getSetting_('geminiKey'); // van dung key 'geminiKey' de tuong thich cu
-  if (!key) return jsonOut_({ error: 'Chua co API Key. Mo extension → banh rang → nhap Groq Key → Luu.' });
   var userMsg = data.prompt || '';
   if (!userMsg) return jsonOut_({ error: 'Thieu noi dung' });
 
@@ -1150,33 +1209,13 @@ function callGroqAI_(data) {
   if (ctx.combos.length > 0)   sysParts.push('\n\nMAU TIN NHAN:\n'     + ctx.combos.slice(0, 5).join('\n'));
   sysParts.push('\n\nYEU CAU: Chi dua ra DUY NHAT 1 cau tra loi ngan gon (toi da 150 tu). Khong danh so, khong giai thich them.');
 
-  var payload = {
-    model: 'llama-3.3-70b-versatile',
-    messages: [
-      { role: 'system', content: sysParts.join('') },
-      { role: 'user',   content: userMsg }
-    ],
-    temperature: 0.7,
-    max_tokens: 400
-  };
+  var result = callAIWithFallback_([
+    { role: 'system', content: sysParts.join('') },
+    { role: 'user',   content: userMsg }
+  ], { temperature: 0.7, max_tokens: 400 });
 
-  try {
-    var res = UrlFetchApp.fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'post',
-      headers: { 'Authorization': 'Bearer ' + key },
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    });
-    var code = res.getResponseCode();
-    var txt  = res.getContentText();
-    if (code !== 200) return jsonOut_({ error: 'Groq loi ' + code + ': ' + txt.substring(0, 300) });
-    var d = JSON.parse(txt);
-    var result = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
-    return jsonOut_({ ok: true, text: result || '' });
-  } catch(err) {
-    return jsonOut_({ error: 'Loi goi Groq: ' + err.message });
-  }
+  if (!result.ok) return jsonOut_({ error: result.error });
+  return jsonOut_({ ok: true, text: result.text, provider: result.provider });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1184,8 +1223,6 @@ function callGroqAI_(data) {
 //  de extension tu quyet dinh gui thang hay chuyen CS nguoi that duyet (xem control layer o content.js)
 // ═══════════════════════════════════════════════════════════════
 function callGroqAutoAI_(data) {
-  var key = getSetting_('geminiKey');
-  if (!key) return jsonOut_({ error: 'Chua co API Key. Mo extension → banh rang → nhap Groq Key → Luu.' });
   var userMsg = data.prompt || '';
   if (!userMsg) return jsonOut_({ error: 'Thieu noi dung' });
 
@@ -1214,50 +1251,31 @@ function callGroqAutoAI_(data) {
     'va intent tuong ung, DE NGUOI THAT XU LY — khong co gang "co gang tra loi cho co" trong nhung truong hop nay.'
   );
 
-  var payload = {
-    model: 'gemini-2.5-flash',   // hoac 'gemini-2.5-flash-lite' neu can quota/ngay cao hon, nhe hon mot chut ve chat luong
-    messages: [
-      { role: 'system', content: sysParts.join('') },
-      { role: 'user',   content: userMsg }
-    ],
-    temperature: 0.4,
-    max_tokens: 400
-  };
+  var result = callAIWithFallback_([
+    { role: 'system', content: sysParts.join('') },
+    { role: 'user',   content: userMsg }
+  ], { temperature: 0.4, max_tokens: 400 });
 
-  try {
-    // Gemini co endpoint tuong thich OpenAI Chat Completions -> giu nguyen toan bo
-    // logic parse JSON ben duoi, chi doi URL + key (lay tu aistudio.google.com/apikey, khong can the).
-    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
-      method: 'post',
-      headers: { 'Authorization': 'Bearer ' + key },
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    });
-    var code = res.getResponseCode();
-    var txt  = res.getContentText();
-    if (code !== 200) return jsonOut_({ error: 'Gemini loi ' + code + ': ' + txt.substring(0, 300) });
-    var d = JSON.parse(txt);
-    var raw = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
-    // Bao ve: model co the vo tinh boc JSON trong ```json ... ``` du da yeu cau khong lam vay
-    var cleaned = raw.replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
-    var parsed;
-    try { parsed = JSON.parse(cleaned); } catch(pe) {
-      // Khong parse duoc JSON -> AN TOAN LA TREN HET: coi nhu confidence = 0, de CS nguoi that xu ly
-      return jsonOut_({ ok: true, intent: 'khac', reply_text: cleaned, confidence: 0, parseError: true });
-    }
-    var confidence = Number(parsed.confidence);
-    if (!isFinite(confidence)) confidence = 0;
-    confidence = Math.max(0, Math.min(100, confidence));
-    return jsonOut_({
-      ok: true,
-      intent: String(parsed.intent || 'khac'),
-      reply_text: String(parsed.reply_text || ''),
-      confidence: confidence
-    });
-  } catch(err) {
-    return jsonOut_({ error: 'Loi goi Groq (auto): ' + err.message });
+  if (!result.ok) return jsonOut_({ error: result.error });
+
+  var raw = result.text || '';
+  // Bao ve: model co the vo tinh boc JSON trong ```json ... ``` du da yeu cau khong lam vay
+  var cleaned = raw.replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+  var parsed;
+  try { parsed = JSON.parse(cleaned); } catch(pe) {
+    // Khong parse duoc JSON -> AN TOAN LA TREN HET: coi nhu confidence = 0, de CS nguoi that xu ly
+    return jsonOut_({ ok: true, intent: 'khac', reply_text: cleaned, confidence: 0, parseError: true, provider: result.provider });
   }
+  var confidence = Number(parsed.confidence);
+  if (!isFinite(confidence)) confidence = 0;
+  confidence = Math.max(0, Math.min(100, confidence));
+  return jsonOut_({
+    ok: true,
+    intent: String(parsed.intent || 'khac'),
+    reply_text: String(parsed.reply_text || ''),
+    confidence: confidence,
+    provider: result.provider
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════
