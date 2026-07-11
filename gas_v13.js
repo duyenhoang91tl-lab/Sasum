@@ -1215,7 +1215,7 @@ function callGroqAutoAI_(data) {
   );
 
   var payload = {
-    model: 'llama-3.3-70b-versatile',
+    model: 'gemini-2.5-flash',   // hoac 'gemini-2.5-flash-lite' neu can quota/ngay cao hon, nhe hon mot chut ve chat luong
     messages: [
       { role: 'system', content: sysParts.join('') },
       { role: 'user',   content: userMsg }
@@ -1225,7 +1225,9 @@ function callGroqAutoAI_(data) {
   };
 
   try {
-    var res = UrlFetchApp.fetch('https://api.groq.com/openai/v1/chat/completions', {
+    // Gemini co endpoint tuong thich OpenAI Chat Completions -> giu nguyen toan bo
+    // logic parse JSON ben duoi, chi doi URL + key (lay tu aistudio.google.com/apikey, khong can the).
+    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
       method: 'post',
       headers: { 'Authorization': 'Bearer ' + key },
       contentType: 'application/json',
@@ -1234,7 +1236,7 @@ function callGroqAutoAI_(data) {
     });
     var code = res.getResponseCode();
     var txt  = res.getContentText();
-    if (code !== 200) return jsonOut_({ error: 'Groq loi ' + code + ': ' + txt.substring(0, 300) });
+    if (code !== 200) return jsonOut_({ error: 'Gemini loi ' + code + ': ' + txt.substring(0, 300) });
     var d = JSON.parse(txt);
     var raw = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
     // Bao ve: model co the vo tinh boc JSON trong ```json ... ``` du da yeu cau khong lam vay
