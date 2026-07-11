@@ -1449,6 +1449,18 @@
       const d = await res.json();
       if (!d.ok) { apLog_('❌ Lỗi AI cho ' + phone + ': ' + (d.error||'không rõ') + ' — bỏ qua, CS tự xử lý.'); return; }
 
+      // FIX: prompt vua goi AI duoc dung tu lich su chat tai THOI DIEM doGrabMessage() o tren.
+      // Neu trong luc cho AI tra loi (vai giay) khach da gui THEM tin moi (_apPending duoc bat
+      // boi nhanh khoa o dau ham), thi cau tra loi nay da LOI THOI — no chi "biet" tin cu, chua
+      // biet tin moi khach vua gui. Neu cu gui, khach se nhan 1 tin dap lai rieng tin dau, roi vai
+      // giay sau nhan THEM 1 tin nua (tu lan chay lai) — roi rac, dam khong lien quan tin moi.
+      // -> Bo qua ket qua nay, de finally ben duoi tu chay lai VOI lich su day du (gom ca tin moi),
+      // gop thanh 1 cau tra loi duy nhat thay vi 2 tin rai rac.
+      if (_apPending[phone]) {
+        apLog_('⏭ Bỏ qua gợi ý AI cũ cho ' + phone + ' (khách vừa gửi thêm tin trong lúc chờ AI) — sẽ tạo lại câu trả lời gộp đủ các tin mới.');
+        return;
+      }
+
       const { intent, reply_text, confidence } = d;
       const sensitive = _apIsSensitive_(intent, reply_text);
 
@@ -1478,6 +1490,13 @@
       if (!_apOn) { apLog_('⏭ Đã tắt auto-pilot trong lúc chờ — không gửi cho ' + phone + '.'); return; }
       const stillSamePhone = resolvePhoneForChatName_(getCurrentChatName() || '') === phone;
       if (!stillSamePhone) { apLog_('⏭ CS đã chuyển sang đoạn chat khác trong lúc chờ — không gửi cho ' + phone + ' (tránh gửi nhầm chat).'); return; }
+      // FIX: khach co the gui THEM tin ngay trong luc cho 3-8s nay (rieng cho gap voi luc goi AI o tren).
+      // Neu co, cau tra loi dang cam trong tay van la loi thoi -> huy gui, de finally chay lai voi
+      // lich su moi nhat thay vi gui 1 cau chi dap tin cu roi vai giay sau lai gui them 1 cau khac.
+      if (_apPending[phone]) {
+        apLog_('⏭ Khách vừa gửi thêm tin trong lúc chờ gửi — huỷ gửi câu trả lời cũ cho ' + phone + ', sẽ tạo lại câu trả lời gộp đủ tin mới.');
+        return;
+      }
 
       sendToZalo_(reply_text, null, {prompt, aiOriginal: reply_text, phone});
       _apSentTimestamps.push(Date.now());
