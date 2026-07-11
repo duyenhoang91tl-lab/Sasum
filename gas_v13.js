@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script — PHIEN BAN 17.52.10.7.2026 (gio.phut.ngay.thang.nam)
+//  OME CS Portal — Google Apps Script — PHIEN BAN 13.42.11.7.26 (gio.phut.ngay.thang.nam)
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)
@@ -376,7 +376,7 @@ function doGet(e) {
         var sho = getOrderSS_().getSheetByName(ORDER_SHEETS[si].name);
         if (sho) totalOrders += Math.max(0, sho.getLastRow() - 1);
       }
-      return jsonOut_({ orderRows: totalOrders, careRows: shC ? Math.max(0, shC.getLastRow()-1) : 0, ver: 'v17.52.10.7.2026' });
+      return jsonOut_({ orderRows: totalOrders, careRows: shC ? Math.max(0, shC.getLastRow()-1) : 0, ver: 'v13.42.11.7.26' });
     }
 
     // ── lich hen hom nay / qua han (ZaloAI extension) ──
@@ -595,7 +595,14 @@ function saveBatchCare_(rows) {
       data.push(careRow_(r)); index[key] = data.length - 1; appended++;
     }
   }
-  sh.getRange(1, 1, data.length, CARE_HEADERS.length).setValues(data);
+  var Wb = CARE_HEADERS.length;
+  for (var bi = 1; bi < data.length; bi++) {
+    var brow = data[bi] || [];
+    if (brow.length > Wb) brow = brow.slice(0, Wb);
+    while (brow.length < Wb) brow.push('');
+    data[bi] = brow;
+  }
+  sh.getRange(1, 1, data.length, Wb).setValues(data);
   try { CacheService.getScriptCache().remove('customers_v12'); } catch(ec) {}
   invalidateLookupCache_(rows.map(function(r){ return r.phone; }));
   return jsonOut_({ ok: true, updated: updated, appended: appended });
@@ -669,7 +676,14 @@ function syncZaloFriendStatus_(rows, dryRun) {
     }
   }
 
-  sh.getRange(1, 1, data.length, CARE_HEADERS.length).setValues(data);
+  var W = CARE_HEADERS.length;
+  for (var fi = 1; fi < data.length; fi++) {
+    var row = data[fi] || [];
+    if (row.length > W) row = row.slice(0, W);
+    while (row.length < W) row.push('');
+    data[fi] = row;
+  }
+  sh.getRange(1, 1, data.length, W).setValues(data);
   try { CacheService.getScriptCache().remove('customers_v12'); } catch (ec) {}
   invalidateLookupCache_(rows.map(function (r) { return r.phone; }));
   return jsonOut_({ ok: true, updated: updated, appended: appended });

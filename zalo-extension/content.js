@@ -1,4 +1,4 @@
-// Duyen AI - content script Ver 17.52.10.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// Duyen AI - content script Ver 13.42.11.7.26 (gio.phut.ngay.thang.nam xuat ban)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
@@ -106,7 +106,7 @@
     // Header
     const hdr = document.createElement('div');
     hdr.className = 'zai-hdr';
-    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 17.52.10.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
+    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 13.42.11.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'zai-cfg-btn'; cfgBtn.id = 'zai-cfg-toggle'; cfgBtn.title = 'Cài đặt'; cfgBtn.textContent = '⚙';
     hdr.appendChild(cfgBtn); panel.appendChild(hdr);
@@ -2237,29 +2237,53 @@ async function startReminderPoll_() {
   //    - Con lai (co ten rieng da luu)      -> "Đã kết bạn"
   //  Ket qua luon duoc CS xem lai va co the sua truoc khi dong bo — khong tu dong gui gi ca.
   // ═══════════════════════════════════════════════════════════════
+  // Vùng KHÔNG được quét: khung tin nhắn (chat bubble) + ô soạn tin — SĐT khách gõ trong
+  // nội dung chat KHÔNG được tính, chỉ lấy SĐT hiển thị trong danh bạ / tên đã lưu trên Zalo
+  // (sidebar danh sách hội thoại, kết quả tìm kiếm, tiêu đề đoạn chat, thẻ thông tin liên hệ).
+  function _zaloExcludedContainers_() {
+    const sels = [
+      '[class*="chat-content"]', '[class*="message-list"]', '[class*="conversation-content"]',
+      '[class*="msg-list"]', '[class*="MessageBox"]', '[contenteditable]',
+      '[class*="chat-input"]', '[class*="message-input"]', '[class*="input-box"]', '[class*="input-area"]'
+    ];
+    const out = [];
+    sels.forEach(sel => { try { out.push(...document.querySelectorAll(sel)); } catch (e) {} });
+    return out;
+  }
+  function _isInsideExcluded_(el, excluded) {
+    for (const ex of excluded) { if (ex.contains(el)) return true; }
+    return false;
+  }
   function scanZaloFriendStatus_() {
     const RE = /^(.*?)\b(0[3-9]\d{8})\b(.*)$/;
-    const seen = new Set();
-    const results = [];
+    const excluded = _zaloExcludedContainers_();
+    // Gom TẤT CẢ lần khớp cho mỗi SĐT, sau đó chọn kết quả TỐT NHẤT (có tên/CTN/NHD)
+    // thay vì chỉ lấy lần gặp đầu tiên trong DOM — tránh bị 1 khớp "trơ SĐT" đè lên
+    // kết quả đúng (có tên) xuất hiện sau đó.
+    const byPhone = {};
     const all = document.querySelectorAll('body *');
     for (const el of all) {
       if (el.children && el.children.length > 0) continue; // chi lay leaf de tranh trung text lap cua the cha
+      if (_isInsideExcluded_(el, excluded)) continue; // bỏ qua khung chat + ô soạn tin
       const text = (el.textContent || '').trim();
       if (!text || text.length > 120) continue;
       const m = text.match(RE);
       if (!m) continue;
       const phone = normPhone(m[2]);
-      if (!phone || seen.has(phone)) continue;
-      seen.add(phone);
+      if (!phone) continue;
       const namePart = (m[1] || '').replace(/[,\-–]\s*$/, '').trim();
       let status;
       if (/\bNHD\b/i.test(text)) status = 'Zalo ngừng hd';
       else if (/\bCTN\b/i.test(text)) status = 'Chặn';
       else if (!namePart) status = 'Chưa kết bạn';
       else status = 'Đã kết bạn';
-      results.push({ phone, rawName: text, nameGuess: namePart || phone, zaloStatus: status });
+      // Điểm ưu tiên: có tên > không tên; CTN/NHD được giữ nguyên vì là dấu hiệu chắc chắn
+      const score = (namePart ? 2 : 0) + (status !== 'Chưa kết bạn' && status !== 'Đã kết bạn' ? 1 : 0);
+      const cand = { phone, rawName: text, nameGuess: namePart || phone, zaloStatus: status, _score: score };
+      const cur = byPhone[phone];
+      if (!cur || cand._score > cur._score) byPhone[phone] = cand;
     }
-    return results;
+    return Object.values(byPhone).map(r => ({ phone: r.phone, rawName: r.rawName, nameGuess: r.nameGuess, zaloStatus: r.zaloStatus }));
   }
 
   function renderZsPreview_(rows) {
