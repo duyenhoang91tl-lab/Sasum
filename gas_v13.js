@@ -17,6 +17,7 @@ var SH_SET     = 'Settings';
 var SH_ASSIGN  = 'AssignData';
 var SH_USER    = 'Users';
 var SH_CONTEXT = 'AIContext';
+var SH_AILOG   = 'AILog';
 
 var ORDER_SS_ID = '1JVIFMIUgKdfTG1FEMDGoYjQ3Qll2ChkbSHHTjgieLPs';
 
@@ -442,6 +443,7 @@ function doGet(e) {
       return jsonOut_(runFollowUpScan_());
     }
     if (action === 'dedupeCare') return dedupeCare_();
+    if (action === 'aiLogStats') return getAILogStats_(Number(e.parameter.limit) || 20);
 
     // default — backward compat voi appweb v10
     var resD = { rows: readCare_(ss.getSheetByName(SH_CARE)), orders: [] };
@@ -498,6 +500,7 @@ function doPost(e) {
     if (action === 'saveAIContext')        return saveAIContext_(data.type, data.content, data.context);
     if (action === 'ai')                  return callGroqAI_(data);
     if (action === 'summarize')           return callGroqSummarize_(data);
+    if (action === 'logAI')               return logAIInteraction_(data);
     // ── BROADCAST: tao/cap nhat 1 chien dich gui tin hang loat ──
     if (action === 'saveBroadcast')        return saveBroadcast_(data.broadcast || data);
     // ── BROADCAST: danh dau 1 SDT da gui/loi/bo qua trong 1 chien dich ──
@@ -1028,6 +1031,57 @@ function saveAIContext_(type, content, context) {
   var sh = ss.getSheetByName(SH_CONTEXT);
   if (!sh) { sh = ss.insertSheet(SH_CONTEXT); sh.appendRow(['type','content','context','created']); }
   sh.appendRow([type, content, context||'', new Date().toISOString()]);
+  return jsonOut_({ ok: true });
+}
+
+function getAILogStats_(limit) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(SH_AILOG);
+  if (!sh) return jsonOut_({ ok: true, total: 0, edited: 0, editedRate: 0, recentEdited: [] });
+
+  var values = sh.getDataRange().getValues();
+  var header = values[0] || [];
+  var rows = values.slice(1);
+  var total = rows.length;
+  var editedRows = rows.filter(function(r) { return r[6] === true || r[6] === 'TRUE'; });
+  var editedRate = total ? Math.round((editedRows.length / total) * 1000) / 10 : 0;
+
+  var n = limit || 20;
+  var recentEdited = editedRows.slice(-n).reverse().map(function(r) {
+    return {
+      timestamp: r[0], phone: r[1], cs: r[2],
+      prompt: r[3], aiOriginal: r[4], finalSent: r[5]
+    };
+  });
+
+  return jsonOut_({
+    ok: true,
+    total: total,
+    edited: editedRows.length,
+    editedRate: editedRate, // % tin bi CS sua truoc khi gui
+    recentEdited: recentEdited
+  });
+}
+
+function logAIInteraction_(data) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(SH_AILOG);
+  if (!sh) {
+    sh = ss.insertSheet(SH_AILOG);
+    sh.appendRow(['timestamp','phone','cs','prompt','ai_original','final_sent','edited']);
+  }
+  var aiOriginal = data.aiOriginal || '';
+  var finalSent  = data.finalSent  || '';
+  var edited     = aiOriginal.trim() !== finalSent.trim();
+  sh.appendRow([
+    new Date().toISOString(),
+    data.phone || '',
+    data.cs || '',
+    (data.prompt || '').substring(0, 500),
+    aiOriginal,
+    finalSent,
+    edited
+  ]);
   return jsonOut_({ ok: true });
 }
 
