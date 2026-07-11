@@ -28,7 +28,7 @@
   // hien so DT) nen khong the tu tach so bang regex — phai de CS xac nhan 1 lan, sau do tu nhan dien.
   let _currentCustData = null;
   let _cfgVisible = false;
-  let _chatHistory = []; // luu tin nhan khach, khong hien thi trong textarea
+  let _chatHistory = []; // mang {role:'customer'|'me', text}, luu ca 2 chieu hoi thoai
   let _chatSummary = '';    // tom tat cac tin cu khi hoi thoai qua dai
   const SUMMARIZE_THRESHOLD = 20; // vuot nguong nay moi goi AI tom tat
   const SUMMARIZE_KEEP_RAW  = 8;  // giu nguyen van N tin gan nhat, phan con lai duoc tom tat
@@ -713,10 +713,10 @@
     for (const item of allItems) {
       try {
         const cls = (item.className||'').toLowerCase();
-        if (OWN_MARKERS.some(m => cls.includes(m))) continue;
-        const rect = item.getBoundingClientRect();
-        if (rect.width > 10 && rect.left > midX) continue;
         if (['system','notify','date-','divider'].some(m => cls.includes(m))) continue;
+        const rect = item.getBoundingClientRect();
+        // Tin cua minh: hoac co class dac trung (OWN_MARKERS), hoac nam ben phai vung chat
+        const isOwn = OWN_MARKERS.some(m => cls.includes(m)) || (rect.width > 10 && rect.left > midX);
 
         const textEl = item.querySelector('[class*="text"],[class*="content"],[class*="body"],[class*="message-text"]') || item;
         const raw = getTextOnly_(textEl).trim();
@@ -725,12 +725,16 @@
 
         const clean = stripText_(raw);
         if (!clean || clean.length < 2) continue;
-        msgs.push(clean);
+        msgs.push({ role: isOwn ? 'me' : 'customer', text: clean });
       } catch(e) {}
     }
 
     const seen = new Set();
-    const uniq = msgs.filter(m => { if (seen.has(m)) return false; seen.add(m); return true; });
+    const uniq = msgs.filter(m => {
+      const key = m.role + ':' + m.text;
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
     const last100 = uniq.slice(-100);
 
     const histStatus = document.getElementById('zai-hist-status');
@@ -739,8 +743,8 @@
     if (last100.length) {
       _chatHistory = last100;
       _chatSummary = '';
-      // Dien vao textarea (an) de du phong
-      if (msgTa) msgTa.value = last100.join('\n---\n');
+      // Dien vao textarea (an) de du phong — hien thi ro Khach/Minh
+      if (msgTa) msgTa.value = last100.map(formatHistoryLine_).join('\n');
 
       // Hien thi trang thai + nut xem
       if (histStatus) {
@@ -761,9 +765,10 @@
         if (histStatus) histStatus.innerHTML += ' &nbsp;<span style="color:#888">(đang tóm tắt tin cũ...)</span>';
         try {
           const older = last100.slice(0, last100.length - SUMMARIZE_KEEP_RAW);
+          const olderLines = older.map(formatHistoryLine_);
           const r = await fetch(GAS_URL, {
             method: 'POST',
-            body: JSON.stringify({ action: 'summarize', messages: older }),
+            body: JSON.stringify({ action: 'summarize', messages: olderLines }),
             headers: { 'Content-Type': 'text/plain' }
           });
           const d = await r.json();
@@ -1149,13 +1154,17 @@
     const ctx = (document.getElementById('zai-ctx').value||'').trim();
     if (ctx) lines.push('Ngữ cảnh: '+ctx);
     const prompt = (lines.length?'[KH] '+lines.join(' | ')+'\n':'')+
-      '[TN khách] '+msg+'\n[Giọng văn] '+_activeTone+'\nSoạn 1 tin nhắn trả lời phù hợp, ngắn gọn, tiếng Việt tự nhiên.';
+      '[Lịch sử hội thoại]\n'+msg+'\n[Giọng văn] '+_activeTone+'\nDựa vào lịch sử trên (kể cả các tin "Mình" đã từng trả lời), soạn 1 tin nhắn trả lời tiếp theo cho tin mới nhất của khách, ngắn gọn, tiếng Việt tự nhiên, không lặp lại điều đã rep rồi.';
     await callAI_(prompt, btn, '✨ Tạo gợi ý phản hồi', sug);
+  }
+
+  function formatHistoryLine_(h) {
+    return (h.role === 'customer' ? 'Khách: ' : 'Mình: ') + h.text;
   }
 
   function buildChatContextForPrompt_() {
     const recent = _chatHistory.slice(-SUMMARIZE_KEEP_RAW);
-    const recentText = recent.join('\n---\n');
+    const recentText = recent.map(formatHistoryLine_).join('\n');
     if (_chatSummary) {
       return '[Tóm tắt hội thoại trước đó]\n' + _chatSummary + '\n\n[Tin nhắn gần đây]\n' + recentText;
     }
