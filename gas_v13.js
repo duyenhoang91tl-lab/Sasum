@@ -617,25 +617,42 @@ function saveBatchCare_(rows) {
 //          (zaloSetBy.cs khac scannedBy hien tai) VA gia tri zalo thuc su khac nhau -> tra ve danh sach
 //          conflicts de extension hoi CS "co muon ghi de khong", KHONG ghi gi vao sheet ca.
 // dryRun = false (mac dinh): ghi that su. Cac dong CS da xac nhan de-o het thi gui nguyen rows nhu binh thuong.
+// TOI UU (v13.1): KHONG doc/ghi toan bo sheet CareData (co the toi 40.000+ dong).
+// Truoc day ham nay lam sh.getDataRange().getValues() + setValues() lai TOAN BO sheet
+// chi de cap nhat vai chuc dong -> voi sheet lon thao tac nay co the mat rat lau,
+// khien ket noi bi ngat truoc khi Apps Script tra ve ket qua -> loi "Failed to fetch"
+// phia extension (dung xem la loi mang; ban chat la request bi timeout do qua cham).
+// Cach moi: chi doc cot A (phone) de dung index, roi CHI ghi dung cac o can doi cho
+// tung dong duoc chon (thay vi ghi de ca sheet), va CHI them dong moi bang appendRow
+// theo khoi (khong dung lai toan bo data array).
 function syncZaloFriendStatus_(rows, dryRun) {
   if (!rows || !rows.length) return jsonOut_({ ok: false, error: 'Khong co du lieu de dong bo' });
   var sh = getSheet_(SH_CARE, CARE_HEADERS);
-  var data = sh.getDataRange().getValues();
-  if (!data.length) data = [CARE_HEADERS];
-  var index = {};
-  for (var i = 1; i < data.length; i++) { if (data[i][0]) index[normPhone_(String(data[i][0]))] = i; }
+  var W = CARE_HEADERS.length;
+  var lastRow = sh.getLastRow();
+
+  // Chi doc cot A (phone) cho toan bo sheet -> nhe hon nhieu so voi doc ca 19 cot
+  var index = {}; // phone -> so dong tren sheet (1-based, >=2)
+  if (lastRow >= 2) {
+    var phoneCol = sh.getRange(2, 1, lastRow - 1, 1).getValues();
+    for (var i = 0; i < phoneCol.length; i++) {
+      if (phoneCol[i][0]) index[normPhone_(String(phoneCol[i][0]))] = i + 2;
+    }
+  }
 
   if (dryRun) {
     var conflicts = [];
     for (var c = 0; c < rows.length; c++) {
       var rc = rows[c];
       var phoneC = normPhone_(String(rc.phone || ''));
-      if (!phoneC || index[phoneC] === undefined) continue;
-      var rowC = data[index[phoneC]];
-      var oldZalo = rowC[2] || '';
+      var rn = phoneC ? index[phoneC] : undefined;
+      if (!phoneC || rn === undefined) continue;
+      // Chi doc 2 o can thiet (zalo + zaloSetBy) cho dong nay, khong doc ca dong/ca sheet
+      var oldZalo = sh.getRange(rn, 3).getValue() || '';
       if (!oldZalo || oldZalo === (rc.zalo || '')) continue; // chua tung ghi, hoac gia tri khong doi -> khong tinh la xung dot
+      var oldSetByRaw = sh.getRange(rn, 19).getValue();
       var oldSetBy = null;
-      try { oldSetBy = JSON.parse(rowC[18] || 'null'); } catch (e) { oldSetBy = null; }
+      try { oldSetBy = JSON.parse(oldSetByRaw || 'null'); } catch (e) { oldSetBy = null; }
       var oldCs = oldSetBy ? (oldSetBy.cs || '') : '';
       var oldNick = oldSetBy ? (oldSetBy.nick || '') : '';
       if (oldCs && oldCs !== (rc.scannedBy || '')) {
@@ -645,8 +662,12 @@ function syncZaloFriendStatus_(rows, dryRun) {
     return jsonOut_({ ok: true, dryRun: true, conflicts: conflicts });
   }
 
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); } catch (eLock) { /* tiep tuc, chap nhan rui ro hiem gap trung dong moi */ }
+
   var updated = 0, appended = 0;
   var now = new Date().toISOString();
+  var newRows = [];
   for (var k = 0; k < rows.length; k++) {
     var r = rows[k];
     var phone = normPhone_(String(r.phone || ''));
@@ -655,35 +676,38 @@ function syncZaloFriendStatus_(rows, dryRun) {
     var nick = String(r.nick || '').trim();
     var setBy = JSON.stringify({ cs: r.scannedBy || '', nick: nick, at: now });
 
-    if (index[phone] !== undefined) {
-      var idx = index[phone];
-      data[idx][2] = zaloStatus;   // cot 'zalo' (trang thai ket ban)
-      data[idx][14] = now;         // cot 'updated'
+    var rowNum = index[phone];
+    if (rowNum !== undefined) {
+      // Chi ghi dung 3 vung o thay doi cua dong nay: zalo(C), updated(O), zaloSetBy(S) [+ nickZalos(Q) neu co nick moi]
+      sh.getRange(rowNum, 3).setValue(zaloStatus);
+      sh.getRange(rowNum, 15).setValue(now);
       if (nick) {
+        var curNzRaw = sh.getRange(rowNum, 17).getValue();
         var nz = [];
-        try { nz = JSON.parse(data[idx][16] || '[]'); } catch (e) { nz = []; }
+        try { nz = JSON.parse(curNzRaw || '[]'); } catch (e) { nz = []; }
         if (!Array.isArray(nz)) nz = [];
-        if (nz.indexOf(nick) === -1) nz.push(nick);
-        data[idx][16] = JSON.stringify(nz);
+        if (nz.indexOf(nick) === -1) {
+          nz.push(nick);
+          sh.getRange(rowNum, 17).setValue(JSON.stringify(nz));
+        }
       }
-      data[idx][18] = setBy;       // cot 'zaloSetBy'
+      sh.getRange(rowNum, 19).setValue(setBy);
       updated++;
     } else {
       var newRow = careRow_({ phone: phone, zalo: zaloStatus, nickZalos: nick ? [nick] : [], zaloSetBy: setBy });
-      data.push(newRow);
-      index[phone] = data.length - 1;
+      if (newRow.length > W) newRow = newRow.slice(0, W);
+      while (newRow.length < W) newRow.push('');
+      newRows.push(newRow);
+      index[phone] = lastRow + newRows.length; // du phong neu co SDT trung lap trong cung 1 lan sync
       appended++;
     }
   }
 
-  var W = CARE_HEADERS.length;
-  for (var fi = 1; fi < data.length; fi++) {
-    var row = data[fi] || [];
-    if (row.length > W) row = row.slice(0, W);
-    while (row.length < W) row.push('');
-    data[fi] = row;
+  if (newRows.length) {
+    sh.getRange(lastRow + 1, 1, newRows.length, W).setValues(newRows);
   }
-  sh.getRange(1, 1, data.length, W).setValues(data);
+
+  try { lock.releaseLock(); } catch (eu) {}
   try { CacheService.getScriptCache().remove('customers_v12'); } catch (ec) {}
   invalidateLookupCache_(rows.map(function (r) { return r.phone; }));
   return jsonOut_({ ok: true, updated: updated, appended: appended });
