@@ -85,6 +85,9 @@
   let _apSensitiveKeywords = ['khiếu nại','phàn nàn','giá đặc biệt','giá sỉ','chiết khấu','hoàn tiền','đổi trả','kiện','thất vọng','lừa đảo'];
   let _apLog = [];               // nhat ky hoat dong auto-pilot (hien trong panel), giong _bcLog
   let _apProcessing = {};        // {phone: true} — dang xu ly, chan xu ly trung neu co 2 su kien lien tiep
+  let _apPending = {};           // {phone: true} — co tin nhan MOI den trong luc dang xu ly, can chay lai sau khi xong
+                                  // (FIX: truoc day cac su kien den trong luc dang xu ly bi return/bo qua hoan toan,
+                                  // neu khach gui 2-3 tin lien tiep nhanh, tin sau co the khong bao gio duoc auto-pilot tra loi)
   let _apSentTimestamps = [];    // cac moc thoi gian (ms) da tu dong gui, de tinh gioi han/gio
   const AP_HOURLY_CAP = 30;      // an toan: toi da 30 tin TU DONG GUI moi gio tren may nay, vuot -> tam dung tu dong, cho CS xu ly
   const AP_DELAY_MIN_SEC = 3;
@@ -1403,7 +1406,15 @@
     const chatName = getCurrentChatName();
     const phone = phoneHint || resolvePhoneForChatName_(chatName || '');
     if (!phone) { apLog_('⏭ Bỏ qua: không xác định được SĐT của đoạn chat "' + (chatName||'?') + '" — dùng nút 🔗 để liên kết trước.'); return; }
-    if (_apProcessing[phone]) return; // dang xu ly, tranh trung lap neu 2 su kien lien tiep
+    if (_apProcessing[phone]) {
+      // Dang xu ly tin truoc do cho cung SDT nay — KHONG bo qua, danh dau "co tin moi
+      // cho trong luc xu ly" de chay lai ngay sau khi lan xu ly hien tai xong (xem finally ben duoi).
+      // Lan chay lai se tu doc lai lich su chat moi nhat (doGrabMessage), nen se gom duoc
+      // ca cac tin khach vua gui them vao 1 lan tra loi, thay vi bi mat hoan toan.
+      _apPending[phone] = true;
+      apLog_('📥 Có tin mới từ ' + phone + ' trong lúc đang xử lý — sẽ xử lý tiếp ngay sau khi xong lượt hiện tại.');
+      return;
+    }
     _apProcessing[phone] = true;
     try {
       if (!_apUnderHourlyCap_()) { apLog_('🛑 Đạt giới hạn ' + AP_HOURLY_CAP + ' tin tự động/giờ — tạm dừng auto-gửi, CS xử lý thủ công.'); return; }
@@ -1475,6 +1486,12 @@
       apLog_('❌ Lỗi auto-pilot với ' + phone + ': ' + e.message);
     } finally {
       delete _apProcessing[phone];
+      if (_apPending[phone]) {
+        delete _apPending[phone];
+        // Chay lai bat dong bo (khong await trong finally) de xu ly not tin nhan da den
+        // trong luc xu ly luot truoc — tranh mat tin khi khach nhan gui lien tiep.
+        setTimeout(() => { runAutoPilot_(phone); }, 0);
+      }
     }
   }
 
