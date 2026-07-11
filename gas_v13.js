@@ -642,6 +642,7 @@ function syncZaloFriendStatus_(rows, dryRun) {
 
   if (dryRun) {
     var conflicts = [];
+    var known = {}; // phone -> trang thai zalo hien co tren Sasum (de client loc bot KH khong doi)
     for (var c = 0; c < rows.length; c++) {
       var rc = rows[c];
       var phoneC = normPhone_(String(rc.phone || ''));
@@ -649,7 +650,9 @@ function syncZaloFriendStatus_(rows, dryRun) {
       if (!phoneC || rn === undefined) continue;
       // Chi doc 2 o can thiet (zalo + zaloSetBy) cho dong nay, khong doc ca dong/ca sheet
       var oldZalo = sh.getRange(rn, 3).getValue() || '';
-      if (!oldZalo || oldZalo === (rc.zalo || '')) continue; // chua tung ghi, hoac gia tri khong doi -> khong tinh la xung dot
+      if (!oldZalo) continue; // chua tung ghi -> coi nhu khach moi, van hien de CS xac nhan
+      known[phoneC] = oldZalo;
+      if (oldZalo === (rc.zalo || '')) continue; // gia tri khong doi -> khong tinh la xung dot
       var oldSetByRaw = sh.getRange(rn, 19).getValue();
       var oldSetBy = null;
       try { oldSetBy = JSON.parse(oldSetByRaw || 'null'); } catch (e) { oldSetBy = null; }
@@ -659,7 +662,7 @@ function syncZaloFriendStatus_(rows, dryRun) {
         conflicts.push({ phone: rc.phone, oldZalo: oldZalo, oldCs: oldCs, oldNick: oldNick, newZalo: rc.zalo || '' });
       }
     }
-    return jsonOut_({ ok: true, dryRun: true, conflicts: conflicts });
+    return jsonOut_({ ok: true, dryRun: true, conflicts: conflicts, known: known });
   }
 
   var lock = LockService.getScriptLock();
