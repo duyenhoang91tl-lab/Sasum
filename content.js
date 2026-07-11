@@ -1,4 +1,4 @@
-// Duyen AI - content script Ver 13.42.11.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// Duyen AI - content script Ver 14.30.11.7.26 (gio.phut.ngay.thang.nam xuat ban)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
@@ -106,7 +106,7 @@
     // Header
     const hdr = document.createElement('div');
     hdr.className = 'zai-hdr';
-    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 13.42.11.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
+    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 14.30.11.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'zai-cfg-btn'; cfgBtn.id = 'zai-cfg-toggle'; cfgBtn.title = 'Cài đặt'; cfgBtn.textContent = '⚙';
     hdr.appendChild(cfgBtn); panel.appendChild(hdr);
@@ -2308,6 +2308,16 @@ async function startReminderPoll_() {
     document.getElementById('zai-zs-sync-btn').addEventListener('click', () => syncZsRows_(rows));
   }
 
+  // Hoi ban GAS dang chay tren URL hien tai (de doi chieu khi loi Unknown action)
+  async function _gasDeployedVer_() {
+    try {
+      const sep = GAS_URL.includes('?') ? '&' : '?';
+      const r = await fetch(GAS_URL + sep + 'action=count', { redirect: 'follow' });
+      const d = await r.json();
+      return (d && d.ver) ? String(d.ver) : '(không rõ)';
+    } catch (e) { return '(không kết nối được)'; }
+  }
+
   async function syncZsRows_(rows) {
     if (!GAS_URL) { showError('Chưa cài đặt URL GAS.'); return; }
     const checks = [...document.querySelectorAll('.zai-zs-chk')].filter(c => c.checked);
@@ -2327,7 +2337,14 @@ async function startReminderPoll_() {
         redirect: 'follow'
       });
       const chkData = await chkRes.json();
-      if (!chkData.ok) { showMsg('zai-zs-sync-status', 'Lỗi: ' + (chkData.error || 'không rõ'), 4000); return; }
+      if (!chkData.ok) {
+        let em = 'Lỗi: ' + (chkData.error || 'không rõ');
+        if (String(chkData.error || '').indexOf('Unknown action') !== -1) {
+          const dv = await _gasDeployedVer_();
+          em += ' — URL này đang chạy GAS bản ' + dv + '. Vào Apps Script → Deploy → Manage deployments → tìm deployment có URL TRÙNG với URL trong ⚙ của Duyên AI → ✏ → New version → Deploy.';
+        }
+        showMsg('zai-zs-sync-status', em, 15000); return;
+      }
 
       const conflicts = chkData.conflicts || [];
       if (conflicts.length) {

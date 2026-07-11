@@ -1,4 +1,4 @@
-// Duyen AI - content script Ver 13.42.11.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// Duyen AI - content script Ver 14.30.11.7.26 (gio.phut.ngay.thang.nam xuat ban)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
@@ -106,7 +106,7 @@
     // Header
     const hdr = document.createElement('div');
     hdr.className = 'zai-hdr';
-    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 13.42.11.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
+    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 14.30.11.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'zai-cfg-btn'; cfgBtn.id = 'zai-cfg-toggle'; cfgBtn.title = 'Cài đặt'; cfgBtn.textContent = '⚙';
     hdr.appendChild(cfgBtn); panel.appendChild(hdr);
@@ -2308,25 +2308,74 @@ async function startReminderPoll_() {
     document.getElementById('zai-zs-sync-btn').addEventListener('click', () => syncZsRows_(rows));
   }
 
+  // Hoi ban GAS dang chay tren URL hien tai (de doi chieu khi loi Unknown action)
+  async function _gasDeployedVer_() {
+    try {
+      const sep = GAS_URL.includes('?') ? '&' : '?';
+      const r = await fetch(GAS_URL + sep + 'action=count', { redirect: 'follow' });
+      const d = await r.json();
+      return (d && d.ver) ? String(d.ver) : '(không rõ)';
+    } catch (e) { return '(không kết nối được)'; }
+  }
+
   async function syncZsRows_(rows) {
     if (!GAS_URL) { showError('Chưa cài đặt URL GAS.'); return; }
     const checks = [...document.querySelectorAll('.zai-zs-chk')].filter(c => c.checked);
-    const selected = checks.map(c => {
+    let selected = checks.map(c => {
       const i = parseInt(c.dataset.i, 10);
       const selEl = document.querySelector('.zai-zs-status[data-i="' + i + '"]');
       return { phone: rows[i].phone, zalo: selEl ? selEl.value : rows[i].zaloStatus, scannedBy: _currentCS || '', nick: _currentZaloNick || '' };
     });
     if (!selected.length) { showMsg('zai-zs-sync-status', 'Chưa chọn dòng nào.', 2500); return; }
     const btn = document.getElementById('zai-zs-sync-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Đang đồng bộ...'; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Đang kiểm tra...'; }
     try {
+      // Buoc 1: dry-run - kiem tra SDT nao dang doi trang thai da duoc CS khac ghi nhan truoc do
+      const chkRes = await fetch(GAS_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'syncZaloFriendStatus', rows: selected, dryRun: true }),
+        redirect: 'follow'
+      });
+      const chkData = await chkRes.json();
+      if (!chkData.ok) {
+        let em = 'Lỗi: ' + (chkData.error || 'không rõ');
+        if (String(chkData.error || '').indexOf('Unknown action') !== -1) {
+          const dv = await _gasDeployedVer_();
+          em += ' — URL này đang chạy GAS bản ' + dv + '. Vào Apps Script → Deploy → Manage deployments → tìm deployment có URL TRÙNG với URL trong ⚙ của Duyên AI → ✏ → New version → Deploy.';
+        }
+        showMsg('zai-zs-sync-status', em, 15000); return;
+      }
+
+      const conflicts = chkData.conflicts || [];
+      if (conflicts.length) {
+        const lines = conflicts.map(c =>
+          '• ' + c.phone + ': "' + c.oldZalo + '"' + (c.oldCs ? ' (CS ' + c.oldCs + (c.oldNick ? ', nick ' + c.oldNick : '') + ')' : '') +
+          ' → sẽ đổi thành "' + c.newZalo + '"'
+        ).join('\n');
+        const ok = window.confirm(
+          '⚠️ ' + conflicts.length + ' SĐT sau đã được CS khác ghi nhận trạng thái Zalo khác:\n\n' + lines +
+          '\n\nBạn có muốn GHI ĐÈ trạng thái mới cho các SĐT này không?\n' +
+          '(Bấm Hủy sẽ vẫn đồng bộ các SĐT còn lại, bỏ qua riêng các SĐT xung đột này)'
+        );
+        if (!ok) {
+          const conflictPhones = new Set(conflicts.map(c => c.phone));
+          selected = selected.filter(r => !conflictPhones.has(r.phone));
+          if (!selected.length) { showMsg('zai-zs-sync-status', 'Đã bỏ qua toàn bộ do có xung đột và bạn chọn không ghi đè.', 4000); return; }
+        }
+      }
+
+      // Buoc 2: ghi that su danh sach da xac nhan
+      if (btn) btn.textContent = 'Đang đồng bộ...';
       const res = await fetch(GAS_URL, {
         method: 'POST',
         body: JSON.stringify({ action: 'syncZaloFriendStatus', rows: selected }),
         redirect: 'follow'
       });
       const d = await res.json();
-      if (d.ok) showMsg('zai-zs-sync-status', '✓ Đã đồng bộ ' + ((d.updated||0) + (d.appended||0)) + ' khách lên Sasum', 4000);
+      if (d.ok) {
+        const skipped = conflicts.length && selected.length < checks.length ? (checks.length - selected.length) : 0;
+        showMsg('zai-zs-sync-status', '✓ Đã đồng bộ ' + ((d.updated||0) + (d.appended||0)) + ' khách lên Sasum' + (skipped ? ' (bỏ qua ' + skipped + ' SĐT xung đột)' : ''), 4500);
+      }
       else showMsg('zai-zs-sync-status', 'Lỗi: ' + (d.error || 'không rõ'), 4000);
     } catch (e) {
       showMsg('zai-zs-sync-status', 'Lỗi kết nối: ' + e.message, 4000);
@@ -2334,6 +2383,7 @@ async function startReminderPoll_() {
       if (btn) { btn.disabled = false; btn.textContent = '☁ Đồng bộ trạng thái kết bạn lên Sasum'; }
     }
   }
+
 
   function init() { buildPanel(); watchZaloChat(); startCarePoll_(); }
   if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',init);
