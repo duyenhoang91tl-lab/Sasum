@@ -2230,11 +2230,14 @@ async function startReminderPoll_() {
   // ═══════════════════════════════════════════════════════════════
   //  QUET DANH BA ZALO — du phong khi khach chua co du lieu trong Sasum.
   //  Doc cac dong text co chua SDT dang hien tren man hinh (danh ba/tin nhan Zalo),
-  //  suy ra trang thai KET BAN theo quy uoc ten hien thi CS dang dung:
-  //    - Chi thay SDT, khong co ten rieng   -> "Chưa kết bạn" (Zalo hien SDT lam ten khi chua luu/chua ket ban)
-  //    - Ten co chu CTN                     -> "Chặn"
-  //    - Ten co chu NHD                     -> "Zalo ngừng hd"
-  //    - Con lai (co ten rieng da luu)      -> "Đã kết bạn"
+  //  suy ra trang thai KET BAN theo quy uoc:
+  //    - Ten co chu NHD                          -> "Zalo ngừng hd"
+  //    - Ten co chu CTN                          -> "Chặn"
+  //    - Thay "Chưa đồng ý"                      -> "Chưa đồng ý"
+  //    - Thay "Gửi kết bạn" / "Gửi yêu cầu kết bạn" -> "Chưa kết bạn"
+  //    - Con lai (thay ten hoac chi thay SDT, KHONG co dau hieu tren) -> "Đã kết bạn"
+  //      (chi thay SDT khong co nghia la chua ket ban — Zalo van co the hien SDT lam
+  //      ten hien thi ngay ca khi da ket ban, vi khach chua dat ten hoac CS chua luu ten rieng)
   //  Ket qua luon duoc CS xem lai va co the sua truoc khi dong bo — khong tu dong gui gi ca.
   // ═══════════════════════════════════════════════════════════════
   // Vùng KHÔNG được quét: khung tin nhắn (chat bubble) + ô soạn tin — SĐT khách gõ trong
@@ -2257,9 +2260,9 @@ async function startReminderPoll_() {
   function scanZaloFriendStatus_() {
     const RE = /^(.*?)\b(0[3-9]\d{8})\b(.*)$/;
     const excluded = _zaloExcludedContainers_();
-    // Gom TẤT CẢ lần khớp cho mỗi SĐT, sau đó chọn kết quả TỐT NHẤT (có tên/CTN/NHD)
-    // thay vì chỉ lấy lần gặp đầu tiên trong DOM — tránh bị 1 khớp "trơ SĐT" đè lên
-    // kết quả đúng (có tên) xuất hiện sau đó.
+    // Gom TẤT CẢ lần khớp cho mỗi SĐT, sau đó chọn kết quả TỐT NHẤT (có dấu hiệu rõ ràng nhất)
+    // thay vì chỉ lấy lần gặp đầu tiên trong DOM — tránh bị 1 khớp "trơ SĐT" (không có dấu hiệu gì)
+    // đè lên kết quả có dấu hiệu chắc chắn (NHD/CTN/Chưa đồng ý/Gửi kết bạn) xuất hiện ở chỗ khác.
     const byPhone = {};
     const all = document.querySelectorAll('body *');
     for (const el of all) {
@@ -2272,13 +2275,12 @@ async function startReminderPoll_() {
       const phone = normPhone(m[2]);
       if (!phone) continue;
       const namePart = (m[1] || '').replace(/[,\-–]\s*$/, '').trim();
-      let status;
-      if (/\bNHD\b/i.test(text)) status = 'Zalo ngừng hd';
-      else if (/\bCTN\b/i.test(text)) status = 'Chặn';
-      else if (!namePart) status = 'Chưa kết bạn';
-      else status = 'Đã kết bạn';
-      // Điểm ưu tiên: có tên > không tên; CTN/NHD được giữ nguyên vì là dấu hiệu chắc chắn
-      const score = (namePart ? 2 : 0) + (status !== 'Chưa kết bạn' && status !== 'Đã kết bạn' ? 1 : 0);
+      let status, score;
+      if (/\bNHD\b/i.test(text)) { status = 'Zalo ngừng hd'; score = 3; }
+      else if (/\bCTN\b/i.test(text)) { status = 'Chặn'; score = 3; }
+      else if (/chưa\s*đồng\s*ý/i.test(text)) { status = 'Chưa đồng ý'; score = 3; }
+      else if (/gửi\s*(yêu\s*cầu\s*)?kết\s*bạn/i.test(text)) { status = 'Chưa kết bạn'; score = 3; }
+      else { status = 'Đã kết bạn'; score = namePart ? 2 : 1; }
       const cand = { phone, rawName: text, nameGuess: namePart || phone, zaloStatus: status, _score: score };
       const cur = byPhone[phone];
       if (!cur || cand._score > cur._score) byPhone[phone] = cand;
@@ -2297,6 +2299,7 @@ async function startReminderPoll_() {
         '<div style="display:flex;gap:6px;align-items:center;padding:5px 8px;font-size:11px;border-bottom:1px solid #f3f4f6;">' +
           '<input type="checkbox" class="zai-zs-chk" data-i="' + i + '" checked>' +
           '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(r.nameGuess) + ' — <b>' + escHtml(r.phone) + '</b></span>' +
+          '<button type="button" class="zai-zs-copy" data-i="' + i + '" title="Copy số điện thoại" style="flex:0 0 auto;font-size:11px;padding:2px 6px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">📋</button>' +
           '<select class="zai-zs-status" data-i="' + i + '" style="font-size:10px;padding:1px 3px;border:1px solid #d1d5db;border-radius:4px;">' +
             ZALO_STATUSES.filter(s => s).map(s => '<option value="' + escHtml(s) + '"' + (s === r.zaloStatus ? ' selected' : '') + '>' + escHtml(s) + '</option>').join('') +
           '</select>' +
@@ -2306,6 +2309,18 @@ async function startReminderPoll_() {
       '<button class="zai-btn zai-btn-primary zai-btn-sm" id="zai-zs-sync-btn" style="margin-top:6px;width:100%">☁ Đồng bộ trạng thái kết bạn lên Sasum</button>' +
       '<div id="zai-zs-sync-status" style="font-size:11px;color:#00b14f;margin-top:4px"></div>';
     document.getElementById('zai-zs-sync-btn').addEventListener('click', () => syncZsRows_(rows));
+    box.querySelectorAll('.zai-zs-copy').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = parseInt(btn.dataset.i, 10);
+        const phone = rows[i] ? rows[i].phone : '';
+        if (!phone) return;
+        navigator.clipboard.writeText(phone).then(() => {
+          const old = btn.textContent;
+          btn.textContent = '✓';
+          setTimeout(() => { btn.textContent = old; }, 1200);
+        }).catch(() => {});
+      });
+    });
   }
 
   // Hoi ban GAS dang chay tren URL hien tai (de doi chieu khi loi Unknown action)
