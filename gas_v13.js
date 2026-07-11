@@ -497,6 +497,7 @@ function doPost(e) {
     if (action === 'saveCareStatus')      return saveCareStatus_(data.careStatus);
     if (action === 'saveAIContext')        return saveAIContext_(data.type, data.content, data.context);
     if (action === 'ai')                  return callGroqAI_(data);
+    if (action === 'summarize')           return callGroqSummarize_(data);
     // ── BROADCAST: tao/cap nhat 1 chien dich gui tin hang loat ──
     if (action === 'saveBroadcast')        return saveBroadcast_(data.broadcast || data);
     // ── BROADCAST: danh dau 1 SDT da gui/loi/bo qua trong 1 chien dich ──
@@ -1028,6 +1029,47 @@ function saveAIContext_(type, content, context) {
   if (!sh) { sh = ss.insertSheet(SH_CONTEXT); sh.appendRow(['type','content','context','created']); }
   sh.appendRow([type, content, context||'', new Date().toISOString()]);
   return jsonOut_({ ok: true });
+}
+
+function callGroqSummarize_(data) {
+  var key = getSetting_('geminiKey');
+  if (!key) return jsonOut_({ error: 'Chua co API Key. Mo extension → banh rang → nhap Groq Key → Luu.' });
+  var messages = data.messages || [];
+  if (!messages.length) return jsonOut_({ ok: true, summary: '' });
+
+  var joined = messages.join('\n---\n');
+  var sysPrompt = 'Ban tom tat hoi thoai CSKH giua khach hang va shop my pham OME. ' +
+    'Doc cac tin nhan cua khach (theo thu tu thoi gian) va tom tat NGAN GON thanh toi da 5 gach dau dong, chi giu thong tin con huu ich cho lan tra loi tiep theo: ' +
+    'nhu cau/san pham khach dang quan tam, van de/khieu nai da neu (va da giai quyet chua), trang thai don hang neu co nhac den, giong dieu/thai do khach (vd: khach de tinh, khach dang buc). ' +
+    'Khong dien giai, khong lap lai nguyen van tin nhan, chi tom tat y chinh.';
+
+  var payload = {
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      { role: 'system', content: sysPrompt },
+      { role: 'user', content: joined }
+    ],
+    temperature: 0.3,
+    max_tokens: 300
+  };
+
+  try {
+    var res = UrlFetchApp.fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'post',
+      headers: { 'Authorization': 'Bearer ' + key },
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    var code = res.getResponseCode();
+    var txt  = res.getContentText();
+    if (code !== 200) return jsonOut_({ error: 'Groq loi ' + code + ': ' + txt.substring(0, 300) });
+    var d = JSON.parse(txt);
+    var summary = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+    return jsonOut_({ ok: true, summary: (summary || '').trim() });
+  } catch(err) {
+    return jsonOut_({ error: 'Loi goi Groq (summarize): ' + err.message });
+  }
 }
 
 function callGroqAI_(data) {
