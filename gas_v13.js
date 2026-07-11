@@ -499,6 +499,7 @@ function doPost(e) {
     if (action === 'saveCareStatus')      return saveCareStatus_(data.careStatus);
     if (action === 'saveAIContext')        return saveAIContext_(data.type, data.content, data.context);
     if (action === 'ai')                  return callGroqAI_(data);
+    if (action === 'aiAuto')              return callGroqAutoAI_(data);
     if (action === 'summarize')           return callGroqSummarize_(data);
     if (action === 'logAI')               return logAIInteraction_(data);
     // ── BROADCAST: tao/cap nhat 1 chien dich gui tin hang loat ──
@@ -1175,6 +1176,85 @@ function callGroqAI_(data) {
     return jsonOut_({ ok: true, text: result || '' });
   } catch(err) {
     return jsonOut_({ error: 'Loi goi Groq: ' + err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  AUTO-PILOT: goi AI yeu cau tra ve JSON co cau truc {intent, reply_text, confidence}
+//  de extension tu quyet dinh gui thang hay chuyen CS nguoi that duyet (xem control layer o content.js)
+// ═══════════════════════════════════════════════════════════════
+function callGroqAutoAI_(data) {
+  var key = getSetting_('geminiKey');
+  if (!key) return jsonOut_({ error: 'Chua co API Key. Mo extension → banh rang → nhap Groq Key → Luu.' });
+  var userMsg = data.prompt || '';
+  if (!userMsg) return jsonOut_({ error: 'Thieu noi dung' });
+
+  var ctx = readAIContext_();
+  var trunc_ = function(s, n) { return s && s.length > n ? s.substring(0, n) + '...' : s; };
+  var sysParts = [];
+  if (ctx.systemPrompt) {
+    sysParts.push(ctx.systemPrompt);
+  } else {
+    sysParts.push('Ban la chuyen vien cham soc khach hang cua cong ty my pham OME. Tra loi bang tieng Viet, than thien, ngan gon.');
+  }
+  if (ctx.careProcess)    sysParts.push('\n\nQUY TRINH CSKH:\n'        + trunc_(ctx.careProcess, 600));
+  if (ctx.callbackScript) sysParts.push('\n\nKICH BAN GOI LAI:\n'      + trunc_(ctx.callbackScript, 500));
+  if (ctx.salesScriptCu)  sysParts.push('\n\nKICH BAN KHACH CU:\n'     + trunc_(ctx.salesScriptCu, 500));
+  if (ctx.salesScriptMoi) sysParts.push('\n\nKICH BAN KHACH MOI:\n'    + trunc_(ctx.salesScriptMoi, 500));
+  if (ctx.products.length > 0) sysParts.push('\n\nSAN PHAM OME:\n'     + ctx.products.slice(0, 12).join('\n'));
+  if (ctx.faqs.length > 0)     sysParts.push('\n\nFAQ:\n'              + ctx.faqs.slice(0, 4).join('\n'));
+  if (ctx.combos.length > 0)   sysParts.push('\n\nMAU TIN NHAN:\n'     + ctx.combos.slice(0, 5).join('\n'));
+  sysParts.push(
+    '\n\nYEU CAU: Day la he thong TU DONG — CS nguoi that se KHONG doc lai truoc khi gui neu ban tu tin. ' +
+    'Chi TRA VE DUY NHAT 1 doi tuong JSON hop le, KHONG them chu nao khac ngoai JSON, dung dinh dang: ' +
+    '{"intent":"<mot trong: hoi_tinh_trang_don | hoi_ma_san_pham | follow_up_moc_mua_hang | khieu_nai | hoi_gia_dac_biet | khac>",' +
+    '"reply_text":"<cau tra loi tieng Viet, ngan gon, tu nhien, toi da 150 tu>",' +
+    '"confidence":<so nguyen 0-100, muc do tu tin la cau tra loi nay DUNG va AN TOAN de gui thang cho khach ma khong can nguoi duyet>}. ' +
+    'Neu la khieu nai, phan nan, hoi gia dac biet/chiet khau rieng, hoac ban KHONG chac chan noi dung/y dinh cua khach, hay dat confidence THAP (duoi 50) ' +
+    'va intent tuong ung, DE NGUOI THAT XU LY — khong co gang "co gang tra loi cho co" trong nhung truong hop nay.'
+  );
+
+  var payload = {
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      { role: 'system', content: sysParts.join('') },
+      { role: 'user',   content: userMsg }
+    ],
+    temperature: 0.4,
+    max_tokens: 400
+  };
+
+  try {
+    var res = UrlFetchApp.fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'post',
+      headers: { 'Authorization': 'Bearer ' + key },
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    var code = res.getResponseCode();
+    var txt  = res.getContentText();
+    if (code !== 200) return jsonOut_({ error: 'Groq loi ' + code + ': ' + txt.substring(0, 300) });
+    var d = JSON.parse(txt);
+    var raw = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
+    // Bao ve: model co the vo tinh boc JSON trong ```json ... ``` du da yeu cau khong lam vay
+    var cleaned = raw.replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+    var parsed;
+    try { parsed = JSON.parse(cleaned); } catch(pe) {
+      // Khong parse duoc JSON -> AN TOAN LA TREN HET: coi nhu confidence = 0, de CS nguoi that xu ly
+      return jsonOut_({ ok: true, intent: 'khac', reply_text: cleaned, confidence: 0, parseError: true });
+    }
+    var confidence = Number(parsed.confidence);
+    if (!isFinite(confidence)) confidence = 0;
+    confidence = Math.max(0, Math.min(100, confidence));
+    return jsonOut_({
+      ok: true,
+      intent: String(parsed.intent || 'khac'),
+      reply_text: String(parsed.reply_text || ''),
+      confidence: confidence
+    });
+  } catch(err) {
+    return jsonOut_({ error: 'Loi goi Groq (auto): ' + err.message });
   }
 }
 

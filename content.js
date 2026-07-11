@@ -77,6 +77,19 @@
 
   const POLL_INTERVAL_MS = 6000; // dong bo gan-tuc-thoi: kiem tra du lieu moi moi 6 giay khi panel dang mo
 
+  // ── AUTO-PILOT (tu dong tra loi khach) ──
+  // MAC DINH TAT — day la tinh nang gui tin THAT cho khach THAT, phai CS chu dong bat
+  // va hieu ro control layer (nguong tin cay + tu khoa nhay cam) truoc khi dung.
+  let _apOn = false;
+  let _apThreshold = 80; // % tin cay toi thieu de tu dong gui, duoi muc nay -> chuyen CS duyet
+  let _apSensitiveKeywords = ['khiếu nại','phàn nàn','giá đặc biệt','giá sỉ','chiết khấu','hoàn tiền','đổi trả','kiện','thất vọng','lừa đảo'];
+  let _apLog = [];               // nhat ky hoat dong auto-pilot (hien trong panel), giong _bcLog
+  let _apProcessing = {};        // {phone: true} — dang xu ly, chan xu ly trung neu co 2 su kien lien tiep
+  let _apSentTimestamps = [];    // cac moc thoi gian (ms) da tu dong gui, de tinh gioi han/gio
+  const AP_HOURLY_CAP = 30;      // an toan: toi da 30 tin TU DONG GUI moi gio tren may nay, vuot -> tam dung tu dong, cho CS xu ly
+  const AP_DELAY_MIN_SEC = 3;
+  const AP_DELAY_MAX_SEC = 8;
+
   const LOOKUP_TTL = 5 * 60 * 1000;
   const CARE_STATUSES = [
     'Chưa liên hệ','Chưa sử dụng','Hẹn gọi lại sau','Đang sd','Đang tạm ngưng',
@@ -131,6 +144,22 @@
     addEl(cfg, 'input', {id:'zai-gemini-key', type:'text', placeholder:'gsk_... (lấy miễn phí tại console.groq.com)'});
     const saveBtn = addEl(cfg, 'button', {className:'zai-cfg-save', id:'zai-cfg-save', textContent:'💾 Lưu cài đặt'});
     addEl(cfg, 'div', {className:'zai-cfg-hint', textContent:'Key Groq được lưu vào Google Sheets, dùng chung cho cả team.'});
+
+    // ── AUTO-PILOT settings (MẶC ĐỊNH TẮT) ──
+    const apBox = addEl(cfg, 'div', {style:'margin-top:12px;padding:8px;border:1px solid #fecaca;border-radius:6px;background:#fff1f2;'});
+    addEl(apBox, 'div', {style:'font-weight:700;font-size:11px;color:#991b1b;margin-bottom:4px;', textContent:'🤖 Auto-pilot — tự động trả lời khách (rủi ro cao, đọc kỹ trước khi bật)'});
+    const apToggleRow = addEl(apBox, 'label', {style:'display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;'});
+    const apToggleChk = addEl(apToggleRow, 'input', {type:'checkbox', id:'zai-ap-toggle'});
+    addEl(apToggleRow, 'span', {textContent:'Bật auto-pilot (tự gửi khi AI đủ tự tin, còn lại chuyển CS duyệt)'});
+    addEl(apBox, 'label', {style:'font-size:11px;margin-top:6px;display:block;', textContent:'Ngưỡng tin cậy tối thiểu để tự gửi (%)'});
+    const apThreshInp = addEl(apBox, 'input', {id:'zai-ap-threshold', type:'number', min:'0', max:'100', style:'width:60px;'});
+    addEl(apBox, 'label', {style:'font-size:11px;margin-top:6px;display:block;', textContent:'Từ khoá nhạy cảm — luôn chuyển CS người thật (mỗi dòng 1 từ)'});
+    const apKwTa = addEl(apBox, 'textarea', {id:'zai-ap-keywords', rows:3, style:'width:100%;box-sizing:border-box;font-size:11px;'});
+    addEl(apBox, 'div', {className:'zai-cfg-hint', style:'margin-top:4px;', textContent:'Tối đa '+AP_HOURLY_CAP+' tin tự động gửi/giờ trên máy này (an toàn khỏi lỗi lặp). Mỗi tin tự động có trễ ngẫu nhiên '+AP_DELAY_MIN_SEC+'-'+AP_DELAY_MAX_SEC+'s trước khi gửi.'});
+    apThreshInp.value = _apThreshold;
+    apKwTa.value = _apSensitiveKeywords.join('\n');
+    apToggleChk.checked = _apOn;
+
     panel.appendChild(cfg);
 
     // CS sticky bar
@@ -217,6 +246,30 @@
     zsBody.querySelector('#zai-zs-scan-btn').addEventListener('click', () => {
       renderZsPreview_(scanZaloFriendStatus_());
     });
+
+    // ── AUTO-PILOT SECTION (trang thai + nhat ky + tat nhanh) ──
+    const apWrap = document.createElement('div');
+    apWrap.id = 'zai-ap-wrap';
+    apWrap.style.cssText = 'border-bottom:2px solid #fecaca;background:#fff1f2;flex-shrink:0;';
+    const apHdr = document.createElement('div');
+    apHdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 14px;cursor:pointer;';
+    apHdr.innerHTML = '<span id="zai-ap-hdr-title" style="font-weight:700;color:#991b1b;font-size:12px">🤖 Auto-pilot: TẮT</span><span id="zai-ap-toggle-arrow" style="color:#991b1b;font-size:11px">▼ mở</span>';
+    const apBody2 = document.createElement('div');
+    apBody2.id = 'zai-ap-body';
+    apBody2.style.cssText = 'display:none;padding:0 14px 10px;';
+    apBody2.innerHTML =
+      '<div id="zai-ap-status-line" style="font-size:11px;color:#7f1d1d;margin-bottom:6px;"></div>' +
+      '<button class="zai-btn zai-btn-ghost zai-btn-sm" id="zai-ap-quick-off" style="display:none;">⏸ Tắt auto-pilot ngay</button>' +
+      '<div style="font-size:10px;color:#6b7280;margin:6px 0 2px;">Nhật ký auto-pilot (60 gần nhất):</div>' +
+      '<div id="zai-ap-log" style="font-size:10px;color:#7f1d1d;max-height:140px;overflow-y:auto;background:#fff;border:1px solid #fecaca;border-radius:4px;padding:4px 6px;"></div>';
+    apHdr.addEventListener('click', () => {
+      const hidden = apBody2.style.display === 'none';
+      apBody2.style.display = hidden ? 'block' : 'none';
+      document.getElementById('zai-ap-toggle-arrow').textContent = hidden ? '▲ thu gọn' : '▼ mở';
+    });
+    apWrap.appendChild(apHdr);
+    apWrap.appendChild(apBody2);
+    panel.appendChild(apWrap);
 
     // Body
     const body = document.createElement('div');
@@ -330,6 +383,13 @@
     // ── EVENTS ──
     cfgBtn.addEventListener('click', () => { _cfgVisible = !_cfgVisible; cfg.style.display = _cfgVisible ? 'block' : 'none'; });
     saveBtn.addEventListener('click', saveConfig);
+    document.getElementById('zai-ap-quick-off').addEventListener('click', () => {
+      _apOn = false;
+      chrome.storage.local.set({ ome_ap_on: false });
+      const apChk = document.getElementById('zai-ap-toggle'); if (apChk) apChk.checked = false;
+      apLog_('⏸ CS đã tắt auto-pilot thủ công (nút tắt nhanh).');
+      renderAutoPilotBanner_();
+    });
     document.getElementById('zai-lookup-btn').addEventListener('click', doLookup);
     document.getElementById('zai-save-btn').addEventListener('click', doSaveStatus);
     linkChatBtn.addEventListener('click', () => {
@@ -351,7 +411,7 @@
       tonesDiv.querySelectorAll('.zai-tone').forEach(b => b.classList.remove('active'));
       tb.classList.add('active'); _activeTone = tb.dataset.tone;
     });
-    chrome.storage.local.get(['ome_bc_hidden','ome_bc_active','ome_bc_daily','ome_bc_variants'], (res) => {
+    chrome.storage.local.get(['ome_bc_hidden','ome_bc_active','ome_bc_daily','ome_bc_variants','ome_ap_on','ome_ap_threshold','ome_ap_keywords'], (res) => {
       _bcHidden = res.ome_bc_hidden || {};
       _bcActive = res.ome_bc_active || {};
       const daily = res.ome_bc_daily || {};
@@ -360,6 +420,13 @@
       _bcDailyUnlocked = !!daily.unlocked;
       _bcVariants = res.ome_bc_variants || {};
       _bcCheckDailyReset_();
+      _apOn = !!res.ome_ap_on; // luon mac dinh false neu chua tung luu
+      _apThreshold = (typeof res.ome_ap_threshold === 'number') ? res.ome_ap_threshold : 80;
+      _apSensitiveKeywords = Array.isArray(res.ome_ap_keywords) && res.ome_ap_keywords.length ? res.ome_ap_keywords : _apSensitiveKeywords;
+      const apChk = document.getElementById('zai-ap-toggle'); if (apChk) apChk.checked = _apOn;
+      const apThr = document.getElementById('zai-ap-threshold'); if (apThr) apThr.value = _apThreshold;
+      const apKw  = document.getElementById('zai-ap-keywords'); if (apKw) apKw.value = _apSensitiveKeywords.join('\n');
+      renderAutoPilotBanner_();
     });
     chrome.storage.local.get(['ome_gas_url','ome_current_cs','ome_current_nz'], (res) => {
       GAS_URL = res.ome_gas_url || '';
@@ -562,6 +629,9 @@
       _pendingNewIncoming = true;
       updateUnreadBadge_();
     }
+    // Auto-pilot chay doc lap voi trang thai panel mo/dong (nhung CS nen mo panel
+    // de thay banner + nhat ky, tranh "khong biet AI dang tu gui")
+    if (_apOn) runAutoPilot_();
   }
 
   function watchIncomingMessages_() {
@@ -580,6 +650,17 @@
     GAS_URL = gasEl ? gasEl.value.trim() : '';
     if (!GAS_URL) { showError('Vui lòng nhập URL GAS.'); return; }
     chrome.storage.local.set({ ome_gas_url: GAS_URL });
+
+    // Auto-pilot: doc + luu tu UI, ap dung ngay
+    const apChk = document.getElementById('zai-ap-toggle');
+    const apThr = document.getElementById('zai-ap-threshold');
+    const apKw  = document.getElementById('zai-ap-keywords');
+    _apOn = apChk ? !!apChk.checked : _apOn;
+    _apThreshold = apThr ? Math.max(0, Math.min(100, Number(apThr.value) || 80)) : _apThreshold;
+    _apSensitiveKeywords = apKw ? apKw.value.split('\n').map(s => s.trim()).filter(Boolean) : _apSensitiveKeywords;
+    chrome.storage.local.set({ ome_ap_on: _apOn, ome_ap_threshold: _apThreshold, ome_ap_keywords: _apSensitiveKeywords });
+    renderAutoPilotBanner_();
+
     const keyEl = document.getElementById('zai-gemini-key');
     const key = keyEl ? keyEl.value.trim() : '';
     if (key) {
@@ -1271,6 +1352,118 @@
         headers: {'Content-Type':'text/plain'}
       });
     } catch(e) { /* log loi thi bo qua, khong lam gian doan CS */ }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  AUTO-PILOT — pipeline: [system prompt + lịch sử chat + data khách] → AI (JSON có cấu trúc)
+  //  → LỚP KIỂM SOÁT trước khi gửi (quan trọng nhất): confidence thấp HOẶC intent nhạy cảm
+  //  → không auto-gửi, để CS duyệt. Ngược lại: delay ngẫu nhiên rồi tự gửi.
+  //  MẶC ĐỊNH TẮT — CS phải tự bật ở ⚙ Cài đặt và hiểu rõ rủi ro.
+  // ═══════════════════════════════════════════════════════════════
+  function apLog_(msg) {
+    const ts = new Date().toLocaleTimeString('vi-VN');
+    _apLog.unshift('[' + ts + '] ' + msg);
+    _apLog = _apLog.slice(0, 60);
+    const el = document.getElementById('zai-ap-log');
+    if (el) el.innerHTML = _apLog.map(l => escHtml(l)).join('<br>');
+    console.log('[OME Auto-pilot] ' + msg);
+  }
+
+  function renderAutoPilotBanner_() {
+    const title = document.getElementById('zai-ap-hdr-title');
+    const wrap  = document.getElementById('zai-ap-wrap');
+    const statusLine = document.getElementById('zai-ap-status-line');
+    const quickOff = document.getElementById('zai-ap-quick-off');
+    if (title) title.textContent = '🤖 Auto-pilot: ' + (_apOn ? 'ĐANG BẬT' : 'TẮT');
+    if (wrap) wrap.style.background = _apOn ? '#fef2f2' : '#fff1f2';
+    if (statusLine) {
+      statusLine.textContent = _apOn
+        ? '⚡ Đang tự động trả lời khi AI tự tin ≥ ' + _apThreshold + '% và không thuộc từ khoá nhạy cảm. Tối đa ' + AP_HOURLY_CAP + ' tin/giờ.'
+        : 'Đang tắt — mọi gợi ý AI cần CS bấm "📤 Gởi Zalo" thủ công như bình thường.';
+    }
+    if (quickOff) quickOff.style.display = _apOn ? 'inline-block' : 'none';
+  }
+
+  // Dem so tin auto-pilot da gui trong 60 phut gan nhat (an toan chong lap/loop bat thuong)
+  function _apUnderHourlyCap_() {
+    const now = Date.now();
+    _apSentTimestamps = _apSentTimestamps.filter(t => now - t < 60 * 60 * 1000);
+    return _apSentTimestamps.length < AP_HOURLY_CAP;
+  }
+
+  function _apIsSensitive_(intent, replyText) {
+    const hay = ((intent || '') + ' ' + (replyText || '')).toLowerCase();
+    return _apSensitiveKeywords.some(k => k && hay.includes(k.toLowerCase()));
+  }
+
+  // Chay khi co tin nhan MOI tu khach, neu auto-pilot dang bat. KHONG chay tren nhom.
+  async function runAutoPilot_(phoneHint) {
+    if (!_apOn || !GAS_URL) return;
+    if (isCurrentChatGroup_()) return;
+    const chatName = getCurrentChatName();
+    const phone = phoneHint || resolvePhoneForChatName_(chatName || '');
+    if (!phone) { apLog_('⏭ Bỏ qua: không xác định được SĐT của đoạn chat "' + (chatName||'?') + '" — dùng nút 🔗 để liên kết trước.'); return; }
+    if (_apProcessing[phone]) return; // dang xu ly, tranh trung lap neu 2 su kien lien tiep
+    _apProcessing[phone] = true;
+    try {
+      if (!_apUnderHourlyCap_()) { apLog_('🛑 Đạt giới hạn ' + AP_HOURLY_CAP + ' tin tự động/giờ — tạm dừng auto-gửi, CS xử lý thủ công.'); return; }
+
+      // Dam bao co du lieu khach + lich su chat moi nhat truoc khi hoi AI
+      if (!_currentCustData || _currentCustData.phone !== phone) {
+        const inp = document.getElementById('zai-phone-input');
+        if (inp) inp.value = phone;
+        await doLookup();
+      }
+      await doGrabMessage();
+      if (!_chatHistory.length) { apLog_('⏭ Bỏ qua ' + phone + ': chưa đọc được lịch sử chat.'); return; }
+
+      const lines = buildCustLines();
+      const histText = buildChatContextForPrompt_();
+      const prompt = (lines.length ? '[KH] ' + lines.join(' | ') + '\n' : '') +
+        '[Lịch sử hội thoại]\n' + histText + '\n[Giọng văn] ' + _activeTone;
+
+      const res = await fetch(GAS_URL, { method:'POST', body: JSON.stringify({ action:'aiAuto', prompt }), headers:{'Content-Type':'text/plain'} });
+      const d = await res.json();
+      if (!d.ok) { apLog_('❌ Lỗi AI cho ' + phone + ': ' + (d.error||'không rõ') + ' — bỏ qua, CS tự xử lý.'); return; }
+
+      const { intent, reply_text, confidence } = d;
+      const sensitive = _apIsSensitive_(intent, reply_text);
+
+      if (!reply_text || confidence < _apThreshold || sensitive) {
+        apLog_('⏸ CẦN CS DUYỆT — ' + phone + ' (intent: ' + (intent||'?') + ', tin cậy: ' + confidence + '%' + (sensitive?', có từ khoá nhạy cảm':'') + ')');
+        // Van hien goi y trong khung soan de CS xem/sua/gui thu cong, khong tu dong gui
+        const sug = document.getElementById('zai-sug-area');
+        if (sug && _currentCustData && _currentCustData.phone === phone) {
+          sug.innerHTML = '';
+          addEl(sug, 'div', {className:'zai-section-label', textContent:'💡 Gợi ý AI (auto-pilot chuyển CS duyệt — không tự gửi)'});
+          const ta = addEl(sug, 'textarea', {id:'zai-sug-edit', rows:4});
+          ta.style.cssText = 'width:100%;box-sizing:border-box;font-size:12px;padding:8px;border:1px solid #fca5a5;border-radius:6px;resize:vertical;margin-top:4px;font-family:inherit';
+          ta.value = reply_text || '';
+          attachExpandBtn_(sug, ta, 'Gợi ý trả lời');
+          const btnRow = addEl(sug, 'div', {style:'display:flex;gap:6px;margin-top:6px'});
+          const sendBtn = addEl(btnRow, 'button', {className:'zai-btn zai-btn-primary zai-btn-sm', textContent:'📤 Gởi Zalo'});
+          sendBtn.addEventListener('click', () => sendToZalo_(ta.value, sendBtn, {prompt, aiOriginal: reply_text, phone}));
+        }
+        return;
+      }
+
+      // Du dieu kien: tin cay cao + khong nhay cam -> cho tre ngau nhien roi tu gui
+      apLog_('⏳ Sẽ tự gửi cho ' + phone + ' sau vài giây (intent: ' + intent + ', tin cậy: ' + confidence + '%)');
+      await sleep_(randDelayMs_(AP_DELAY_MIN_SEC, AP_DELAY_MAX_SEC));
+
+      // Kiem tra lai: CS co the da chuyen chat / tat auto-pilot trong luc cho delay
+      if (!_apOn) { apLog_('⏭ Đã tắt auto-pilot trong lúc chờ — không gửi cho ' + phone + '.'); return; }
+      const stillSamePhone = resolvePhoneForChatName_(getCurrentChatName() || '') === phone;
+      if (!stillSamePhone) { apLog_('⏭ CS đã chuyển sang đoạn chat khác trong lúc chờ — không gửi cho ' + phone + ' (tránh gửi nhầm chat).'); return; }
+
+      sendToZalo_(reply_text, null, {prompt, aiOriginal: reply_text, phone});
+      _apSentTimestamps.push(Date.now());
+      apLog_('✅ Đã tự động gửi cho ' + phone + ' (intent: ' + intent + ', tin cậy: ' + confidence + '%)');
+    } catch (e) {
+      apLog_('❌ Lỗi auto-pilot với ' + phone + ': ' + e.message);
+    } finally {
+      delete _apProcessing[phone];
+    }
   }
 
   async function saveAIExample_(prompt, corrected, btn) {
