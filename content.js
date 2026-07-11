@@ -374,6 +374,7 @@
     const noteRow  = addEl(noteWrap, 'div', {className:'zai-note-row'});
     addEl(noteRow, 'textarea', {id:'zai-note-new', placeholder:'Thêm ghi chú mới...', rows:2});
     addEl(noteRow, 'button', {className:'zai-btn zai-btn-primary zai-btn-sm', id:'zai-note-add-btn', type:'button', textContent:'+', title:'Thêm ghi chú (Ctrl+Enter)'});
+    addEl(noteRow, 'button', {className:'zai-btn zai-btn-sm', id:'zai-note-ai-btn', type:'button', textContent:'🤖', title:'Tóm tắt hội thoại bằng AI → điền vào ô ghi chú'});
     addEl(noteWrap, 'div', {id:'zai-note-history', className:'zai-note-history'});
     addEl(upd, 'input', {id:'zai-note-raw', type:'hidden'});
 
@@ -410,6 +411,7 @@
     document.getElementById('zai-grab-btn').addEventListener('click', doGrabMessage);
     document.getElementById('zai-gen-btn').addEventListener('click', doGenerate);
     document.getElementById('zai-note-add-btn').addEventListener('click', addNoteEntry_);
+    document.getElementById('zai-note-ai-btn').addEventListener('click', doGenerateSummaryNote_);
     document.getElementById('zai-note-new').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addNoteEntry_(); }
     });
@@ -1616,6 +1618,43 @@
     hist.querySelectorAll('.zai-note-del').forEach(b => {
       b.addEventListener('click', () => deleteNoteEntry_(parseInt(b.dataset.idx,10)));
     });
+  }
+  // Tom tat hoi thoai bang AI de dien vao o ghi chu — giup CS khac doc note
+  // cung hieu khach nay dang the nao (nhu cau, khieu nai, thai do...) ma khong
+  // phai doc lai toan bo lich su chat. Chi DIEN VAO O, CS van phai bam "+" de
+  // thuc su them vao (giu quyen kiem soat/chinh sua truoc khi luu).
+  async function doGenerateSummaryNote_() {
+    const btn = document.getElementById('zai-note-ai-btn');
+    const noteNewEl = document.getElementById('zai-note-new');
+    if (!GAS_URL) { showError('Chưa cấu hình URL GAS.'); return; }
+    if (!_chatHistory || !_chatHistory.length) {
+      showError('Chưa có lịch sử hội thoại — bấm "📥 Lấy TN" để tự động lấy tin nhắn khách trước.');
+      return;
+    }
+    const lines = _chatHistory.map(formatHistoryLine_);
+    const oldLabel = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    try {
+      const r = await fetch(GAS_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'summarize', messages: lines }),
+        headers: { 'Content-Type': 'text/plain' }
+      });
+      const d = await r.json();
+      if (d.ok && d.summary) {
+        if (noteNewEl) {
+          noteNewEl.value = '🤖 Tóm tắt: ' + d.summary;
+          noteNewEl.focus();
+        }
+        showMsg('zai-save-status', '✓ Đã tóm tắt — xem lại rồi bấm "+" để thêm vào ghi chú.', 4000);
+      } else {
+        showError('Không tóm tắt được: ' + (d.error || 'lỗi không rõ'));
+      }
+    } catch (e) {
+      showError('Lỗi kết nối khi tóm tắt: ' + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = oldLabel || '🤖'; }
+    }
   }
   function addNoteEntry_() {
     const inp = document.getElementById('zai-note-new');
