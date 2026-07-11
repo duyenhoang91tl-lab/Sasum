@@ -1414,8 +1414,20 @@
         if (inp) inp.value = phone;
         await doLookup();
       }
+      // CS co the da chuyen sang doan chat khac trong luc cho fetch tra cuu o tren —
+      // kiem tra lai TRUOC khi doc lich su chat, tranh lay nham tin nhan cua khach khac
+      // roi gan vao du lieu/audit cua "phone" nay.
+      if (resolvePhoneForChatName_(getCurrentChatName() || '') !== phone) {
+        apLog_('⏭ CS đã chuyển đoạn chat trong lúc tra cứu — huỷ xử lý cho ' + phone + ' (tránh lấy nhầm lịch sử chat).');
+        return;
+      }
       await doGrabMessage();
       if (!_chatHistory.length) { apLog_('⏭ Bỏ qua ' + phone + ': chưa đọc được lịch sử chat.'); return; }
+      // Kiem tra lai lan nua ngay sau khi doc DOM (doGrabMessage cung co the cho 1 nhip do goi AI tom tat)
+      if (resolvePhoneForChatName_(getCurrentChatName() || '') !== phone) {
+        apLog_('⏭ CS đã chuyển đoạn chat trong lúc đọc lịch sử — huỷ xử lý cho ' + phone + '.');
+        return;
+      }
 
       const lines = buildCustLines();
       const histText = buildChatContextForPrompt_();
@@ -1627,6 +1639,11 @@
       const henDate = rem.schedHen ? new Date(rem.schedHen) : null;
       if (henDate) henDate.setHours(0,0,0,0);
       const isOverdue = henDate && henDate < today;
+      // Ma CS ngan (vd: GL/HM/SD...) — hien truoc SDT de xem gon
+      const csBadge = document.createElement('span');
+      csBadge.textContent = rem.cs || '—';
+      csBadge.title = 'CS chăm sóc: ' + (rem.cs || 'chưa gán');
+      csBadge.style.cssText = 'background:#7f1d1d;color:#fff;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;flex-shrink:0;';
       // Phone copy button
       const phoneBtn = document.createElement('button');
       phoneBtn.textContent = '📋 ' + rem.phone;
@@ -1679,6 +1696,7 @@
           }
         }, 700);
       });
+      item.appendChild(csBadge);
       item.appendChild(phoneBtn);
       item.appendChild(note);
       item.appendChild(openBtn);
