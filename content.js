@@ -740,6 +740,26 @@
     } catch (e) {}
   }
 
+  // Nhu _revalidateFromServer_ nhung LUON ve lai the sau khi fetch xong (khong so sanh
+  // "co thay doi hay khong"). Dung sau khi XOA don — dam bao UI cap nhat ngay, tranh
+  // truong hop so sanh truot khien card van hien du lieu cu du server da xoa xong.
+  async function _zaiForceRefresh_(phone) {
+    if (!GAS_URL) return;
+    try {
+      const sep = GAS_URL.includes('?') ? '&' : '?';
+      const r = await fetch(GAS_URL + sep + 'action=lookup&phone=' + encodeURIComponent(phone) + '&_ts=' + Date.now(), {redirect:'follow'});
+      const d = await r.json();
+      if (d.error) { console.warn('[ZaloAI] Loi lam moi:', d.error); return; }
+      const newCare   = d.care || null;
+      const newOrders = (d.orders||[]).slice().sort((a,b) => parseDate_(b.date)-parseDate_(a.date));
+      if (!_currentCustData || _currentCustData.phone !== phone) {
+        _lookupCache[phone] = {care: newCare, orders: newOrders, ts: Date.now()};
+        return;
+      }
+      applyPolledCare_(phone, newCare, newOrders);
+    } catch (e) { console.warn('[ZaloAI] Lam moi that bai:', e); }
+  }
+
   // Kiem tra ngam voi server (khong phu thuoc panel dang mo/thu gon nhu pollCareTick_) —
   // dung ngay sau khi hien du lieu tu cache, de bat kip thay doi Sasum vua luu ma cache
   // cuc bo (toi da 5 phut) chua het han.
@@ -799,7 +819,7 @@
       if (!d2.ok) { alert('Lỗi xóa: ' + (d2.error || 'không rõ')); return; }
       alert('✓ Đã xóa ' + d2.deleted + ' đơn trùng.');
       delete _lookupCache[phone];
-      await _revalidateFromServer_(phone);
+      await _zaiForceRefresh_(phone);
     } catch (e) {
       alert('Lỗi kết nối: ' + e.message);
     }
@@ -943,7 +963,7 @@
       const d = await r.json();
       if (!d.ok) { alert('Lỗi xóa: ' + (d.error || 'không rõ')); return; }
       delete _lookupCache[phone];
-      await _revalidateFromServer_(phone); // ve lai the + dong bo lai voi Sasum
+      await _zaiForceRefresh_(phone); // luon ve lai the + dong bo lai voi Sasum
       showMsg('zai-save-status', '🗑️ Đã xóa đơn trùng và đồng bộ Sasum.', 3000);
     } catch (e) {
       alert('Lỗi kết nối: ' + e.message);
