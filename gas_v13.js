@@ -924,36 +924,45 @@ function findDuplicateOrders_(phoneFilter) {
   return { ok: true, groups: dupGroups, groupCount: dupGroups.length, totalExtra: totalExtra };
 }
 
-// items: [{sheet, rowIndex}, ...] — lay tu extras (nhom exact) hoac do CS/admin tu chon (nhom needsReview) trong findDuplicateOrders_.
+// items: [{sheet, rowIndex, phone?, date?, revenue?, product?}, ...] — lay tu extras (nhom exact)
+// hoac do CS/admin tu chon (nhom needsReview) trong findDuplicateOrders_, hoac 1 dong le CS tu bam xoa.
+// Neu co gui kem phone/date/revenue/product, se XAC MINH LAI dung dong do truoc khi xoa — tranh
+// truong hop rowIndex bi lech (co CS khac vua them/xoa dong khac trong luc do) dan den xoa NHAM dong.
 function deleteDuplicateOrders_(items) {
-  if (!items || !items.length) return jsonOut_({ ok: true, deleted: 0 });
+  if (!items || !items.length) return jsonOut_({ ok: true, deleted: 0, skipped: 0 });
   var ss = getOrderSS_();
   var bySheet = {};
   items.forEach(function (it) {
     if (!it || !it.sheet || !it.rowIndex) return;
     if (!bySheet[it.sheet]) bySheet[it.sheet] = [];
-    bySheet[it.sheet].push(it.rowIndex);
+    bySheet[it.sheet].push(it);
   });
-  var deleted = 0, affectedPhones = {};
+  var deleted = 0, skipped = 0, affectedPhones = {};
   Object.keys(bySheet).forEach(function (shName) {
     var sh = ss.getSheetByName(shName);
     if (!sh) return;
     // Xoa tu duoi len tren trong cung 1 sheet de khong lam lech chi so cac dong con lai
-    var rows = bySheet[shName].slice().sort(function (a, b) { return b - a; });
-    rows.forEach(function (rIdx) {
+    var arr = bySheet[shName].slice().sort(function (a, b) { return b.rowIndex - a.rowIndex; });
+    arr.forEach(function (it) {
       try {
-        var phoneCell = sh.getRange(rIdx, 1).getValue();
-        if (phoneCell) affectedPhones[normPhone_(String(phoneCell))] = true;
-        sh.deleteRow(rIdx);
+        var rowVals = sh.getRange(it.rowIndex, 1, 1, 10).getValues()[0]; // phone..productDetail
+        var match = true;
+        if (it.phone   != null && it.phone   !== '' && normPhone_(String(rowVals[0])) !== normPhone_(String(it.phone))) match = false;
+        if (match && it.date    != null && it.date    !== '' && normOrderDate_(rowVals[2]) !== normOrderDate_(it.date)) match = false;
+        if (match && it.revenue != null && it.revenue !== '' && (Number(rowVals[7]) || 0) !== (Number(it.revenue) || 0)) match = false;
+        if (match && it.product != null && it.product !== '' && _normTxt_(rowVals[8]) !== _normTxt_(it.product)) match = false;
+        if (!match) { skipped++; return; } // dong da bi dich/doi khac voi luc CS bam xoa -> KHONG xoa, tranh xoa nham
+        if (rowVals[0]) affectedPhones[normPhone_(String(rowVals[0]))] = true;
+        sh.deleteRow(it.rowIndex);
         deleted++;
-      } catch (e) {}
+      } catch (e) { skipped++; }
     });
   });
   try {
     var cache = CacheService.getScriptCache();
     Object.keys(affectedPhones).forEach(function (p) { cache.remove('lk_' + p); });
   } catch (ec) {}
-  return jsonOut_({ ok: true, deleted: deleted });
+  return jsonOut_({ ok: true, deleted: deleted, skipped: skipped });
 }
 
 function replaceOrders_(orders, data) {
