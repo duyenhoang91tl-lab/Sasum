@@ -1,5 +1,13 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script — PHIEN BAN 13.42.11.7.26 (gio.phut.ngay.thang.nam)
+//  OME CS Portal — Google Apps Script — PHIEN BAN 10.55.12.7.26 (gio.phut.ngay.thang.nam)
+//  v13.2 (10.55.12.7.26): Them cot 'tag' vao CareData (20 cot) — nhan tu do CS dat,
+//         dung de loc chien dich trong Sasum (muc 5. Nhan) va gan duoc tu extension;
+//         AI fallback Groq→Gemini→Cerebras (callAIWithFallback_) + nho provider
+//         loi quota/key qua CacheService 5 phut de bo qua nhanh lan sau;
+//         Them Birthday scheduler (runBirthdayScan_, sheet BirthdayTemplates/BirthdayLog)
+//         chay chung trigger voi FollowUp scan hang ngay (runFollowUpScanTrigger);
+//         Them recentlySentPhones_ (kiem tra da bi bi gui trong N ngay qua bat ky
+//         chien dich nao) dung cho tinh nang "Ban theo danh sach dang loc tren Zalo"
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)

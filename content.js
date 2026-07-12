@@ -1,4 +1,10 @@
-// Duyen AI - content script Ver 14.30.11.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// Duyen AI - content script Ver 10.55.12.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// v15.6 (10.55.12.7.26): Them nhan (tag) tu do canh o sinh nhat, dong bo 2 chieu voi Sasum;
+//        Panel moi "📋 Ban theo danh sach dang loc (tag Zalo)": tai dung scanZaloFriendStatus_
+//        de quet CHI ten hien thi dang loc tren man hinh (khong doc tin nhan), tu bo qua
+//        Chan/Zalo ngung hd + so da ban trong 30 ngay qua, chon nhanh 10/20/30/tuy chinh,
+//        gan anh, tao chien dich cho CS duyet & gui o muc Gui hang loat nhu binh thuong;
+//        Nut 🤖 note tom tat AI hien provider dang tra loi (Groq/Gemini/Cerebras)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
