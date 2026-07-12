@@ -1,4 +1,4 @@
-// Duyen AI - content script Ver 16.10.12.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// Duyen AI - content script Ver 16.45.12.7.26 (gio.phut.ngay.thang.nam xuat ban)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
@@ -111,7 +111,7 @@
     // Header
     const hdr = document.createElement('div');
     hdr.className = 'zai-hdr';
-    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 16.10.12.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
+    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 16.45.12.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'zai-cfg-btn'; cfgBtn.id = 'zai-cfg-toggle'; cfgBtn.title = 'Cài đặt'; cfgBtn.textContent = '⚙';
     hdr.appendChild(cfgBtn); panel.appendChild(hdr);
@@ -125,7 +125,7 @@
     addEl(cfg, 'input', {id:'zai-gemini-key', type:'text', placeholder:'gsk_... (lấy miễn phí tại console.groq.com)'});
     const autoAiRow = addEl(cfg, 'label', {style:'display:flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer;font-weight:400;'});
     const autoAiChk = addEl(autoAiRow, 'input', {type:'checkbox', id:'zai-auto-ai-chk'});
-    addEl(autoAiRow, 'span', {textContent:'⚡ Tự động soạn gợi ý AI ngay khi mở đoạn chat khách (đỡ phải bấm Lấy TN / Tạo gợi ý)'});
+    addEl(autoAiRow, 'span', {textContent:'⚡ Tự động soạn 3 câu mở đầu khi mở đoạn chat khách (đỡ phải bấm Lấy TN / Tạo gợi ý)'});
     const saveBtn = addEl(cfg, 'button', {className:'zai-cfg-save', id:'zai-cfg-save', textContent:'💾 Lưu cài đặt'});
     addEl(cfg, 'div', {className:'zai-cfg-hint', textContent:'Key Groq được lưu vào Google Sheets, dùng chung cho cả team.'});
     panel.appendChild(cfg);
@@ -227,7 +227,7 @@
     addEl(body, 'div', {id:'zai-auto-hint', style:'font-size:10px;color:#00b14f;margin-top:3px'});
     const perAutoRow = addEl(body, 'label', {id:'zai-per-auto-row', style:'display:none;align-items:center;gap:6px;margin-top:5px;font-size:11px;color:#374151;cursor:pointer;'});
     const perAutoChk = addEl(perAutoRow, 'input', {type:'checkbox', id:'zai-per-auto-chk'});
-    addEl(perAutoRow, 'span', {textContent:'⚡ Tự động soạn AI khi mở chat khách này'});
+    addEl(perAutoRow, 'span', {textContent:'⚡ Tự động soạn câu mở đầu cho khách này'});
 
     body.appendChild(Object.assign(document.createElement('hr'), {className:'zai-div'}));
 
@@ -239,7 +239,7 @@
     });
 
     addEl(aiWrap, 'button', {className:'zai-btn zai-btn-secondary', id:'zai-open-btn',
-      textContent:'💬 Tạo TN mở đầu (dựa lịch sử mua)', style:'width:100%;margin-bottom:8px'});
+      textContent:'💬 Tạo 3 câu mở đầu đa dạng (mua hàng + chat)', style:'width:100%;margin-bottom:8px'});
 
     // Grab row
     const msgHdr = addEl(aiWrap, 'div', {style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:4px'});
@@ -539,11 +539,12 @@
     chk.checked = _effectiveAutoAi_(phone);
   }
 
-  // Tu dong soan san goi y AI (khong can CS bam Lay TN / Tao goi y) de khi mo panel ra
-  // la co san tin nhan, chi con bam "Gởi Zalo" 1 phat — do la ly do CS thay "search sdt
-  // roi gui hoi lau", vi truoc day sau khi tra cuu xong van phai tu bam them 2 buoc nua.
+  // Tu dong soan san 3 câu MỞ ĐẦU đa dạng (khong can CS bam Lay TN / Tao goi y) — muc dich
+  // chinh cua AI la giup CS co cau chuyen khoi gợi khi CHU DONG bat chuyen voi khach, con
+  // doan chat tiep theo CS tu nghi, chi bam nut "✨ Tạo gợi ý phản hồi" thu cong khi nao bi.
+  // Vi vay o day LUON goi doGenerateOpener() (3 huong da dang), khong tu dong tra loi thay CS.
   // Doi 1 chut de: (1) doLookup() render xong _currentCustData, (2) khung chat Zalo kip
-  // load tin nhan len DOM de doGrabMessage() doc duoc.
+  // load tin nhan len DOM de doGrabMessage() doc duoc (chi de AI THAM KHAO, tranh trung chu de).
   function _autoSuggestForOpenChat_(phone) {
     if (_autoAiLastPhone === phone) return; // da soan cho doan chat nay roi, khong lap lai
     setTimeout(() => {
@@ -554,8 +555,7 @@
       if (!_effectiveAutoAi_(phone)) return; // CS da tat rieng cho khach nay (hoac tat chung)
       _autoAiLastPhone = phone;
       try { doGrabMessage(); } catch(e) {}
-      if (_chatHistory.length) doGenerate();
-      else doGenerateOpener();
+      doGenerateOpener();
     }, 1200);
   }
 
@@ -1007,18 +1007,65 @@
     return lines;
   }
 
+  // 3 huong mo dau khac nhau — CS chon huong hop voi tinh huong tung khach thay vi chi
+  // co 1 goi y duy nhat. Moi huong deu duoc AI viet dua tren ho so mua hang + (neu co)
+  // lich su chat gan day, de tranh lap lai chuyen da noi va bam sat dung khach that.
+  const OPENER_ANGLES = [
+    { key:'follow',  label:'🩺 Hỏi thăm trải nghiệm', instr:'Hỏi thăm cảm nhận/trải nghiệm khách sau khi dùng sản phẩm đã mua gần nhất, thể hiện sự quan tâm chân thành.' },
+    { key:'upsell',  label:'🛍 Gợi ý sản phẩm liên quan', instr:'Gợi ý nhẹ nhàng 1 sản phẩm liên quan hoặc dùng kèm với sản phẩm khách đã mua, mở đầu bằng câu hỏi/quan tâm chứ không chào bán trực tiếp.' },
+    { key:'connect', label:'✨ Khơi gợi trò chuyện',    instr:'Mở đầu bằng 1 câu hỏi mở hoặc chia sẻ nhỏ (ưu đãi mới, mẹo dùng sản phẩm, hỏi thăm dịp gần đây) để khơi gợi khách phản hồi, tạo cảm giác gần gũi cá nhân.' }
+  ];
+
   async function doGenerateOpener() {
     if (!GAS_URL) { showError('Chưa cài đặt URL GAS.'); return; }
     if (!_currentCustData) { showError('Tra cứu khách trước đã.'); return; }
     const btn = document.getElementById('zai-open-btn');
     const sug = document.getElementById('zai-sug-area');
     hideError(); btn.disabled=true; btn.textContent='AI đang soạn...';
-    sug.innerHTML='<div class="zai-loading"><div class="zai-spinner"></div>Đang soạn tin mở đầu...</div>';
+    sug.innerHTML='<div class="zai-loading"><div class="zai-spinner"></div>Đang soạn 3 câu mở đầu...</div>';
+
     const lines = buildCustLines();
     const ctx = (document.getElementById('zai-ctx').value||'').trim();
     if (ctx) lines.push('Ngữ cảnh: '+ctx);
-    const prompt = '[KH] '+lines.join(' | ')+'\n[Giọng văn] '+_activeTone+'\nSoạn 1 tin nhắn Zalo CHỦ ĐỘNG bắt chuyện chăm sóc khách sau mua, dựa vào lịch sử mua hàng trên. Ngắn gọn, tự nhiên, tiếng Việt.';
-    await callAI_(prompt, btn, '💬 Tạo TN mở đầu (dựa lịch sử mua)', sug);
+    // Lich su chat gan day (neu co) chi de AI THAM KHAO, tranh lap lai chu de da noi —
+    // KHONG phai de tra loi truc tiep tin cuoi (do la viec cua nut "Tạo gợi ý phản hồi").
+    const histText = _chatHistory.length ? _chatHistory.slice(-15).join(' | ') : '';
+    const custBlock = '[KH] '+lines.join(' | ')+
+      (histText ? '\n[Đã từng trò chuyện — chỉ để tham khảo, KHÔNG lặp lại chủ đề này] '+histText : '');
+
+    try {
+      const results = await Promise.all(OPENER_ANGLES.map(async (angle) => {
+        const prompt = custBlock+'\n[Giọng văn] '+_activeTone+
+          '\nSoạn 1 tin nhắn Zalo CHỦ ĐỘNG bắt chuyện với khách, theo hướng: '+angle.instr+
+          ' Ngắn gọn, tự nhiên, tiếng Việt, không giống mẫu quảng cáo.';
+        try {
+          const res = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({action:'ai',prompt}), headers:{'Content-Type':'text/plain'}});
+          const data = await res.json();
+          if (!data.ok) return { angle, error: data.error||'Lỗi GAS' };
+          return { angle, prompt, text: (data.text||'').trim() };
+        } catch(e) { return { angle, error: e.message }; }
+      }));
+
+      sug.innerHTML='';
+      addEl(sug,'div',{className:'zai-section-label',textContent:'💡 3 câu mở đầu — sửa nếu cần rồi gửi'});
+      results.forEach((r) => {
+        const box = addEl(sug,'div',{style:'border:1px solid #e5e7eb;border-radius:8px;padding:8px;margin-top:6px;background:#fafafa'});
+        addEl(box,'div',{style:'font-size:11px;font-weight:600;color:#374151;margin-bottom:4px',textContent:r.angle.label});
+        if (r.error) { addEl(box,'div',{className:'zai-error',style:'display:block',textContent:'Lỗi: '+r.error}); return; }
+        const ta = addEl(box,'textarea',{rows:3});
+        ta.style.cssText='width:100%;box-sizing:border-box;font-size:12px;padding:7px;border:1px solid #d1d5db;border-radius:6px;resize:vertical;font-family:inherit';
+        ta.value = r.text;
+        attachExpandBtn_(box, ta, r.angle.label);
+        const btnRow = addEl(box,'div',{style:'display:flex;gap:6px;margin-top:6px'});
+        const sendZaloBtn = addEl(btnRow,'button',{className:'zai-btn zai-btn-primary zai-btn-sm',textContent:'📤 Gởi Zalo'});
+        sendZaloBtn.title='Tự điền vào ô chat Zalo và gởi ngay';
+        sendZaloBtn.addEventListener('click',() => sendToZalo_(ta.value, sendZaloBtn));
+        const saveBtn2 = addEl(btnRow,'button',{className:'zai-btn zai-btn-secondary zai-btn-sm',textContent:'💾 Lưu mẫu'});
+        saveBtn2.title='Lưu câu này (sau khi sửa) làm mẫu để AI học';
+        saveBtn2.addEventListener('click',() => saveAIExample_(r.prompt, ta.value, saveBtn2));
+      });
+    } catch(e) { sug.innerHTML=''; showError('Lỗi: '+e.message); }
+    finally { btn.disabled=false; btn.textContent='💬 Tạo 3 câu mở đầu đa dạng (mua hàng + chat)'; }
   }
 
   async function doGenerate() {
