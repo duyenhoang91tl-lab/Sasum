@@ -1,13 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script — PHIEN BAN 10.55.12.7.26 (gio.phut.ngay.thang.nam)
-//  v13.2 (10.55.12.7.26): Them cot 'tag' vao CareData (20 cot) — nhan tu do CS dat,
-//         dung de loc chien dich trong Sasum (muc 5. Nhan) va gan duoc tu extension;
-//         AI fallback Groq→Gemini→Cerebras (callAIWithFallback_) + nho provider
-//         loi quota/key qua CacheService 5 phut de bo qua nhanh lan sau;
-//         Them Birthday scheduler (runBirthdayScan_, sheet BirthdayTemplates/BirthdayLog)
-//         chay chung trigger voi FollowUp scan hang ngay (runFollowUpScanTrigger);
-//         Them recentlySentPhones_ (kiem tra da bi bi gui trong N ngay qua bat ky
-//         chien dich nao) dung cho tinh nang "Ban theo danh sach dang loc tren Zalo"
+//  OME CS Portal — Google Apps Script — PHIEN BAN 13.42.11.7.26 (gio.phut.ngay.thang.nam)
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)
@@ -25,7 +17,6 @@ var SH_SET     = 'Settings';
 var SH_ASSIGN  = 'AssignData';
 var SH_USER    = 'Users';
 var SH_CONTEXT = 'AIContext';
-var SH_AILOG   = 'AILog';
 
 var ORDER_SS_ID = '1JVIFMIUgKdfTG1FEMDGoYjQ3Qll2ChkbSHHTjgieLPs';
 
@@ -44,11 +35,11 @@ var ORDER_SHEETS = [
 ];
 var SH_ORDER_DEFAULT = 'OrderData26';
 
-// CARE_HEADERS: 20 cols (v10.0 co 15, v11.2 co 17, v12.0 them birthday, v13.1 them zaloSetBy, v13.2 them tag)
+// CARE_HEADERS: 19 cols (v10.0 co 15, v11.2 co 17, v12.0 them birthday, v13.1 them zaloSetBy)
 var CARE_HEADERS = ['phone','status','zalo','cs','note','schedules',
   'schedGoi','schedGoiNote','schedSP','schedSPNote',
   'schedCS','schedCSNote','schedHen','schedHenNote','updated',
-  'khStatus','nickZalos','birthday','zaloSetBy','tag'];
+  'khStatus','nickZalos','birthday','zaloSetBy'];
 
 var ORDER_HEADERS  = ['phone','name','date','year','month','cs','source','revenue',
   'product','productDetail','status','zalo','note','careCS'];
@@ -169,8 +160,7 @@ function careObjFromRow_(row) {
     khStatus:     row[15]||'',
     nickZalos:    parseNZ(row[16]),
     birthday:     row[17]||'',
-    zaloSetBy:    parseSetBy(row[18]), // { cs, nick, at } - ai/nick nao vua ghi trang thai 'zalo' gan nhat
-    tag:          row[19]||'' // nhan phan loai KH, tu do CS dat (VD: "VIP", "Khach si", "Combo A") - dung de loc chien dich
+    zaloSetBy:    parseSetBy(row[18]) // { cs, nick, at } - ai/nick nao vua ghi trang thai 'zalo' gan nhat
   };
 }
 
@@ -198,7 +188,7 @@ function findCareByPhone_(phone) {
   return null;
 }
 
-// careRow_: 20 cols. Neu truong khong co thi de trong.
+// careRow_: 19 cols. Neu truong khong co thi de trong.
 function careRow_(r) {
   var nz = r.nickZalos;
   if (!Array.isArray(nz)) { try { nz = JSON.parse(nz||'[]'); } catch(e) { nz = []; } }
@@ -209,7 +199,7 @@ function careRow_(r) {
     r.schedGoi||'', r.schedGoiNote||'', r.schedSP||'', r.schedSPNote||'',
     r.schedCS||'', r.schedCSNote||'', r.schedHen||'', r.schedHenNote||'',
     new Date().toISOString(),
-    r.khStatus||'', JSON.stringify(nz), r.birthday||'', setBy||'', r.tag||''
+    r.khStatus||'', JSON.stringify(nz), r.birthday||'', setBy||''
   ];
 }
 
@@ -225,8 +215,7 @@ function readExistingExtFields_(sh) {
       khStatus:  vals[i][15]||'',
       nickZalos: vals[i][16]||'[]',
       birthday:  vals[i][17]||'',
-      zaloSetBy: vals[i][18]||'',
-      tag:       vals[i][19]||''
+      zaloSetBy: vals[i][18]||''
     };
   }
   return map;
@@ -238,7 +227,6 @@ function mergeExtFields_(r, ex) {
   if (r.khStatus  === undefined || r.khStatus  === null || r.khStatus  === '') r.khStatus  = ex.khStatus  || '';
   if (r.birthday  === undefined || r.birthday  === null || r.birthday  === '') r.birthday  = ex.birthday  || '';
   if (r.zaloSetBy === undefined || r.zaloSetBy === null || r.zaloSetBy === '') r.zaloSetBy = ex.zaloSetBy || '';
-  if (r.tag       === undefined || r.tag       === null || r.tag       === '') r.tag       = ex.tag       || '';
   if (r.nickZalos === undefined || r.nickZalos === null ||
       (Array.isArray(r.nickZalos) && r.nickZalos.length === 0)) {
     try { r.nickZalos = JSON.parse(ex.nickZalos||'[]'); } catch(e) { r.nickZalos = []; }
@@ -453,15 +441,7 @@ function doGet(e) {
     if (action === 'runFollowUpScan') {
       return jsonOut_(runFollowUpScan_());
     }
-    // ── CHUC MUNG SINH NHAT TU DONG: xem mau + kich hoat thu cong ──
-    if (action === 'birthdayTemplates') {
-      return jsonOut_({ list: listBirthdayTemplates_() });
-    }
-    if (action === 'runBirthdayScan') {
-      return jsonOut_(runBirthdayScan_());
-    }
     if (action === 'dedupeCare') return dedupeCare_();
-    if (action === 'aiLogStats') return getAILogStats_(Number(e.parameter.limit) || 20);
 
     // default — backward compat voi appweb v10
     var resD = { rows: readCare_(ss.getSheetByName(SH_CARE)), orders: [] };
@@ -517,12 +497,8 @@ function doPost(e) {
     if (action === 'saveCareStatus')      return saveCareStatus_(data.careStatus);
     if (action === 'saveAIContext')        return saveAIContext_(data.type, data.content, data.context);
     if (action === 'ai')                  return callGroqAI_(data);
-    if (action === 'aiAuto')              return callGroqAutoAI_(data);
-    if (action === 'summarize')           return callGroqSummarize_(data);
-    if (action === 'logAI')               return logAIInteraction_(data);
     // ── BROADCAST: tao/cap nhat 1 chien dich gui tin hang loat ──
     if (action === 'saveBroadcast')        return saveBroadcast_(data.broadcast || data);
-    if (action === 'recentlySent')          return jsonOut_(recentlySentPhones_(data.phones, data.days));
     // ── BROADCAST: danh dau 1 SDT da gui/loi/bo qua trong 1 chien dich ──
     if (action === 'broadcastMark')        return broadcastMark_(data.id, data.phone, data.status);
     // ── BROADCAST: upload 1 anh (base64) len Drive, tra ve link xem truc tiep ──
@@ -541,7 +517,6 @@ function doPost(e) {
     if (action === 'dedupeCare')           return dedupeCare_();
     // ── HOI THAM TU DONG: luu bang mau tin (UI Sasum) ──
     if (action === 'saveFollowUpTemplates') return saveFollowUpTemplates_(data.templates);
-    if (action === 'saveBirthdayTemplates')  return saveBirthdayTemplates_(data.templates);
     return jsonOut_({ error: 'Unknown action: ' + action });
   } catch(err) {
     return jsonOut_({ error: err.message });
@@ -592,7 +567,7 @@ function saveSingleCare_(r) {
   if (rowIdx > 0) {
     // Doc du lieu hien tai de bao toan truong mo rong neu incoming khong co
     var existRow = sh.getRange(rowIdx, 1, 1, CARE_HEADERS.length).getValues()[0];
-    mergeExtFields_(r, { khStatus: existRow[15]||'', nickZalos: existRow[16]||'[]', birthday: existRow[17]||'', zaloSetBy: existRow[18]||'', tag: existRow[19]||'' });
+    mergeExtFields_(r, { khStatus: existRow[15]||'', nickZalos: existRow[16]||'[]', birthday: existRow[17]||'', zaloSetBy: existRow[18]||'' });
     sh.getRange(rowIdx, 1, 1, CARE_HEADERS.length).setValues([careRow_(r)]);
   } else {
     sh.appendRow(careRow_(r));
@@ -614,7 +589,7 @@ function saveBatchCare_(rows) {
   for (var k = 0; k < rows.length; k++) {
     var r = rows[k]; var key = normPhone_(String(r.phone));
     if (index[key] !== undefined) {
-      mergeExtFields_(r, { khStatus: data[index[key]][15]||'', nickZalos: data[index[key]][16]||'[]', birthday: data[index[key]][17]||'', zaloSetBy: data[index[key]][18]||'', tag: data[index[key]][19]||'' });
+      mergeExtFields_(r, { khStatus: data[index[key]][15]||'', nickZalos: data[index[key]][16]||'[]', birthday: data[index[key]][17]||'', zaloSetBy: data[index[key]][18]||'' });
       data[index[key]] = careRow_(r); updated++;
     } else {
       data.push(careRow_(r)); index[key] = data.length - 1; appended++;
@@ -1055,172 +1030,102 @@ function saveAIContext_(type, content, context) {
   return jsonOut_({ ok: true });
 }
 
-function getAILogStats_(limit) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(SH_AILOG);
-  if (!sh) return jsonOut_({ ok: true, total: 0, edited: 0, editedRate: 0, recentEdited: [] });
+// ─── SAN PHAM CHI TIET TU GOOGLE SHEET RIENG, NHIEU TAB (moi tab = 1 hang) ─────────
+// Cau hinh: setSetting_('productSheetUrl', <link Google Sheet>) — file phai duoc chia
+// se cho tai khoan dang chay Apps Script nay (hoac "Bat ky ai co lien ket" > Xem).
+// Dong 1 moi tab = tieu de cot (ten tuy y). Cot dau = ten san pham. Cac o mo ta co the
+// RAT DAI (nhu anh Duyen gui — mo ta chi tiet thanh phan/cong dung tung dong nhieu tram
+// tu) VA co nhieu tab (nhieu hang) => KHONG duoc nhet toan bo sheet vao 1 prompt (qua
+// nang, cham, ton phi AI). Cach lam:
+//   1) Cache 1 "muc luc" NHE cho tung tab (ten SP + vi tri dong + doan trich ngan) —
+//      cache rieng tung tab de khong vuot gioi han 100KB/1 cache key.
+//   2) Khi co cau hoi (query = noi dung prompt dang gui cho AI, gom ca "Ngu canh" CS
+//      nhap tay vd go "AHA"), tim trong muc luc cac dong co TU KHOA khop, xep hang theo
+//      so tu khop.
+//   3) CHI luc do moi doc lai NGUYEN VAN vai dong diem cao nhat (toi da 4 dong) tu dung
+//      sheet — vua chinh xac vua khong lam prompt qua tai.
+var _PSHEET_STOPWORDS_ = ['khach','san','pham','hang','chao','nhan','tin','giong','van',
+  'yeu','cau','tra','loi','cham','soc','mua','goi','ngan','gon','tieng','viet','duoc',
+  'nay','cho','voi','theo','mot','cac','trong','nguoi','minh','ban','the','nao','khong'];
 
-  var values = sh.getDataRange().getValues();
-  var header = values[0] || [];
-  var rows = values.slice(1);
-  var total = rows.length;
-  var editedRows = rows.filter(function(r) { return r[6] === true || r[6] === 'TRUE'; });
-  var editedRate = total ? Math.round((editedRows.length / total) * 1000) / 10 : 0;
-
-  var n = limit || 20;
-  var recentEdited = editedRows.slice(-n).reverse().map(function(r) {
-    return {
-      timestamp: r[0], phone: r[1], cs: r[2],
-      prompt: r[3], aiOriginal: r[4], finalSent: r[5]
-    };
-  });
-
-  return jsonOut_({
-    ok: true,
-    total: total,
-    edited: editedRows.length,
-    editedRate: editedRate, // % tin bi CS sua truoc khi gui
-    recentEdited: recentEdited
-  });
+function _psheetNoAccent_(s) {
+  return String(s||'').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd');
 }
 
-function logAIInteraction_(data) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(SH_AILOG);
-  if (!sh) {
-    sh = ss.insertSheet(SH_AILOG);
-    sh.appendRow(['timestamp','phone','cs','prompt','ai_original','final_sent','edited']);
-  }
-  var aiOriginal = data.aiOriginal || '';
-  var finalSent  = data.finalSent  || '';
-  var edited     = aiOriginal.trim() !== finalSent.trim();
-  sh.appendRow([
-    new Date().toISOString(),
-    data.phone || '',
-    data.cs || '',
-    (data.prompt || '').substring(0, 500),
-    aiOriginal,
-    finalSent,
-    edited
-  ]);
-  return jsonOut_({ ok: true });
+function _productSheetIndexForTab_(ss, tabName) {
+  var cacheKey = 'ext_idx_v2_' + tabName;
+  try {
+    var cached = CacheService.getScriptCache().get(cacheKey);
+    if (cached !== null) return JSON.parse(cached);
+  } catch (ec) {}
+  var idx = [];
+  try {
+    var sh = ss.getSheetByName(tabName);
+    if (sh && sh.getLastRow() >= 2 && sh.getLastColumn() >= 1) {
+      var vals = sh.getDataRange().getValues();
+      for (var i = 1; i < vals.length; i++) {
+        var row = vals[i];
+        if (!row[0]) continue;
+        var snippet = row.map(function(v){ return String(v||'').trim(); }).filter(Boolean).join(' ').substring(0, 250);
+        idx.push({ row: i + 1, name: String(row[0]).trim(), snippet: snippet });
+      }
+    }
+  } catch (e) { /* tab loi/khong doc duoc -> bo qua tab nay */ }
+  try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(idx), 900); } catch (ec2) {} // 15 phut
+  return idx;
 }
 
-// ═══════════════════════════════════════════════════════════════
-//  AI PROVIDER FALLBACK — thu lan luot Groq → Gemini → Cerebras
-//  Neu 1 provider loi (API loi, het quota, 401/429/5xx...) hoac chua co key,
-//  tu dong chuyen sang provider tiep theo trong danh sach.
-//
-//  Key luu trong Settings (sheet Settings), doc qua getSetting_:
-//    - 'geminiKey'   : Groq API key (ten cu, giu de tuong thich voi data da luu)
-//    - 'geminiKey2'  : Gemini API key that (lay tai aistudio.google.com/apikey)
-//    - 'cerebrasKey' : Cerebras API key (lay tai cloud.cerebras.ai)
-//  Provider nao chua co key se tu dong bi bo qua (khong tinh la loi).
-// ═══════════════════════════════════════════════════════════════
-var AI_PROVIDERS_ = [
-  {
-    name: 'Groq',
-    getKey: function () { return getSetting_('geminiKey'); },
-    url: 'https://api.groq.com/openai/v1/chat/completions',
-    model: 'llama-3.3-70b-versatile'
-  },
-  {
-    name: 'Gemini',
-    getKey: function () { return getSetting_('geminiKey2'); },
-    url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-    model: 'gemini-2.5-flash'
-  },
-  {
-    name: 'Cerebras',
-    getKey: function () { return getSetting_('cerebrasKey'); },
-    url: 'https://api.cerebras.ai/v1/chat/completions',
-    model: 'llama-3.3-70b'
-  }
-];
+function readExternalProductSheet_(query) {
+  var url = getSetting_('productSheetUrl');
+  if (!url) return '';
+  var ss;
+  try { ss = SpreadsheetApp.openByUrl(url); } catch (e) { return ''; } // chua chia se quyen / URL sai
 
-// Goi AI voi fallback tu dong.
-// messages: mang [{role, content}, ...] chuan OpenAI chat format.
-// overrides: {temperature, max_tokens} — model se luon lay theo tung provider, khong bi ghi de.
-// Tra ve { ok:true, provider, text } neu thanh cong, hoac { ok:false, error, triedProviders } neu ca 3 deu that bai.
-function callAIWithFallback_(messages, overrides) {
-  var tried = [];
-  var skipped = [];
-  var lastError = '';
-  var cache = CacheService.getScriptCache();
+  var qWords = _psheetNoAccent_(query).replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+    .filter(function(w) { return w.length >= 3 && _PSHEET_STOPWORDS_.indexOf(w) === -1; });
+  if (!qWords.length) return '';
 
-  for (var i = 0; i < AI_PROVIDERS_.length; i++) {
-    var p = AI_PROVIDERS_[i];
-    var key = p.getKey();
-    if (!key) continue; // chua cau hinh key cho provider nay -> bo qua, khong tinh la loi
-
-    // Provider vua bi loi quota/key sai gan day (xem duoi) -> bo qua ngay, khong
-    // mat thoi gian goi lai trong vai phut toi, chuyen thang provider tiep theo.
-    if (cache.get('aidown_' + p.name)) { skipped.push(p.name); continue; }
-
-    var payload = {
-      model: p.model,
-      messages: messages,
-      temperature: (overrides && overrides.temperature != null) ? overrides.temperature : 0.7,
-      max_tokens: (overrides && overrides.max_tokens != null) ? overrides.max_tokens : 400
-    };
-
-    tried.push(p.name);
-    try {
-      var res = UrlFetchApp.fetch(p.url, {
-        method: 'post',
-        headers: { 'Authorization': 'Bearer ' + key },
-        contentType: 'application/json',
-        payload: JSON.stringify(payload),
-        muteHttpExceptions: true
-      });
-      var code = res.getResponseCode();
-      var txt  = res.getContentText();
-
-      if (code === 200) {
-        var d = JSON.parse(txt);
-        var content = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
-        return { ok: true, provider: p.name, text: content || '' };
-      }
-
-      // 401/403 = key sai/het han, 429 = het quota -> day la loi "on dinh", se con sai
-      // trong it phut toi, nen nho lai de cac lan goi sau bo qua ngay cho nhanh.
-      // 5xx/loi khac co the chi la su co tam thoi cua provider -> khong cache, van thu lai binh thuong lan sau.
-      if (code === 401 || code === 403 || code === 429) {
-        cache.put('aidown_' + p.name, '1', 300); // tam ngung dung provider nay trong 5 phut
-      }
-      lastError = p.name + ' loi ' + code + ': ' + txt.substring(0, 300);
-    } catch (err) {
-      lastError = p.name + ' loi ket noi: ' + err.message;
+  var tabNames = ss.getSheets().map(function(s) { return s.getName(); });
+  var candidates = [];
+  for (var t = 0; t < tabNames.length; t++) {
+    var idx = _productSheetIndexForTab_(ss, tabNames[t]);
+    for (var i = 0; i < idx.length; i++) {
+      var hay = _psheetNoAccent_(idx[i].name + ' ' + idx[i].snippet);
+      var score = 0;
+      for (var w = 0; w < qWords.length; w++) { if (hay.indexOf(qWords[w]) !== -1) score++; }
+      if (score > 0) candidates.push({ brand: tabNames[t], row: idx[i].row, score: score });
     }
   }
+  if (!candidates.length) return '';
+  candidates.sort(function(a, b) { return b.score - a.score; });
+  var top = candidates.slice(0, 4);
 
-  if (!tried.length && !skipped.length) {
-    return { ok: false, error: 'Chua co API Key nao duoc cau hinh. Mo extension → banh rang → nhap it nhat 1 trong cac key Groq/Gemini/Cerebras → Luu.', triedProviders: [] };
+  var blocks = [];
+  for (var k = 0; k < top.length; k++) {
+    try {
+      var sh2 = ss.getSheetByName(top[k].brand);
+      var lastCol = sh2.getLastColumn();
+      var headerVals = sh2.getRange(1, 1, 1, lastCol).getValues()[0];
+      var rowVals = sh2.getRange(top[k].row, 1, 1, lastCol).getValues()[0];
+      var parts = [];
+      for (var c = 0; c < headerVals.length; c++) {
+        var h = String(headerVals[c] || '').trim();
+        var v = String(rowVals[c] || '').trim();
+        if (h && v && !/hinh|image|ảnh/i.test(h)) parts.push(h + ': ' + v);
+      }
+      var block = '[Hãng: ' + top[k].brand + ']\n' + parts.join('\n');
+      if (block.length > 1800) block = block.substring(0, 1800) + '...';
+      blocks.push(block);
+    } catch (e) { /* bo qua dong loi, khong chan cac dong khac */ }
   }
-  var skipNote = skipped.length ? ' (da bo qua ' + skipped.join(', ') + ' vi vua loi quota/key gan day)' : '';
-  return { ok: false, error: 'Tat ca provider AI deu loi hoac chua san sang' + skipNote + '. Loi cuoi: ' + (lastError || 'khong co provider nao con lai de thu'), triedProviders: tried };
-}
-
-function callGroqSummarize_(data) {
-  var messages = data.messages || [];
-  if (!messages.length) return jsonOut_({ ok: true, summary: '' });
-
-  var joined = messages.join('\n---\n');
-  var sysPrompt = 'Ban tom tat hoi thoai CSKH giua khach hang va shop my pham OME. ' +
-    'Doc cac tin nhan cua khach (theo thu tu thoi gian) va tom tat NGAN GON thanh toi da 5 gach dau dong, chi giu thong tin con huu ich cho lan tra loi tiep theo: ' +
-    'nhu cau/san pham khach dang quan tam, van de/khieu nai da neu (va da giai quyet chua), trang thai don hang neu co nhac den, giong dieu/thai do khach (vd: khach de tinh, khach dang buc). ' +
-    'Khong dien giai, khong lap lai nguyen van tin nhan, chi tom tat y chinh.';
-
-  var result = callAIWithFallback_([
-    { role: 'system', content: sysPrompt },
-    { role: 'user', content: joined }
-  ], { temperature: 0.3, max_tokens: 300 });
-
-  if (!result.ok) return jsonOut_({ error: result.error });
-  return jsonOut_({ ok: true, summary: result.text.trim(), provider: result.provider });
+  return blocks.join('\n\n---\n\n');
 }
 
 function callGroqAI_(data) {
+  var key = getSetting_('geminiKey'); // van dung key 'geminiKey' de tuong thich cu
+  if (!key) return jsonOut_({ error: 'Chua co API Key. Mo extension → banh rang → nhap Groq Key → Luu.' });
   var userMsg = data.prompt || '';
   if (!userMsg) return jsonOut_({ error: 'Thieu noi dung' });
 
@@ -1239,75 +1144,37 @@ function callGroqAI_(data) {
   if (ctx.products.length > 0) sysParts.push('\n\nSAN PHAM OME:\n'     + ctx.products.slice(0, 12).join('\n'));
   if (ctx.faqs.length > 0)     sysParts.push('\n\nFAQ:\n'              + ctx.faqs.slice(0, 4).join('\n'));
   if (ctx.combos.length > 0)   sysParts.push('\n\nMAU TIN NHAN:\n'     + ctx.combos.slice(0, 5).join('\n'));
+  var extProducts = readExternalProductSheet_(userMsg);
+  if (extProducts) sysParts.push('\n\nTHONG TIN CHI TIET SAN PHAM / THANH PHAN (nguon: Google Sheet rieng cua team, khop voi tu khoa trong yeu cau — uu tien dung du lieu nay khi tra loi ve thanh phan/cong dung cu the, KHONG dung neu khong lien quan):\n' + extProducts);
   sysParts.push('\n\nYEU CAU: Chi dua ra DUY NHAT 1 cau tra loi ngan gon (toi da 150 tu). Khong danh so, khong giai thich them.');
 
-  var result = callAIWithFallback_([
-    { role: 'system', content: sysParts.join('') },
-    { role: 'user',   content: userMsg }
-  ], { temperature: 0.7, max_tokens: 400 });
+  var payload = {
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      { role: 'system', content: sysParts.join('') },
+      { role: 'user',   content: userMsg }
+    ],
+    temperature: 0.7,
+    max_tokens: 400
+  };
 
-  if (!result.ok) return jsonOut_({ error: result.error });
-  return jsonOut_({ ok: true, text: result.text, provider: result.provider });
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  AUTO-PILOT: goi AI yeu cau tra ve JSON co cau truc {intent, reply_text, confidence}
-//  de extension tu quyet dinh gui thang hay chuyen CS nguoi that duyet (xem control layer o content.js)
-// ═══════════════════════════════════════════════════════════════
-function callGroqAutoAI_(data) {
-  var userMsg = data.prompt || '';
-  if (!userMsg) return jsonOut_({ error: 'Thieu noi dung' });
-
-  var ctx = readAIContext_();
-  var trunc_ = function(s, n) { return s && s.length > n ? s.substring(0, n) + '...' : s; };
-  var sysParts = [];
-  if (ctx.systemPrompt) {
-    sysParts.push(ctx.systemPrompt);
-  } else {
-    sysParts.push('Ban la chuyen vien cham soc khach hang cua cong ty my pham OME. Tra loi bang tieng Viet, than thien, ngan gon.');
+  try {
+    var res = UrlFetchApp.fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'post',
+      headers: { 'Authorization': 'Bearer ' + key },
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    var code = res.getResponseCode();
+    var txt  = res.getContentText();
+    if (code !== 200) return jsonOut_({ error: 'Groq loi ' + code + ': ' + txt.substring(0, 300) });
+    var d = JSON.parse(txt);
+    var result = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+    return jsonOut_({ ok: true, text: result || '' });
+  } catch(err) {
+    return jsonOut_({ error: 'Loi goi Groq: ' + err.message });
   }
-  if (ctx.careProcess)    sysParts.push('\n\nQUY TRINH CSKH:\n'        + trunc_(ctx.careProcess, 600));
-  if (ctx.callbackScript) sysParts.push('\n\nKICH BAN GOI LAI:\n'      + trunc_(ctx.callbackScript, 500));
-  if (ctx.salesScriptCu)  sysParts.push('\n\nKICH BAN KHACH CU:\n'     + trunc_(ctx.salesScriptCu, 500));
-  if (ctx.salesScriptMoi) sysParts.push('\n\nKICH BAN KHACH MOI:\n'    + trunc_(ctx.salesScriptMoi, 500));
-  if (ctx.products.length > 0) sysParts.push('\n\nSAN PHAM OME:\n'     + ctx.products.slice(0, 12).join('\n'));
-  if (ctx.faqs.length > 0)     sysParts.push('\n\nFAQ:\n'              + ctx.faqs.slice(0, 4).join('\n'));
-  if (ctx.combos.length > 0)   sysParts.push('\n\nMAU TIN NHAN:\n'     + ctx.combos.slice(0, 5).join('\n'));
-  sysParts.push(
-    '\n\nYEU CAU: Day la he thong TU DONG — CS nguoi that se KHONG doc lai truoc khi gui neu ban tu tin. ' +
-    'Chi TRA VE DUY NHAT 1 doi tuong JSON hop le, KHONG them chu nao khac ngoai JSON, dung dinh dang: ' +
-    '{"intent":"<mot trong: hoi_tinh_trang_don | hoi_ma_san_pham | follow_up_moc_mua_hang | khieu_nai | hoi_gia_dac_biet | khac>",' +
-    '"reply_text":"<cau tra loi tieng Viet, ngan gon, tu nhien, toi da 150 tu>",' +
-    '"confidence":<so nguyen 0-100, muc do tu tin la cau tra loi nay DUNG va AN TOAN de gui thang cho khach ma khong can nguoi duyet>}. ' +
-    'Neu la khieu nai, phan nan, hoi gia dac biet/chiet khau rieng, hoac ban KHONG chac chan noi dung/y dinh cua khach, hay dat confidence THAP (duoi 50) ' +
-    'va intent tuong ung, DE NGUOI THAT XU LY — khong co gang "co gang tra loi cho co" trong nhung truong hop nay.'
-  );
-
-  var result = callAIWithFallback_([
-    { role: 'system', content: sysParts.join('') },
-    { role: 'user',   content: userMsg }
-  ], { temperature: 0.4, max_tokens: 400 });
-
-  if (!result.ok) return jsonOut_({ error: result.error });
-
-  var raw = result.text || '';
-  // Bao ve: model co the vo tinh boc JSON trong ```json ... ``` du da yeu cau khong lam vay
-  var cleaned = raw.replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
-  var parsed;
-  try { parsed = JSON.parse(cleaned); } catch(pe) {
-    // Khong parse duoc JSON -> AN TOAN LA TREN HET: coi nhu confidence = 0, de CS nguoi that xu ly
-    return jsonOut_({ ok: true, intent: 'khac', reply_text: cleaned, confidence: 0, parseError: true, provider: result.provider });
-  }
-  var confidence = Number(parsed.confidence);
-  if (!isFinite(confidence)) confidence = 0;
-  confidence = Math.max(0, Math.min(100, confidence));
-  return jsonOut_({
-    ok: true,
-    intent: String(parsed.intent || 'khac'),
-    reply_text: String(parsed.reply_text || ''),
-    confidence: confidence,
-    provider: result.provider
-  });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1380,25 +1247,6 @@ function readBroadcasts_() {
 }
 
 // Tao moi hoac cap nhat 1 chien dich (giu nguyen sentJson neu da co, tru khi truyen kem)
-// Kiem tra trong cac SDT dua vao, ai da tung duoc gui (bat ky chien dich nao)
-// trong N ngay gan day — dung de tu dong bo qua khi CS tao chien dich moi tu
-// danh sach quet man hinh (tranh nhan tin lien tuc lam phien khach).
-function recentlySentPhones_(phones, days) {
-  var cutoff = Date.now() - (Number(days) || 30) * 86400000;
-  var all = readBroadcasts_();
-  var out = {};
-  (phones || []).forEach(function (p) {
-    var np = normPhone_(p);
-    if (!np) return;
-    for (var i = 0; i < all.length; i++) {
-      var sent = all[i].sent || {};
-      var rec = sent[np];
-      if (rec && rec.ts && new Date(rec.ts).getTime() >= cutoff) { out[np] = rec.ts; break; }
-    }
-  });
-  return { ok: true, recentlySent: out };
-}
-
 function saveBroadcast_(b) {
   if (!b || !b.phones || !b.phones.length) return jsonOut_({ ok: false, error: 'Thieu danh sach SDT' });
   var sh = getBroadcastSheet_();
@@ -1940,197 +1788,13 @@ function runFollowUpScan_() {
   return { ok: true, count: phones.length, campaigns: created };
 }
 
-// ═══════════════════════════════════════════════════════════════
-//  CHUC MUNG SINH NHAT TU DONG (Birthday scheduler)
-//  - Doc CareData.birthday (dinh dang YYYY-MM-DD tu <input type=date>) — chi
-//    phan THANG-NGAY duoc dung de so sanh, nam sinh khong quan trong nen
-//    nhac lai duoc moi nam.
-//  - Mau tin cau hinh trong sheet "BirthdayTemplates" (cot A: cs [de trong =
-//    mau chung], cot B: template). Uu tien mau rieng cua CS phu trach khach —
-//    giong het co che uu tien cua FollowUpTemplates. Sua qua giao dien Sasum,
-//    khong can sua code.
-//  - Placeholder ho tro trong template: {name} {phone} (dung chung renderFollowUpTemplate_).
-//  - Gom theo CS thanh 1 chien dich Broadcast/ngay (y het follow-up) — CS
-//    VAN PHAI TU BAM GUI trong extension, KHONG tu dong gui thang cho khach.
-//  - Chi gui 1 lan/nam cho moi SDT (BirthdayLog, key = phone + nam).
-//  - Dung CHUNG 1 trigger hang ngay voi hoi tham (xem runDailyScansTrigger).
-// ═══════════════════════════════════════════════════════════════
-var SH_BDAY_TEMPLATE = 'BirthdayTemplates';
-var BDAY_TEMPLATE_HEADERS = ['cs', 'template'];
-var SH_BDAY_LOG = 'BirthdayLog';
-var BDAY_LOG_HEADERS = ['phone', 'year', 'sentAt'];
-
-// Doc bang mau: { '': 'mau chung...', 'duyenht': 'mau rieng cua duyenht...' }
-function readBirthdayTemplates_() {
-  var sh = getSheet_(SH_BDAY_TEMPLATE, BDAY_TEMPLATE_HEADERS);
-  var last = sh.getLastRow();
-  var map = {};
-  if (last < 2) return map;
-  var vals = sh.getRange(2, 1, last - 1, BDAY_TEMPLATE_HEADERS.length).getValues();
-  for (var i = 0; i < vals.length; i++) {
-    var cs = String(vals[i][0] || '').trim().toLowerCase();
-    var tpl = String(vals[i][1] || '').trim();
-    if (!tpl) continue;
-    map[cs] = tpl;
-  }
-  return map;
-}
-
-// Danh sach dang mang (cho UI Sasum sua truc tiep, giong listFollowUpTemplates_)
-function listBirthdayTemplates_() {
-  var sh = getSheet_(SH_BDAY_TEMPLATE, BDAY_TEMPLATE_HEADERS);
-  var last = sh.getLastRow();
-  var out = [];
-  if (last < 2) return out;
-  var vals = sh.getRange(2, 1, last - 1, BDAY_TEMPLATE_HEADERS.length).getValues();
-  for (var i = 0; i < vals.length; i++) {
-    if (!String(vals[i][1] || '').trim()) continue;
-    out.push({ cs: String(vals[i][0] || '').trim().toLowerCase(), template: String(vals[i][1] || '') });
-  }
-  return out;
-}
-
-function saveBirthdayTemplates_(list) {
-  if (!Array.isArray(list)) return jsonOut_({ error: 'templates phai la mang' });
-  var sh = getSheet_(SH_BDAY_TEMPLATE, BDAY_TEMPLATE_HEADERS);
-  sh.clearContents();
-  var matrix = [BDAY_TEMPLATE_HEADERS];
-  for (var i = 0; i < list.length; i++) {
-    var t = list[i] || {};
-    if (!String(t.template || '').trim()) continue;
-    matrix.push([String(t.cs || '').trim().toLowerCase(), String(t.template)]);
-  }
-  sh.getRange(1, 1, matrix.length, BDAY_TEMPLATE_HEADERS.length).setValues(matrix);
-  return jsonOut_({ ok: true, written: matrix.length - 1 });
-}
-
-function readBirthdayLogKeys_() {
-  var sh = getSheet_(SH_BDAY_LOG, BDAY_LOG_HEADERS);
-  var last = sh.getLastRow();
-  var set = {};
-  if (last < 2) return set;
-  var vals = sh.getRange(2, 1, last - 1, 2).getValues();
-  for (var i = 0; i < vals.length; i++) set[String(vals[i][0]) + '|' + String(vals[i][1])] = true;
-  return set;
-}
-
-function appendBirthdayLogRows_(rows) {
-  if (!rows.length) return;
-  var sh = getSheet_(SH_BDAY_LOG, BDAY_LOG_HEADERS);
-  sh.getRange(sh.getLastRow() + 1, 1, rows.length, BDAY_LOG_HEADERS.length).setValues(rows);
-}
-
-// Doc ten khach tu don hang gan day (chi 3 nam gan nhat, du de ca nhan hoa loi
-// chao — khong bat buoc phai co, template van chay duoc voi ten rong -> 'ban').
-function buildPhoneNameMap_() {
-  var map = {};
-  var oss = getOrderSS_();
-  var curY = new Date().getFullYear();
-  for (var i = 0; i < ORDER_SHEETS.length; i++) {
-    var yrs = ORDER_SHEETS[i].years;
-    if (yrs.indexOf(curY) === -1 && yrs.indexOf(curY - 1) === -1 && yrs.indexOf(curY - 2) === -1) continue;
-    var sh = oss.getSheetByName(ORDER_SHEETS[i].name);
-    if (!sh) continue;
-    var rows = readOrders_(sh);
-    for (var j = 0; j < rows.length; j++) {
-      var np = normPhone_(rows[j].phone);
-      if (np && rows[j].name) map[np] = rows[j].name;
-    }
-  }
-  return map;
-}
-
-function runBirthdayScan_() {
-  var templates = readBirthdayTemplates_();
-  if (!Object.keys(templates).length) {
-    return { ok: true, count: 0, message: 'Chua co mau chuc mung sinh nhat nao — vao Sasum → 🎂 Mẫu chúc mừng sinh nhật để thêm.' };
-  }
-  var doneKeys = readBirthdayLogKeys_();
-  var tz = Session.getScriptTimeZone() || 'GMT+7';
-  var today = new Date();
-  var mmdd = Utilities.formatDate(today, tz, 'MM-dd');
-  var year = today.getFullYear();
-
-  var careRows = readCare_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH_CARE));
-  var nameMap = buildPhoneNameMap_();
-
-  var perPhoneMsg = {}, perPhoneNick = {}, logRows = [];
-  var groups = {};
-
-  for (var i = 0; i < careRows.length; i++) {
-    var cr = careRows[i];
-    if (!cr.birthday) continue;
-    var bd = new Date(cr.birthday);
-    if (isNaN(bd)) continue;
-    if (Utilities.formatDate(bd, tz, 'MM-dd') !== mmdd) continue;
-
-    var np = normPhone_(cr.phone);
-    if (!np) continue;
-    var logKey = np + '|' + year;
-    if (doneKeys[logKey]) continue;
-
-    var csOwn = String(cr.cs || '').trim().toLowerCase();
-    var tpl = (csOwn && templates[csOwn]) || templates[''];
-    if (!tpl) continue; // khong co mau chung lan mau rieng cho CS nay -> bo qua, khong gui tin rong
-
-    var msg = renderFollowUpTemplate_(tpl, { name: nameMap[np] || '', phone: np });
-    perPhoneMsg[np] = msg;
-    perPhoneNick[np] = Array.isArray(cr.nickZalos) ? cr.nickZalos : [];
-    logRows.push([np, year, new Date().toISOString()]);
-
-    if (!groups[csOwn]) groups[csOwn] = [];
-    groups[csOwn].push(np);
-  }
-
-  if (!logRows.length) return { ok: true, count: 0, message: 'Hôm nay không có khách nào sinh nhật (hoặc đã gửi chúc mừng năm nay rồi).' };
-
-  var todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd_HHmm');
-  var dateLabel = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy');
-  var created = [];
-  Object.keys(groups).forEach(function (csName) {
-    var grpPhones = groups[csName];
-    var grpMsg = {}, grpNick = {};
-    for (var pi = 0; pi < grpPhones.length; pi++) {
-      grpMsg[grpPhones[pi]] = perPhoneMsg[grpPhones[pi]];
-      grpNick[grpPhones[pi]] = perPhoneNick[grpPhones[pi]] || [];
-    }
-    var broadcast = {
-      id: 'bday_' + todayStr + (csName ? '_' + csName : '_chung'),
-      label: '🎂 Chúc mừng sinh nhật ' + dateLabel + (csName ? ' — ' + csName : ' — chưa gán CS'),
-      message: '(Nội dung cá nhân hoá riêng theo từng khách — xem chi tiết trong extension)',
-      images: [],
-      phones: grpPhones,
-      csName: csName,
-      expectedNick: '',
-      createdAt: new Date().toISOString(),
-      status: 'active',
-      perPhoneMsg: grpMsg,
-      perPhoneNick: grpNick
-    };
-    saveBroadcast_(broadcast);
-    created.push({ id: broadcast.id, cs: csName || '(chung)', count: grpPhones.length });
-  });
-
-  appendBirthdayLogRows_(logRows);
-  return { ok: true, count: logRows.length, campaigns: created };
-}
-
 // ─── HUONG DAN DAT LICH CHAY TU DONG (setup 1 lan) ───────────────
 // Trong Apps Script editor: Trigger (bieu tuong dong ho o thanh ben trai)
 // → + Add Trigger → Chon ham "runFollowUpScanTrigger" → Chon nguon su kien
 // "Time-driven" → "Day timer" → chon khung gio (VD 8-9 sang) → Save.
 // Ham nay chi la wrapper khong tra ve gi (trigger yeu cau void), log lai
 // ket qua vao Logger de kiem tra trong "Executions" cua Apps Script.
-// Ham nay gio chay CA follow-up (hoi tham theo ngay mua) LAN birthday scan
-// (chuc mung sinh nhat) trong CUNG 1 lan trigger — khong can tao them trigger
-// thu 2, chi can trigger da cai san tu truoc van hoat dong nhu cu.
 function runFollowUpScanTrigger() {
   var res = runFollowUpScan_();
-  Logger.log('FollowUp: ' + JSON.stringify(res));
-  try {
-    var bres = runBirthdayScan_();
-    Logger.log('Birthday: ' + JSON.stringify(bres));
-  } catch (be) {
-    Logger.log('Birthday scan loi: ' + be.message);
-  }
+  Logger.log(JSON.stringify(res));
 }

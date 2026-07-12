@@ -1,4 +1,4 @@
-// Duyen AI - content script Ver 16.45.12.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// Duyen AI - content script Ver 17.30.12.7.26 (gio.phut.ngay.thang.nam xuat ban)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
@@ -111,7 +111,7 @@
     // Header
     const hdr = document.createElement('div');
     hdr.className = 'zai-hdr';
-    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 16.45.12.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
+    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 17.30.12.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'zai-cfg-btn'; cfgBtn.id = 'zai-cfg-toggle'; cfgBtn.title = 'Cài đặt'; cfgBtn.textContent = '⚙';
     hdr.appendChild(cfgBtn); panel.appendChild(hdr);
@@ -123,6 +123,9 @@
     const inpGas = addEl(cfg, 'input', {id:'zai-gas-url', type:'text', placeholder:'https://script.google.com/macros/s/...'});
     addEl(cfg, 'label', {textContent:'🔑 Groq API Key (lưu 1 lần dùng chung cả team)'});
     addEl(cfg, 'input', {id:'zai-gemini-key', type:'text', placeholder:'gsk_... (lấy miễn phí tại console.groq.com)'});
+    addEl(cfg, 'label', {textContent:'📄 Link Google Sheet chi tiết sản phẩm/thành phần (tuỳ chọn, dùng chung cả team)'});
+    const inpProdSheet = addEl(cfg, 'input', {id:'zai-product-sheet-url', type:'text', placeholder:'https://docs.google.com/spreadsheets/d/...'});
+    addEl(cfg, 'div', {style:'font-size:10px;color:#9ca3af;margin:2px 0 6px', textContent:'Hỗ trợ nhiều tab (mỗi tab 1 hãng), dòng 1 mỗi tab là tiêu đề cột, cột đầu là tên sản phẩm. Sheet phải chia sẻ "Bất kỳ ai có liên kết – Xem" hoặc chia sẻ cho tài khoản chạy GAS. AI sẽ tự tìm đúng vài sản phẩm khớp với câu hỏi/ngữ cảnh (không nhét cả sheet) để tư vấn chính xác.'});
     const autoAiRow = addEl(cfg, 'label', {style:'display:flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer;font-weight:400;'});
     const autoAiChk = addEl(autoAiRow, 'input', {type:'checkbox', id:'zai-auto-ai-chk'});
     addEl(autoAiRow, 'span', {textContent:'⚡ Tự động soạn 3 câu mở đầu khi mở đoạn chat khách (đỡ phải bấm Lấy TN / Tạo gợi ý)'});
@@ -363,7 +366,7 @@
     });
     chrome.storage.local.get(['ome_gas_url','ome_current_cs','ome_current_nz','ome_auto_ai_reply','ome_auto_ai_per_phone'], (res) => {
       GAS_URL = res.ome_gas_url || '';
-      if (GAS_URL) { inpGas.value = GAS_URL; loadCSNames_(); loadNickZaloList_(); loadCareStatusTree_(); }
+      if (GAS_URL) { inpGas.value = GAS_URL; loadCSNames_(); loadNickZaloList_(); loadCareStatusTree_(); loadProductSheetUrl_(); }
       loadChatNamePhoneMap_();
       if (!GAS_URL) { _cfgVisible = true; cfg.style.display = 'block'; }
       _currentCS = res.ome_current_cs || '';
@@ -460,12 +463,28 @@
         else { showError('Lỗi lưu key: '+JSON.stringify(d)); return; }
       } catch(e) { showError('Lỗi kết nối GAS: '+e.message); return; }
     }
+    const prodSheetEl = document.getElementById('zai-product-sheet-url');
+    const prodSheetUrl = prodSheetEl ? prodSheetEl.value.trim() : '';
+    try {
+      await fetch(GAS_URL, { method:'POST', body:JSON.stringify({action:'setSetting',key:'productSheetUrl',value:prodSheetUrl}), headers:{'Content-Type':'text/plain'} });
+    } catch(e) { /* khong chan luong luu chinh neu loi rieng phan nay */ }
     _cfgVisible = false;
     document.getElementById('zai-cfg').style.display = 'none';
     _lookupCache = {};
     loadCSNames_();
     loadCareStatusTree_();
     if (!key) showMsg('zai-save-status','✓ Đã lưu cài đặt',2000);
+  }
+
+  async function loadProductSheetUrl_() {
+    if (!GAS_URL) return;
+    try {
+      const sep = GAS_URL.includes('?') ? '&' : '?';
+      const r = await fetch(GAS_URL + sep + 'action=getSetting&key=productSheetUrl', {redirect:'follow'});
+      const d = await r.json();
+      const el = document.getElementById('zai-product-sheet-url');
+      if (el && d && d.value) el.value = d.value;
+    } catch(e) {}
   }
 
   function normPhone(p) {
