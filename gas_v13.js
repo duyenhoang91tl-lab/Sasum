@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script — PHIEN BAN 13.42.11.7.26 (gio.phut.ngay.thang.nam)
+//  OME CS Portal — Google Apps Script — PHIEN BAN 14.18.12.7.2026 (gio.phut.ngay.thang.nam)
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)
@@ -376,7 +376,7 @@ function doGet(e) {
         var sho = getOrderSS_().getSheetByName(ORDER_SHEETS[si].name);
         if (sho) totalOrders += Math.max(0, sho.getLastRow() - 1);
       }
-      return jsonOut_({ orderRows: totalOrders, careRows: shC ? Math.max(0, shC.getLastRow()-1) : 0, ver: 'v13.42.11.7.26' });
+      return jsonOut_({ orderRows: totalOrders, careRows: shC ? Math.max(0, shC.getLastRow()-1) : 0, ver: 'v14.18.12.7.2026' });
     }
 
     // ── lich hen hom nay / qua han (ZaloAI extension) ──
@@ -1123,59 +1123,100 @@ function readExternalProductSheet_(query) {
   return blocks.join('\n\n---\n\n');
 }
 
-function callGroqAI_(data) {
-  var key = getSetting_('geminiKey'); // van dung key 'geminiKey' de tuong thich cu
-  if (!key) return jsonOut_({ error: 'Chua co API Key. Mo extension → banh rang → nhap Groq Key → Luu.' });
-  var userMsg = data.prompt || '';
-  if (!userMsg) return jsonOut_({ error: 'Thieu noi dung' });
+function callGroqAI_(data) { return callAI_(data); } // alias tuong thich cu
 
+// ─── Prompt he thong: kien thuc san pham CHI nap khi CS bat "Tra cuu san pham" ───
+function _buildAISystemPrompt_(userMsg, withProducts) {
   var ctx = readAIContext_();
-  var trunc_ = function(s, n) { return s && s.length > n ? s.substring(0, n) + '...' : s; };
-  var sysParts = [];
-  if (ctx.systemPrompt) {
-    sysParts.push(ctx.systemPrompt);
-  } else {
-    sysParts.push('Ban la chuyen vien cham soc khach hang cua cong ty my pham OME. Tra loi bang tieng Viet, than thien, ngan gon.');
+  var trunc_ = function(str, n) { return str && str.length > n ? str.substring(0, n) + '...' : str; };
+  var parts = [];
+  parts.push(ctx.systemPrompt || 'Ban la chuyen vien cham soc khach hang cua cong ty my pham OME. Tra loi bang tieng Viet, than thien, ngan gon.');
+  if (ctx.careProcess)    parts.push('\n\nQUY TRINH CSKH:\n'    + trunc_(ctx.careProcess, 600));
+  if (ctx.callbackScript) parts.push('\n\nKICH BAN GOI LAI:\n'  + trunc_(ctx.callbackScript, 500));
+  if (ctx.salesScriptCu)  parts.push('\n\nKICH BAN KHACH CU:\n' + trunc_(ctx.salesScriptCu, 500));
+  if (ctx.salesScriptMoi) parts.push('\n\nKICH BAN KHACH MOI:\n'+ trunc_(ctx.salesScriptMoi, 500));
+  // Chi nap kien thuc san pham (nang) khi CS chu dong bat "Tra cuu san pham" -> giu prompt nhe, tranh 429
+  if (withProducts) {
+    if (ctx.products.length > 0) parts.push('\n\nSAN PHAM OME:\n' + ctx.products.slice(0, 12).join('\n'));
+    if (ctx.faqs.length > 0)     parts.push('\n\nFAQ:\n'          + ctx.faqs.slice(0, 4).join('\n'));
+    if (ctx.combos.length > 0)   parts.push('\n\nMAU TIN NHAN:\n' + ctx.combos.slice(0, 5).join('\n'));
+    var ext = readExternalProductSheet_(userMsg);
+    if (ext) parts.push('\n\nTHONG TIN CHI TIET SAN PHAM / THANH PHAN (nguon: Google Sheet rieng cua team, khop tu khoa trong yeu cau — uu tien dung khi tra loi ve thanh phan/cong dung cu the):\n' + ext);
   }
-  if (ctx.careProcess)    sysParts.push('\n\nQUY TRINH CSKH:\n'        + trunc_(ctx.careProcess, 600));
-  if (ctx.callbackScript) sysParts.push('\n\nKICH BAN GOI LAI:\n'      + trunc_(ctx.callbackScript, 500));
-  if (ctx.salesScriptCu)  sysParts.push('\n\nKICH BAN KHACH CU:\n'     + trunc_(ctx.salesScriptCu, 500));
-  if (ctx.salesScriptMoi) sysParts.push('\n\nKICH BAN KHACH MOI:\n'    + trunc_(ctx.salesScriptMoi, 500));
-  if (ctx.products.length > 0) sysParts.push('\n\nSAN PHAM OME:\n'     + ctx.products.slice(0, 12).join('\n'));
-  if (ctx.faqs.length > 0)     sysParts.push('\n\nFAQ:\n'              + ctx.faqs.slice(0, 4).join('\n'));
-  if (ctx.combos.length > 0)   sysParts.push('\n\nMAU TIN NHAN:\n'     + ctx.combos.slice(0, 5).join('\n'));
-  var extProducts = readExternalProductSheet_(userMsg);
-  if (extProducts) sysParts.push('\n\nTHONG TIN CHI TIET SAN PHAM / THANH PHAN (nguon: Google Sheet rieng cua team, khop voi tu khoa trong yeu cau — uu tien dung du lieu nay khi tra loi ve thanh phan/cong dung cu the, KHONG dung neu khong lien quan):\n' + extProducts);
-  sysParts.push('\n\nYEU CAU: Chi dua ra DUY NHAT 1 cau tra loi ngan gon (toi da 150 tu). Khong danh so, khong giai thich them.');
+  parts.push('\n\nYEU CAU: Chi dua ra DUY NHAT 1 cau tra loi ngan gon (toi da 150 tu). Khong danh so, khong giai thich them.');
+  return parts.join('');
+}
 
-  var payload = {
-    model: 'llama-3.3-70b-versatile',
-    messages: [
-      { role: 'system', content: sysParts.join('') },
-      { role: 'user',   content: userMsg }
-    ],
-    temperature: 0.7,
-    max_tokens: 400
-  };
-
+// ─── Goi provider dang OpenAI-compatible (Groq, Cerebras) ───
+function _aiOpenAICompat_(prov, sys, userMsg) {
   try {
-    var res = UrlFetchApp.fetch('https://api.groq.com/openai/v1/chat/completions', {
+    var res = UrlFetchApp.fetch(prov.url, {
       method: 'post',
-      headers: { 'Authorization': 'Bearer ' + key },
+      headers: { 'Authorization': 'Bearer ' + prov.key },
       contentType: 'application/json',
-      payload: JSON.stringify(payload),
+      payload: JSON.stringify({
+        model: prov.model,
+        messages: [ { role: 'system', content: sys }, { role: 'user', content: userMsg } ],
+        temperature: 0.7, max_tokens: 400
+      }),
       muteHttpExceptions: true
     });
-    var code = res.getResponseCode();
-    var txt  = res.getContentText();
-    if (code !== 200) return jsonOut_({ error: 'Groq loi ' + code + ': ' + txt.substring(0, 300) });
+    var code = res.getResponseCode(), txt = res.getContentText();
+    if (code !== 200) return { ok: false, error: code + ' ' + txt.substring(0, 200) };
     var d = JSON.parse(txt);
-    var result = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
-    return jsonOut_({ ok: true, text: result || '' });
-  } catch(err) {
-    return jsonOut_({ error: 'Loi goi Groq: ' + err.message });
-  }
+    var t = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+    return { ok: true, text: t || '' };
+  } catch (e) { return { ok: false, error: e.message }; }
 }
+
+// ─── Goi Gemini (dinh dang rieng cua Google) ───
+function _aiGemini_(prov, sys, userMsg) {
+  try {
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + prov.model + ':generateContent?key=' + encodeURIComponent(prov.key);
+    var res = UrlFetchApp.fetch(url, {
+      method: 'post', contentType: 'application/json',
+      payload: JSON.stringify({
+        systemInstruction: { parts: [ { text: sys } ] },
+        contents: [ { role: 'user', parts: [ { text: userMsg } ] } ],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 400 }
+      }),
+      muteHttpExceptions: true
+    });
+    var code = res.getResponseCode(), txt = res.getContentText();
+    if (code !== 200) return { ok: false, error: code + ' ' + txt.substring(0, 200) };
+    var d = JSON.parse(txt);
+    var t = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts && d.candidates[0].content.parts[0] && d.candidates[0].content.parts[0].text;
+    return { ok: true, text: t || '' };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
+// ─── AI da nha cung cap: Groq -> Cerebras -> Gemini (dung cai nao co key & tra loi duoc) ───
+function callAI_(data) {
+  var userMsg = data.prompt || '';
+  if (!userMsg) return jsonOut_({ error: 'Thieu noi dung' });
+  var withProducts = !!data.withProducts;
+  var sys = _buildAISystemPrompt_(userMsg, withProducts);
+
+  var providers = [
+    { name: 'Groq',     key: getSetting_('apiGroq') || getSetting_('geminiKey'), fn: _aiOpenAICompat_, url: 'https://api.groq.com/openai/v1/chat/completions',     model: 'llama-3.3-70b-versatile' },
+    { name: 'Cerebras', key: getSetting_('apiCerebras'),                          fn: _aiOpenAICompat_, url: 'https://api.cerebras.ai/v1/chat/completions',        model: 'llama-3.3-70b' },
+    { name: 'Gemini',   key: getSetting_('apiGemini'),                            fn: _aiGemini_,       model: 'gemini-2.0-flash' }
+  ];
+
+  var errors = [], anyKey = false;
+  for (var i = 0; i < providers.length; i++) {
+    var pv = providers[i];
+    if (!pv.key) continue;
+    anyKey = true;
+    var r = pv.fn(pv, sys, userMsg);
+    if (r.ok && r.text) return jsonOut_({ ok: true, text: r.text, provider: pv.name });
+    errors.push(pv.name + ': ' + (r.error || 'rong'));
+    // loi (429/sai key/...) -> tu dong thu provider ke tiep
+  }
+  if (!anyKey) return jsonOut_({ error: 'Chua co API Key nao. Mo extension → banh rang → nhap it nhat 1 key (Groq/Cerebras/Gemini).' });
+  return jsonOut_({ error: 'Tat ca API deu loi: ' + errors.join(' | ') });
+}
+
 
 // ═══════════════════════════════════════════════════════════════
 //  testScript — chay 1 lan de tao sheet + kiem tra

@@ -1,4 +1,4 @@
-// Duyen AI - content script Ver 14.06.12.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// Duyen AI - content script Ver 14.18.12.7.26 (gio.phut.ngay.thang.nam xuat ban)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
@@ -33,6 +33,7 @@
   let _currentCS = ''; // CS dang dung, luu vao chrome.storage
   let _currentZaloNick = ''; // Nick Zalo CS dang dung, sticky
   let _zaloNickList = []; // danh sach nick tu GAS
+  let _useProducts = false; // nut 'Tra cuu san pham' — mac dinh TAT (prompt nhe, khong nap kien thuc SP)
   let _lastServerCare = {}; // baseline lan tra cuu/poll gan nhat, dung de biet CS co dang sua field nao khong
   let _pollInFlight = false;
   let _carePollStarted = false;
@@ -121,8 +122,13 @@
     cfg.className = 'zai-cfg'; cfg.id = 'zai-cfg'; cfg.style.display = 'none';
     addEl(cfg, 'label', {textContent:'URL Web App GAS (appweb Sasum)'});
     const inpGas = addEl(cfg, 'input', {id:'zai-gas-url', type:'text', placeholder:'https://script.google.com/macros/s/...'});
-    addEl(cfg, 'label', {textContent:'🔑 Groq API Key (lưu 1 lần dùng chung cả team)'});
-    addEl(cfg, 'input', {id:'zai-gemini-key', type:'text', placeholder:'gsk_... (lấy miễn phí tại console.groq.com)'});
+    addEl(cfg, 'label', {textContent:'🔑 Groq API Key (chính — lưu 1 lần dùng chung cả team)'});
+    addEl(cfg, 'input', {id:'zai-gemini-key', type:'text', placeholder:'gsk_... (console.groq.com) — để trống nếu giữ key cũ'});
+    addEl(cfg, 'label', {textContent:'🔁 Cerebras API Key (dự phòng 1 — cloud.cerebras.ai)'});
+    addEl(cfg, 'input', {id:'zai-cerebras-key', type:'text', placeholder:'csk-... — để trống nếu giữ key cũ'});
+    addEl(cfg, 'label', {textContent:'🔁 Gemini API Key (dự phòng 2 — aistudio.google.com/apikey)'});
+    addEl(cfg, 'input', {id:'zai-gemini-api-key', type:'text', placeholder:'AIza... — để trống nếu giữ key cũ'});
+    addEl(cfg, 'div', {style:'font-size:10px;color:#9ca3af;margin:2px 0 6px', textContent:'AI tự chuyển sang key dự phòng khi Groq hết lượt (lỗi 429). Nên nhập cả 3 để không bao giờ đứng.'});
     addEl(cfg, 'label', {textContent:'📄 Link Google Sheet chi tiết sản phẩm/thành phần (tuỳ chọn, dùng chung cả team)'});
     const inpProdSheet = addEl(cfg, 'input', {id:'zai-product-sheet-url', type:'text', placeholder:'https://docs.google.com/spreadsheets/d/...'});
     addEl(cfg, 'div', {style:'font-size:10px;color:#9ca3af;margin:2px 0 6px', textContent:'Hỗ trợ nhiều tab (mỗi tab 1 hãng), dòng 1 mỗi tab là tiêu đề cột, cột đầu là tên sản phẩm. Sheet phải chia sẻ "Bất kỳ ai có liên kết – Xem" hoặc chia sẻ cho tài khoản chạy GAS. AI sẽ tự tìm đúng vài sản phẩm khớp với câu hỏi/ngữ cảnh (không nhét cả sheet) để tư vấn chính xác.'});
@@ -265,6 +271,11 @@
     // Nguyen canh input
     addEl(aiWrap, 'div', {style:'margin-top:5px;font-size:11px;color:#6b7280', textContent:'Ngữ cảnh / Sản phẩm (tuỳ chọn)'});
     addEl(aiWrap, 'input', {className:'zai-ctx-input', id:'zai-ctx', placeholder:'VD: khách hỏi về giá, muốn mua thêm...'});
+    // Nut bat/tat TRA CUU SAN PHAM: chi khi bat, AI moi nap kien thuc san pham (Google Sheet) — tra loi ky ve thanh phan/cong dung
+    const prodRow = addEl(aiWrap, 'label', {style:'display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:#374151;cursor:pointer'});
+    const prodChk = addEl(prodRow, 'input', {type:'checkbox', id:'zai-use-products'});
+    addEl(prodRow, 'span', {innerHTML:'🔍 <b>Tra cứu sản phẩm</b> (nạp dữ liệu Google Sheet để tư vấn kỹ thành phần/công dụng — dùng khi cần)'});
+    prodChk.addEventListener('change', () => { _useProducts = prodChk.checked; });
     addEl(aiWrap, 'button', {className:'zai-btn zai-btn-primary', id:'zai-gen-btn',
       textContent:'✨ Tạo gợi ý phản hồi', style:'width:100%;margin-top:8px'});
 
@@ -453,16 +464,24 @@
     GAS_URL = gasEl ? gasEl.value.trim() : '';
     if (!GAS_URL) { showError('Vui lòng nhập URL GAS.'); return; }
     chrome.storage.local.set({ ome_gas_url: GAS_URL });
+    // Luu tung API key (CHI ghi khi co nhap -> tranh xoa key da luu cua team)
+    const _saveKey = async (settingKey, elId) => {
+      const el = document.getElementById(elId);
+      const v = el ? el.value.trim() : '';
+      if (!v) return true;
+      try {
+        const r = await fetch(GAS_URL, { method:'POST', body:JSON.stringify({action:'setSetting',key:settingKey,value:v}), headers:{'Content-Type':'text/plain'} });
+        const d = await r.json();
+        if (d.ok) { if (el) el.value=''; return true; }
+        showError('Lỗi lưu ' + settingKey + ': ' + JSON.stringify(d)); return false;
+      } catch(e) { showError('Lỗi kết nối GAS: '+e.message); return false; }
+    };
     const keyEl = document.getElementById('zai-gemini-key');
     const key = keyEl ? keyEl.value.trim() : '';
-    if (key) {
-      try {
-        const r = await fetch(GAS_URL, { method:'POST', body:JSON.stringify({action:'setSetting',key:'geminiKey',value:key}), headers:{'Content-Type':'text/plain'} });
-        const d = await r.json();
-        if (d.ok) { showMsg('zai-save-status','✓ Đã lưu Groq Key!',3000); if(keyEl) keyEl.value=''; }
-        else { showError('Lỗi lưu key: '+JSON.stringify(d)); return; }
-      } catch(e) { showError('Lỗi kết nối GAS: '+e.message); return; }
-    }
+    if (!(await _saveKey('apiGroq', 'zai-gemini-key'))) return;
+    if (!(await _saveKey('apiCerebras', 'zai-cerebras-key'))) return;
+    if (!(await _saveKey('apiGemini', 'zai-gemini-api-key'))) return;
+    if (key) showMsg('zai-save-status','✓ Đã lưu API key!',3000);
     const prodSheetEl = document.getElementById('zai-product-sheet-url');
     const prodSheetUrl = prodSheetEl ? prodSheetEl.value.trim() : '';
     try {
@@ -1041,7 +1060,7 @@
     for (let attempt = 0; attempt <= 2; attempt++) {
       let data;
       try {
-        const res = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({action:'ai',prompt}), headers:{'Content-Type':'text/plain'}});
+        const res = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({action:'ai',prompt,withProducts:_useProducts}), headers:{'Content-Type':'text/plain'}});
         data = await res.json();
       } catch(e) { return { error: e.message }; }
       if (data && data.ok) return data;
