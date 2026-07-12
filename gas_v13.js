@@ -830,12 +830,25 @@ function deleteOrder_(data) {
 }
 
 // ─── XOA DON TRUNG ────────────────────────────────────────────────
-// Trung = cung SDT + nam + thang + doanh thu (dung DUNG key da dung de
-// chong trung luc luu don o saveOrders_). Neu 1 key co >1 dong -> giu
-// dong DAU TIEN (rowIndex nho nhat trong sheet), cac dong con lai la
-// "du thua" duoc de xuat xoa. Chi TRA VE danh sach, KHONG tu dong xoa —
-// giao dien (Sasum / ZaloAI extension) phai hoi xac nhan CS/admin truoc
-// khi goi deleteDuplicateOrders_ voi danh sach da chon.
+// Truoc day so trung theo SDT+nam+thang+DOANH THU — nhung co truong hop
+// 1 don bi nhan bản do loi sheet/import lam MAT 3 SO 0 o doanh thu (VD:
+// 689 thay vi 689.000), khien 2 dong thuc chat la 1 don nhung KHONG
+// trung theo doanh thu -> khong phat hien duoc. Nen doi key so trung
+// sang SDT + NGAY MUA CU THE + san pham (BO doanh thu ra khoi key).
+// - Neu ca nhom co doanh thu GIONG HET nhau -> "trung chinh xac", tu
+//   dong de xuat giu dong dau, xoa cac dong con lai (extras da tick san).
+// - Neu doanh thu KHAC NHAU trong nhom (nhu ca "mat so 0" o tren) ->
+//   danh dau needsReview=true, KHONG tu chon dong nao de xoa — giao
+//   dien phai hien ro doanh thu tung dong de CS/admin tu chon dong SAI
+//   can xoa, tranh xoa nham dong co doanh thu DUNG.
+function normOrderDate_(v) {
+  if (!v) return '';
+  var d = (v instanceof Date) ? v : new Date(v);
+  if (isNaN(d)) return String(v).trim();
+  return Utilities.formatDate(d, Session.getScriptTimeZone() || 'GMT+7', 'yyyy-MM-dd');
+}
+function _normTxt_(s) { return String(s || '').trim().toLowerCase(); }
+
 function findDuplicateOrders_(phoneFilter) {
   var ss = getOrderSS_();
   var normP = phoneFilter ? normPhone_(phoneFilter) : '';
@@ -850,7 +863,8 @@ function findDuplicateOrders_(phoneFilter) {
       if (!r[0]) continue;
       var np = normPhone_(r[0]);
       if (normP && np !== normP) continue;
-      var key = np + '|' + r[3] + '|' + r[4] + '|' + r[7];
+      var nDate = normOrderDate_(r[2]);
+      var key = np + '|' + nDate + '|' + _normTxt_(r[8]) + '|' + _normTxt_(r[9]);
       if (!groupsByKey[key]) groupsByKey[key] = [];
       groupsByKey[key].push({
         sheet: shName, rowIndex: i + 1, phone: r[0], name: r[1] || '', date: r[2] || '',
@@ -862,21 +876,50 @@ function findDuplicateOrders_(phoneFilter) {
   var dupGroups = [];
   Object.keys(groupsByKey).forEach(function (k) {
     var g = groupsByKey[k];
-    if (g.length > 1) {
-      g.sort(function (a, b) { return a.rowIndex - b.rowIndex; }); // giu dong dau tien
-      dupGroups.push({
-        key: k, phone: g[0].phone, name: g[0].name, year: g[0].year, month: g[0].month,
-        revenue: g[0].revenue, product: g[0].product, productDetail: g[0].productDetail,
-        count: g.length, keep: g[0], extras: g.slice(1)
-      });
+    if (g.length < 2) return;
+    g.sort(function (a, b) { return a.rowIndex - b.rowIndex; });
+    var firstRev = Number(g[0].revenue) || 0;
+    var allSameRevenue = g.every(function (row) { return (Number(row.revenue) || 0) === firstRev; });
+    var note = '';
+    var maxRev = firstRev;
+    var zeroLossPattern = false;
+    if (!allSameRevenue) {
+      for (var a = 0; a < g.length; a++) { var ra0 = Number(g[a].revenue) || 0; if (ra0 > maxRev) maxRev = ra0; }
+      for (var a = 0; a < g.length && !note; a++) {
+        for (var b = 0; b < g.length && !note; b++) {
+          if (a === b) continue;
+          var ra = Number(g[a].revenue) || 0, rb = Number(g[b].revenue) || 0;
+          if (ra > 0 && rb > 0 && ra !== rb && (ra === rb * 1000 || rb === ra * 1000)) {
+            zeroLossPattern = true;
+            note = 'Doanh thu lệch nhau đúng 1000 lần (VD ' + rb + ' vs ' + ra + ') — nghi ngờ lỗi MẤT 3 SỐ 0 khi nhập liệu, không phải 2 đơn thật. Đề xuất giữ dòng doanh thu LỚN HƠN (' + maxRev.toLocaleString('vi-VN') + 'đ), xóa (các) dòng nhỏ hơn — vui lòng xác nhận lại trước khi xóa.';
+          }
+        }
+      }
+      if (!note) note = 'Các dòng trùng ngày mua + sản phẩm nhưng DOANH THU KHÁC NHAU — kiểm tra kỹ trước khi xóa, có thể là 2 đơn thật khác nhau, hệ thống KHÔNG tự đề xuất dòng để xóa.';
     }
+    // Đề xuất dòng để xóa (tick sẵn ở UI) — CHỈ đề xuất, người dùng vẫn phải xác nhận trước khi xóa thật:
+    // - Nhóm giống hệt: giữ dòng đầu, đề xuất xóa các dòng còn lại.
+    // - Nhóm nghi mất số 0 (lệch đúng 1000 lần): giữ dòng doanh thu LỚN hơn, đề xuất xóa (các) dòng NHỎ hơn.
+    // - Nhóm lệch doanh thu kiểu khác: KHÔNG đề xuất dòng nào, để người dùng tự chọn.
+    var autoDeleteRows;
+    if (allSameRevenue) autoDeleteRows = g.slice(1);
+    else if (zeroLossPattern) autoDeleteRows = g.filter(function (row) { return (Number(row.revenue) || 0) < maxRev; });
+    else autoDeleteRows = [];
+    dupGroups.push({
+      key: k, phone: g[0].phone, name: g[0].name, year: g[0].year, month: g[0].month,
+      date: g[0].date, product: g[0].product, productDetail: g[0].productDetail,
+      count: g.length, exact: allSameRevenue, zeroLossPattern: zeroLossPattern, note: note,
+      rows: g,
+      keep: allSameRevenue ? g[0] : null,
+      extras: autoDeleteRows
+    });
   });
   var totalExtra = 0;
   dupGroups.forEach(function (g) { totalExtra += g.extras.length; });
   return { ok: true, groups: dupGroups, groupCount: dupGroups.length, totalExtra: totalExtra };
 }
 
-// items: [{sheet, rowIndex}, ...] — lay tu extras cua findDuplicateOrders_, do CS/admin da xac nhan chon.
+// items: [{sheet, rowIndex}, ...] — lay tu extras (nhom exact) hoac do CS/admin tu chon (nhom needsReview) trong findDuplicateOrders_.
 function deleteDuplicateOrders_(items) {
   if (!items || !items.length) return jsonOut_({ ok: true, deleted: 0 });
   var ss = getOrderSS_();

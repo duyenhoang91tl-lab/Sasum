@@ -765,9 +765,10 @@
     } catch (e) { /* im lang, se thu lai o lan tra cuu/poll sau */ }
   }
 
-  // Kiem tra don trung cua 1 khach (cung SDT + thang + doanh thu) va hoi xac nhan
-  // truoc khi xoa. Chi tac dong len khach dang xem tren the (khong dung de dedupe
-  // toan bo he thong — viec do lam ben Sasum).
+  // Kiem tra don trung cua 1 khach (cung SDT + ngay mua + san pham — KHONG xet doanh
+  // thu, de bat ca truong hop doanh thu bi lech do loi nhap lieu, VD mat 3 so 0:
+  // 689 thay vi 689.000) va hoi xac nhan truoc khi xoa. Chi tac dong len khach dang
+  // xem tren the (khong dung de dedupe toan bo he thong — viec do lam ben Sasum).
   async function zaiCheckDuplicates_(phone) {
     if (!GAS_URL) { alert('Chưa cấu hình Google Sheets URL.'); return; }
     try {
@@ -780,10 +781,18 @@
       const items = [];
       let msg = 'Phát hiện đơn trùng của khách này:\n\n';
       groups.forEach(g => {
-        msg += '• Tháng ' + g.month + '/' + g.year + ' — ' + Number(g.revenue||0).toLocaleString('vi-VN') + 'đ — dư ' + g.extras.length + ' đơn\n';
-        g.extras.forEach(ex => items.push({ sheet: ex.sheet, rowIndex: ex.rowIndex }));
+        const dateLabel = fmtDate_(g.date) || (g.month + '/' + g.year);
+        if (g.exact) {
+          msg += '• ' + dateLabel + ' — ' + Number(g.rows[0].revenue||0).toLocaleString('vi-VN') + 'đ — dư ' + g.extras.length + ' đơn giống hệt (sẽ xóa dòng dư, giữ 1 dòng)\n';
+        } else if (g.zeroLossPattern) {
+          msg += '• ' + dateLabel + ' — CÁC DÒNG DOANH THU: ' + g.rows.map(row => Number(row.revenue||0).toLocaleString('vi-VN')+'đ').join(' / ') + '\n  ⚠ ' + g.note + '\n';
+        } else {
+          msg += '• ' + dateLabel + ' — CÁC DÒNG DOANH THU KHÁC NHAU: ' + g.rows.map(row => Number(row.revenue||0).toLocaleString('vi-VN')+'đ').join(' / ') + '\n  ⚠ ' + g.note + '\n  → Mở Sasum (nút 🗑️ Đơn trùng) để tự chọn đúng dòng SAI cần xóa, tránh xóa nhầm dòng đúng.\n';
+        }
+        g.extras.forEach(row => items.push({ sheet: row.sheet, rowIndex: row.rowIndex }));
       });
-      msg += '\nXóa ' + items.length + ' đơn dư thừa (giữ lại đơn đầu tiên mỗi nhóm)? Không thể hoàn tác.';
+      if (!items.length) { alert(msg); return; }
+      msg += '\nXóa ' + items.length + ' đơn được đề xuất ở trên? Không thể hoàn tác — hãy đọc kỹ các dòng có cảnh báo ⚠ trước khi đồng ý.';
       if (!confirm(msg)) return;
       const r2 = await fetch(GAS_URL, { method:'POST', body: JSON.stringify({ action:'deleteDuplicateOrders', items }), headers:{'Content-Type':'text/plain'} });
       const d2 = await r2.json();
