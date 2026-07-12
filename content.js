@@ -224,6 +224,33 @@
     bcWrap.appendChild(bcBody);
     panel.appendChild(bcWrap);
 
+    // ── TAO CHIEN DICH TU DANH SACH DANG LOC TREN ZALO (theo tag) ──
+    const tbWrap = document.createElement('div');
+    tbWrap.id = 'zai-tb-wrap';
+    tbWrap.style.cssText = 'border-bottom:2px solid #bbf7d0;background:#f0fdf4;flex-shrink:0;';
+    const tbHdr = document.createElement('div');
+    tbHdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 14px;cursor:pointer;';
+    tbHdr.innerHTML = '<span style="font-weight:700;color:#15803d;font-size:12px">📋 Bắn theo danh sách đang lọc (tag Zalo)</span><span id="zai-tb-toggle" style="color:#15803d;font-size:11px">▼ mở</span>';
+    const tbBody = document.createElement('div');
+    tbBody.id = 'zai-tb-body';
+    tbBody.style.cssText = 'display:none;padding:8px 14px 10px;';
+    tbBody.innerHTML =
+      '<div style="font-size:10px;color:#6b7280;margin-bottom:6px">' +
+      'Trên Zalo: lọc danh sách hội thoại theo tag bạn muốn (Zalo tự hiển thị danh sách đã lọc). ' +
+      'Rồi bấm nút dưới — extension quét CHỈ phần TÊN hiển thị trong danh sách đang thấy trên màn hình ' +
+      '(không đọc nội dung tin nhắn), tự bỏ qua số đã Chặn/Zalo ngừng hd và số đã bắn trong 30 ngày qua.</div>' +
+      '<button class="zai-btn zai-btn-secondary zai-btn-sm" id="zai-tb-scan-btn">🔍 Quét danh sách đang lọc</button>' +
+      '<div id="zai-tb-preview" style="margin-top:8px"></div>';
+    tbHdr.addEventListener('click', () => {
+      const hidden = tbBody.style.display === 'none';
+      tbBody.style.display = hidden ? 'block' : 'none';
+      document.getElementById('zai-tb-toggle').textContent = hidden ? '▲ thu gọn' : '▼ mở';
+    });
+    tbWrap.appendChild(tbHdr);
+    tbWrap.appendChild(tbBody);
+    panel.appendChild(tbWrap);
+    tbBody.querySelector('#zai-tb-scan-btn').addEventListener('click', renderTagBlastPreview_);
+
     // ── QUET DANH BA ZALO (du phong khi khach chua co don hang trong Sasum) ──
     const zsWrap = document.createElement('div');
     zsWrap.id = 'zai-zs-wrap';
@@ -2801,6 +2828,161 @@ async function startReminderPoll_() {
     for (const ex of excluded) { if (ex.contains(el)) return true; }
     return false;
   }
+  // Quet danh sach hoi thoai/lien he DANG HIEN TREN MAN HINH (sau khi CS da tu loc
+  // theo tag/nhan tren giao dien Zalo). Dung lai dung engine cua scanZaloFriendStatus_
+  // (da loai tru khung chat + o soan tin — CHI lay o phan ten hien thi, KHONG bao gio
+  // doc noi dung tin nhan). Loc bot nhung so da "Chan"/"Zalo ngung hd" vi gui cung vo ich.
+  function scanZaloListForBlast_() {
+    return scanZaloFriendStatus_()
+      .filter(r => r.zaloStatus !== 'Chặn' && r.zaloStatus !== 'Zalo ngừng hd')
+      .map(r => ({ phone: r.phone, name: r.nameGuess, zaloStatus: r.zaloStatus }));
+  }
+
+  let _tbRows = []; // ket qua quet gan nhat cho panel "Tao chien dich tu danh sach dang loc"
+  let _tbImages = []; // [{file, dataUrl}]
+
+  async function renderTagBlastPreview_() {
+    const box = document.getElementById('zai-tb-preview');
+    if (!box) return;
+    _tbRows = scanZaloListForBlast_();
+    if (!_tbRows.length) {
+      box.innerHTML = '<div style="font-size:11px;color:#6b7280">Không thấy số nào trên màn hình hiện tại. Lọc theo tag trên Zalo trước, rồi quét lại.</div>';
+      return;
+    }
+    box.innerHTML = '<div style="font-size:11px;color:#166534;margin-bottom:5px">⏳ Đang kiểm tra đã bắn gần đây chưa...</div>';
+    let recentlySent = {};
+    try {
+      const r = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'recentlySent', phones: _tbRows.map(x => x.phone), days: 30 }), headers: { 'Content-Type': 'text/plain' } });
+      const d = await r.json();
+      if (d.ok) recentlySent = d.recentlySent || {};
+    } catch (e) {}
+    _tbRows = _tbRows.map(r => ({ ...r, recentlySent: !!recentlySent[r.phone] }));
+    _renderTbTable_();
+  }
+
+  function _renderTbTable_() {
+    const box = document.getElementById('zai-tb-preview');
+    if (!box) return;
+    const okCount = _tbRows.filter(r => !r.recentlySent).length;
+    box.innerHTML =
+      '<div style="font-size:11px;color:#166534;margin-bottom:5px">Tìm thấy ' + _tbRows.length + ' khách (' + okCount + ' chưa bắn trong 30 ngày qua) — bỏ chọn bớt nếu cần:</div>' +
+      '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">' +
+        '<button class="zai-btn zai-btn-ghost zai-btn-sm" id="zai-tb-sel-all">Tất cả</button>' +
+        '<button class="zai-btn zai-btn-ghost zai-btn-sm" id="zai-tb-sel-10">10</button>' +
+        '<button class="zai-btn zai-btn-ghost zai-btn-sm" id="zai-tb-sel-20">20</button>' +
+        '<button class="zai-btn zai-btn-ghost zai-btn-sm" id="zai-tb-sel-30">30</button>' +
+        '<input id="zai-tb-sel-custom" type="number" min="1" placeholder="Số tuỳ chỉnh" style="width:90px;padding:3px 6px;border:1px solid #d1d5db;border-radius:5px;font-size:11px">' +
+        '<button class="zai-btn zai-btn-ghost zai-btn-sm" id="zai-tb-sel-custom-btn">Chọn</button>' +
+      '</div>' +
+      '<div style="max-height:200px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff;">' +
+      _tbRows.map((r, i) =>
+        '<div style="display:flex;gap:6px;align-items:center;padding:5px 8px;font-size:11px;border-bottom:1px solid #f3f4f6;' + (r.recentlySent ? 'opacity:.5' : '') + '">' +
+          '<input type="checkbox" class="zai-tb-chk" data-i="' + i + '"' + (r.recentlySent ? '' : ' checked') + '>' +
+          '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(r.name) + ' — <b>' + escHtml(r.phone) + '</b></span>' +
+          (r.recentlySent ? '<span style="font-size:9px;color:#b45309;white-space:nowrap;">đã bắn gần đây</span>' : '') +
+        '</div>'
+      ).join('') +
+      '</div>' +
+      '<textarea id="zai-tb-msg" placeholder="Nội dung tin nhắn..." rows="3" style="width:100%;margin-top:8px;padding:6px;border:1px solid #d1d5db;border-radius:5px;font-size:12px;resize:vertical;box-sizing:border-box"></textarea>' +
+      '<div style="display:flex;align-items:center;gap:6px;margin-top:4px">' +
+        '<label class="zai-btn zai-btn-ghost zai-btn-sm" style="cursor:pointer">📎 Gắn ảnh<input type="file" id="zai-tb-img" accept="image/*" multiple style="display:none"></label>' +
+        '<div id="zai-tb-img-preview" style="display:flex;gap:4px;flex-wrap:wrap"></div>' +
+      '</div>' +
+      '<button class="zai-btn zai-btn-primary zai-btn-sm" id="zai-tb-create-btn" style="margin-top:8px;width:100%">📤 Tạo chiến dịch (chờ duyệt gửi ở trên)</button>' +
+      '<div id="zai-tb-status" style="font-size:11px;color:#00b14f;margin-top:4px"></div>';
+
+    const selAll = () => document.querySelectorAll('.zai-tb-chk').forEach(c => { c.checked = !_tbRows[+c.dataset.i].recentlySent; });
+    const selN = (n) => {
+      let left = n;
+      document.querySelectorAll('.zai-tb-chk').forEach(c => {
+        const row = _tbRows[+c.dataset.i];
+        if (row.recentlySent) { c.checked = false; return; }
+        c.checked = left > 0; if (left > 0) left--;
+      });
+    };
+    document.getElementById('zai-tb-sel-all').addEventListener('click', selAll);
+    document.getElementById('zai-tb-sel-10').addEventListener('click', () => selN(10));
+    document.getElementById('zai-tb-sel-20').addEventListener('click', () => selN(20));
+    document.getElementById('zai-tb-sel-30').addEventListener('click', () => selN(30));
+    document.getElementById('zai-tb-sel-custom-btn').addEventListener('click', () => {
+      const n = parseInt(document.getElementById('zai-tb-sel-custom').value, 10) || 0;
+      if (n > 0) selN(n);
+    });
+    document.getElementById('zai-tb-img').addEventListener('change', (e) => {
+      [...e.target.files].forEach(file => {
+        const reader = new FileReader();
+        reader.onload = () => { _tbImages.push({ file, dataUrl: reader.result }); _renderTbImgPreview_(); };
+        reader.readAsDataURL(file);
+      });
+      e.target.value = '';
+    });
+    document.getElementById('zai-tb-create-btn').addEventListener('click', doCreateTagBlast_);
+  }
+
+  function _renderTbImgPreview_() {
+    const box = document.getElementById('zai-tb-img-preview');
+    if (!box) return;
+    box.innerHTML = _tbImages.map((img, i) =>
+      '<div style="position:relative"><img src="' + img.dataUrl + '" style="width:36px;height:36px;object-fit:cover;border-radius:4px;border:1px solid #d1d5db"><span data-i="' + i + '" class="zai-tb-img-rm" style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;border-radius:50%;width:14px;height:14px;font-size:9px;line-height:14px;text-align:center;cursor:pointer">✕</span></div>'
+    ).join('');
+    box.querySelectorAll('.zai-tb-img-rm').forEach(el => el.addEventListener('click', () => { _tbImages.splice(+el.dataset.i, 1); _renderTbImgPreview_(); }));
+  }
+
+  async function doCreateTagBlast_() {
+    const btn = document.getElementById('zai-tb-create-btn');
+    const st = document.getElementById('zai-tb-status');
+    const msg = (document.getElementById('zai-tb-msg').value || '').trim();
+    const phones = [...document.querySelectorAll('.zai-tb-chk:checked')].map(c => _tbRows[+c.dataset.i].phone);
+    if (!phones.length) { st.innerHTML = '<span style="color:#dc2626">Chưa chọn khách nào.</span>'; return; }
+    if (!msg && !_tbImages.length) { st.innerHTML = '<span style="color:#dc2626">Cần nhập tin nhắn hoặc gắn ít nhất 1 ảnh.</span>'; return; }
+    if (!_currentCS) { st.innerHTML = '<span style="color:#dc2626">Chưa chọn CS ở thanh 👤 CS phía trên.</span>'; return; }
+    const old = btn.textContent;
+    btn.disabled = true;
+    try {
+      const imageUrls = [];
+      for (let i = 0; i < _tbImages.length; i++) {
+        btn.textContent = '⏳ Tải ảnh ' + (i + 1) + '/' + _tbImages.length + '...';
+        const base64 = _tbImages[i].dataUrl.split(',')[1];
+        const r = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'uploadBroadcastImg', base64, filename: _tbImages[i].file.name, mimeType: _tbImages[i].file.type || 'image/jpeg' }), headers: { 'Content-Type': 'text/plain' } });
+        const d = await r.json();
+        if (d.ok && d.url) imageUrls.push(d.url); else st.innerHTML = '<span style="color:#b45309">Lỗi tải 1 ảnh, bỏ qua: ' + escHtml(d.error || '') + '</span>';
+      }
+      btn.textContent = '⏳ Đang tạo chiến dịch...';
+      const dateLabel = new Date().toLocaleDateString('vi-VN');
+      const r2 = await fetch(GAS_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'saveBroadcast',
+          broadcast: {
+            id: 'tagbc_' + Date.now(),
+            label: '📋 Bắn theo danh sách Zalo — ' + dateLabel,
+            message: msg,
+            images: imageUrls,
+            phones,
+            csName: _currentCS,
+            expectedNick: _currentZaloNick || '',
+            createdAt: new Date().toISOString(),
+            status: 'active'
+          }
+        }),
+        headers: { 'Content-Type': 'text/plain' }
+      });
+      const d2 = await r2.json();
+      if (d2.ok) {
+        st.innerHTML = '✓ Đã tạo chiến dịch ' + phones.length + ' khách — kéo lên phần "📢 Gửi hàng loạt" ở trên để duyệt & gửi.';
+        _tbImages = []; document.getElementById('zai-tb-img-preview').innerHTML = '';
+        document.getElementById('zai-tb-msg').value = '';
+        loadBroadcastQueue_();
+      } else {
+        st.innerHTML = '<span style="color:#dc2626">Lỗi: ' + escHtml(d2.error || 'không rõ') + '</span>';
+      }
+    } catch (e) {
+      st.innerHTML = '<span style="color:#dc2626">Lỗi kết nối: ' + escHtml(e.message) + '</span>';
+    } finally {
+      btn.disabled = false; btn.textContent = old;
+    }
+  }
+
   function scanZaloFriendStatus_() {
     const RE = /^(.*?)\b(0[3-9]\d{8})\b(.*)$/;
     const excluded = _zaloExcludedContainers_();

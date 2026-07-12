@@ -514,6 +514,7 @@ function doPost(e) {
     if (action === 'logAI')               return logAIInteraction_(data);
     // ── BROADCAST: tao/cap nhat 1 chien dich gui tin hang loat ──
     if (action === 'saveBroadcast')        return saveBroadcast_(data.broadcast || data);
+    if (action === 'recentlySent')          return jsonOut_(recentlySentPhones_(data.phones, data.days));
     // ── BROADCAST: danh dau 1 SDT da gui/loi/bo qua trong 1 chien dich ──
     if (action === 'broadcastMark')        return broadcastMark_(data.id, data.phone, data.status);
     // ── BROADCAST: upload 1 anh (base64) len Drive, tra ve link xem truc tiep ──
@@ -1371,6 +1372,25 @@ function readBroadcasts_() {
 }
 
 // Tao moi hoac cap nhat 1 chien dich (giu nguyen sentJson neu da co, tru khi truyen kem)
+// Kiem tra trong cac SDT dua vao, ai da tung duoc gui (bat ky chien dich nao)
+// trong N ngay gan day — dung de tu dong bo qua khi CS tao chien dich moi tu
+// danh sach quet man hinh (tranh nhan tin lien tuc lam phien khach).
+function recentlySentPhones_(phones, days) {
+  var cutoff = Date.now() - (Number(days) || 30) * 86400000;
+  var all = readBroadcasts_();
+  var out = {};
+  (phones || []).forEach(function (p) {
+    var np = normPhone_(p);
+    if (!np) return;
+    for (var i = 0; i < all.length; i++) {
+      var sent = all[i].sent || {};
+      var rec = sent[np];
+      if (rec && rec.ts && new Date(rec.ts).getTime() >= cutoff) { out[np] = rec.ts; break; }
+    }
+  });
+  return { ok: true, recentlySent: out };
+}
+
 function saveBroadcast_(b) {
   if (!b || !b.phones || !b.phones.length) return jsonOut_({ ok: false, error: 'Thieu danh sach SDT' });
   var sh = getBroadcastSheet_();
