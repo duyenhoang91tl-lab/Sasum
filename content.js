@@ -877,11 +877,85 @@
     renderNoteHistory_('');
   }
 
+  // Phat hien cac dong "mat 3 so 0" (VD 708 thay vi 708.000) trong danh sach don cua 1
+  // khach: gom nhom theo ngay+san pham+chi tiet san pham, neu 2 dong lech nhau DUNG 1000
+  // lan thi danh dau dong GIA TRI NHO HON (dong loi) de hien nut × xoa nhanh ben canh so
+  // tien. Can sheet+rowIndex (server tra ve tu readOrdersByPhone_) de xoa dung dong.
+  function _dupRevenueFlags_(orders) {
+    const groups = {};
+    orders.forEach(o => {
+      if (!o.sheet || !o.rowIndex) return;
+      const key = String(o.date) + '|' + String(o.product||'').trim().toLowerCase() + '|' + String(o.productDetail||'').trim().toLowerCase();
+      (groups[key] = groups[key] || []).push(o);
+    });
+    const flags = {};
+    Object.values(groups).forEach(g => {
+      if (g.length < 2) return;
+      g.forEach(a => {
+        const ra = Number(a.revenue) || 0;
+        g.forEach(b => {
+          if (a === b) return;
+          const rb = Number(b.revenue) || 0;
+          if (ra > 0 && rb > 0 && ra !== rb && rb === ra * 1000) {
+            flags[a.sheet + '|' + a.rowIndex] = { correct: rb }; // a la dong loi (nho hon), b la dong dung
+          }
+        });
+      });
+    });
+    return flags;
+  }
+
+  // Ve danh sach don: mac dinh 3 don gan nhat, "Xem thêm" de mo rong toan bo lich su don
+  // (dang cuon, scrollable). Don bi nghi mat 3 so 0 co nut × ben canh so tien de xoa nhanh.
+  function _renderOrderListHtml_(orders, expanded, dupFlags) {
+    if (!orders.length) return '';
+    const list = expanded ? orders : orders.slice(0, 3);
+    const rowsHtml = list.map(o => {
+      const d = fmtDate_(o.date);
+      const rev = o.revenue ? Number(o.revenue).toLocaleString('vi-VN')+'đ' : '';
+      const sp  = (o.product||'') + (o.productDetail?' — '+o.productDetail:'');
+      const key  = (o.sheet && o.rowIndex) ? (o.sheet+'|'+o.rowIndex) : '';
+      const flag = key && dupFlags[key];
+      const xBtn = flag
+        ? `<button type="button" class="zai-order-x" data-sheet="${escHtml(o.sheet)}" data-row="${o.rowIndex}" data-label="${escHtml(d+' | '+rev+' | '+sp)}" title="Nghi trùng, thiếu 3 số 0 (đúng phải là ${flag.correct.toLocaleString('vi-VN')}đ) — bấm để xóa" style="margin-left:6px;color:#dc2626;border:none;background:none;cursor:pointer;font-weight:700;padding:0 4px;font-size:13px">×</button>`
+        : '';
+      return `<div style="padding:2px 0">• <b>${d}</b> | ${rev}${xBtn}<br>&nbsp;&nbsp;${escHtml(sp)}</div>`;
+    }).join('');
+    const body = expanded
+      ? `<div style="max-height:240px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;padding:4px 6px;margin-top:4px">${rowsHtml}</div>`
+      : rowsHtml;
+    const toggle = orders.length > 3
+      ? `<button type="button" class="zai-btn zai-btn-ghost zai-btn-sm zai-orders-toggle" style="margin-top:4px">${expanded ? 'Thu gọn ▲' : 'Xem thêm '+(orders.length-3)+' đơn ▾'}</button>`
+      : '';
+    return `<strong>Đơn gần nhất:</strong><br>${body}${toggle}`;
+  }
+
+  // Xoa 1 dong don le (dung cho nut × ben canh so tien) — xac nhan truoc, xoa thang tren
+  // Sheet (chinh la Sasum) roi lam moi lai the tu server de dam bao da dong bo.
+  async function _zaiDeleteOneOrder_(phone, sheet, rowIndex, label) {
+    if (!GAS_URL) { alert('Chưa cấu hình Google Sheets URL.'); return; }
+    if (!sheet || !rowIndex) return;
+    if (!confirm('Xóa đơn nghi trùng (thiếu 3 số 0) sau đây?\n\n' + label + '\n\nKhông thể hoàn tác.')) return;
+    try {
+      const r = await fetch(GAS_URL, { method:'POST', body: JSON.stringify({
+        action:'deleteDuplicateOrders', items:[{ sheet, rowIndex }]
+      }), headers:{'Content-Type':'text/plain'} });
+      const d = await r.json();
+      if (!d.ok) { alert('Lỗi xóa: ' + (d.error || 'không rõ')); return; }
+      delete _lookupCache[phone];
+      await _revalidateFromServer_(phone); // ve lai the + dong bo lai voi Sasum
+      showMsg('zai-save-status', '🗑️ Đã xóa đơn trùng và đồng bộ Sasum.', 3000);
+    } catch (e) {
+      alert('Lỗi kết nối: ' + e.message);
+    }
+  }
+
   // Chi ve lai khung the thong tin (doc, an toan de goi lai khi poll ma khong lam mat du lieu CS dang go)
   function renderCustCard_(area, phone, raw, care, orders) {
     const name   = orders.length ? (orders[0].name||raw) : (care&&care.name||raw);
     const prods  = [...new Set(orders.map(o=>o.product).filter(Boolean))].join(', ');
     const totRev = orders.reduce((s,o)=>s+(parseFloat(o.revenue)||0),0);
+    let expanded = false;
 
     area.innerHTML = `
       <div class="zai-card">
@@ -896,18 +970,25 @@
           ${care&&care.schedHen ? `<span class="zai-chip">📅 ${fmtDate_(care.schedHen)}</span>` : ''}
         </div>
         ${care&&care.note ? `<div class="zai-card-note">📝 ${escHtml(_latestNoteText_(care.note))}</div>` : ''}
-        ${orders.slice(0,3).length ? `<div class="zai-card-orders"><strong>Đơn gần nhất:</strong><br>${
-          orders.slice(0,3).map(o => {
-            const d = fmtDate_(o.date);
-            const rev = o.revenue ? Number(o.revenue).toLocaleString('vi-VN')+'đ' : '';
-            const sp = (o.product||'') + (o.productDetail?' — '+o.productDetail:'');
-            return `• <b>${d}</b> | ${rev}<br>&nbsp;&nbsp;${escHtml(sp)}`;
-          }).join('<br>')
-        }</div>` : ''}
+        <div class="zai-card-orders" id="zai-orders-box"></div>
         ${orders.length > 1 ? `<button type="button" class="zai-btn zai-btn-ghost zai-btn-sm zai-dup-btn" style="margin-top:6px;color:#dc2626" title="Kiểm tra & xóa đơn hàng bị trùng (cùng tháng + doanh thu) của khách này">🗑️ Kiểm tra đơn trùng</button>` : ''}
       </div>`;
+
     const dupBtn = area.querySelector('.zai-dup-btn');
     if (dupBtn) dupBtn.onclick = () => zaiCheckDuplicates_(phone);
+
+    const dupFlags  = _dupRevenueFlags_(orders);
+    const ordersBox = area.querySelector('#zai-orders-box');
+    function paintOrders() {
+      if (!ordersBox) return;
+      ordersBox.innerHTML = _renderOrderListHtml_(orders, expanded, dupFlags);
+      const toggleBtn = ordersBox.querySelector('.zai-orders-toggle');
+      if (toggleBtn) toggleBtn.onclick = () => { expanded = !expanded; paintOrders(); };
+      ordersBox.querySelectorAll('.zai-order-x').forEach(btn => {
+        btn.onclick = () => _zaiDeleteOneOrder_(phone, btn.dataset.sheet, Number(btn.dataset.row), btn.dataset.label);
+      });
+    }
+    paintOrders();
     return name;
   }
 

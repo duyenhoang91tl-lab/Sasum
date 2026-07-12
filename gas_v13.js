@@ -247,6 +247,7 @@ function readOrdersByPhone_(phone) {
       if (!vals[j][0]) continue;
       if (normPhone_(vals[j][0]) !== ph) continue;
       out.push({
+        sheet: sh.getName(), rowIndex: j + 1,
         phone: vals[j][0], name: vals[j][1]||'', date: vals[j][2]||'', year: vals[j][3]||'',
         month: vals[j][4]||'', cs: vals[j][5]||'', source: vals[j][6]||'', revenue: vals[j][7]||0,
         product: vals[j][8]||'', productDetail: vals[j][9]||'', status: vals[j][10]||'',
@@ -254,6 +255,10 @@ function readOrdersByPhone_(phone) {
       });
     }
   }
+  // Luu y: chi khu trung dong GIONG HET (cung ngay+doanh thu+san pham). Cac dong "mat 3
+  // so 0" (doanh thu lech nhau 1000 lan, VD 708 vs 708.000) CO chu y GIU LAI ca 2 de FE
+  // (extension) tu phat hien va hien nut × cho CS xoa dung dong loi (xem _dupRevenueFlags_
+  // trong content.js) — khong tu dong xoa o day de tranh xoa nham khi chua xac nhan.
   var seen = {}, deduped = [];
   for (var k = 0; k < out.length; k++) {
     var key = String(out[k].date)+'|'+String(out[k].revenue)+'|'+String(out[k].product);
