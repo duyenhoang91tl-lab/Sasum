@@ -368,6 +368,9 @@
     const col5 = addEl(row2, 'div', {className:'zai-field-col'});
     addEl(col5, 'label', {textContent:'🎂 Sinh nhật'});
     addEl(col5, 'input', {id:'zai-birthday', type:'date'});
+    const col6 = addEl(row2, 'div', {className:'zai-field-col'});
+    addEl(col6, 'label', {textContent:'🏷 Nhãn'});
+    addEl(col6, 'input', {id:'zai-tag', type:'text', placeholder:'VD: VIP, Combo A...', title:'Nhãn tự do để lọc khi tạo chiến dịch — không phải tag của Zalo'});
 
     addEl(upd, 'label', {textContent:'Ghi chú CS'});
     const noteWrap = addEl(upd, 'div', {className:'zai-note-wrap'});
@@ -1065,6 +1068,7 @@
     document.getElementById('zai-hen-note').value   = care&&care.schedHenNote||'';
     document.getElementById('zai-kh-status-sel').value = care&&care.khStatus||'';
     document.getElementById('zai-birthday').value   = care&&care.birthday||'';
+    document.getElementById('zai-tag').value        = care&&care.tag||'';
     // Ghi chú CS: đọc dữ liệu (đồng bộ 2 chiều với Sasum, cùng định dạng JSON [{text,user,time}])
     const noteNewEl = document.getElementById('zai-note-new');
     if (noteNewEl) noteNewEl.value = '';
@@ -1122,6 +1126,7 @@
     syncField('zai-kh-status-sel','khStatus');
     syncField('zai-hen-note','schedHenNote');
     syncField('zai-birthday','birthday');
+    syncField('zai-tag','tag');
     const henDateEl = document.getElementById('zai-hen-date');
     if (henDateEl) {
       const baseHen = baseline.schedHen ? toInputDate_(baseline.schedHen) : '';
@@ -1173,6 +1178,7 @@
     try {
       const c = care||{};
       const birthday = document.getElementById('zai-birthday') ? document.getElementById('zai-birthday').value : '';
+      const tag = document.getElementById('zai-tag') ? document.getElementById('zai-tag').value.trim() : '';
       const row = {
         phone:_currentCustData.phone, status:status||c.status||'',
         zalo:zalo||c.zalo||'', cs:cs||c.cs||'', note,
@@ -1182,6 +1188,7 @@
         schedHen:henDate||c.schedHen||'', schedHenNote:henNote||c.schedHenNote||'',
         khStatus: document.getElementById('zai-kh-status-sel').value || (c.khStatus||''),
         birthday: birthday || c.birthday || '',
+        tag: tag || c.tag || '',
         nickZalos: (() => {
           const existing = c.nickZalos || [];
           if (_currentZaloNick && !existing.includes(_currentZaloNick)) return [...existing, _currentZaloNick];

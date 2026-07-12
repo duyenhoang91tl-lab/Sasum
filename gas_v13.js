@@ -36,11 +36,11 @@ var ORDER_SHEETS = [
 ];
 var SH_ORDER_DEFAULT = 'OrderData26';
 
-// CARE_HEADERS: 19 cols (v10.0 co 15, v11.2 co 17, v12.0 them birthday, v13.1 them zaloSetBy)
+// CARE_HEADERS: 20 cols (v10.0 co 15, v11.2 co 17, v12.0 them birthday, v13.1 them zaloSetBy, v13.2 them tag)
 var CARE_HEADERS = ['phone','status','zalo','cs','note','schedules',
   'schedGoi','schedGoiNote','schedSP','schedSPNote',
   'schedCS','schedCSNote','schedHen','schedHenNote','updated',
-  'khStatus','nickZalos','birthday','zaloSetBy'];
+  'khStatus','nickZalos','birthday','zaloSetBy','tag'];
 
 var ORDER_HEADERS  = ['phone','name','date','year','month','cs','source','revenue',
   'product','productDetail','status','zalo','note','careCS'];
@@ -161,7 +161,8 @@ function careObjFromRow_(row) {
     khStatus:     row[15]||'',
     nickZalos:    parseNZ(row[16]),
     birthday:     row[17]||'',
-    zaloSetBy:    parseSetBy(row[18]) // { cs, nick, at } - ai/nick nao vua ghi trang thai 'zalo' gan nhat
+    zaloSetBy:    parseSetBy(row[18]), // { cs, nick, at } - ai/nick nao vua ghi trang thai 'zalo' gan nhat
+    tag:          row[19]||'' // nhan phan loai KH, tu do CS dat (VD: "VIP", "Khach si", "Combo A") - dung de loc chien dich
   };
 }
 
@@ -189,7 +190,7 @@ function findCareByPhone_(phone) {
   return null;
 }
 
-// careRow_: 19 cols. Neu truong khong co thi de trong.
+// careRow_: 20 cols. Neu truong khong co thi de trong.
 function careRow_(r) {
   var nz = r.nickZalos;
   if (!Array.isArray(nz)) { try { nz = JSON.parse(nz||'[]'); } catch(e) { nz = []; } }
@@ -200,7 +201,7 @@ function careRow_(r) {
     r.schedGoi||'', r.schedGoiNote||'', r.schedSP||'', r.schedSPNote||'',
     r.schedCS||'', r.schedCSNote||'', r.schedHen||'', r.schedHenNote||'',
     new Date().toISOString(),
-    r.khStatus||'', JSON.stringify(nz), r.birthday||'', setBy||''
+    r.khStatus||'', JSON.stringify(nz), r.birthday||'', setBy||'', r.tag||''
   ];
 }
 
@@ -216,7 +217,8 @@ function readExistingExtFields_(sh) {
       khStatus:  vals[i][15]||'',
       nickZalos: vals[i][16]||'[]',
       birthday:  vals[i][17]||'',
-      zaloSetBy: vals[i][18]||''
+      zaloSetBy: vals[i][18]||'',
+      tag:       vals[i][19]||''
     };
   }
   return map;
@@ -228,6 +230,7 @@ function mergeExtFields_(r, ex) {
   if (r.khStatus  === undefined || r.khStatus  === null || r.khStatus  === '') r.khStatus  = ex.khStatus  || '';
   if (r.birthday  === undefined || r.birthday  === null || r.birthday  === '') r.birthday  = ex.birthday  || '';
   if (r.zaloSetBy === undefined || r.zaloSetBy === null || r.zaloSetBy === '') r.zaloSetBy = ex.zaloSetBy || '';
+  if (r.tag       === undefined || r.tag       === null || r.tag       === '') r.tag       = ex.tag       || '';
   if (r.nickZalos === undefined || r.nickZalos === null ||
       (Array.isArray(r.nickZalos) && r.nickZalos.length === 0)) {
     try { r.nickZalos = JSON.parse(ex.nickZalos||'[]'); } catch(e) { r.nickZalos = []; }
@@ -442,6 +445,13 @@ function doGet(e) {
     if (action === 'runFollowUpScan') {
       return jsonOut_(runFollowUpScan_());
     }
+    // ── CHUC MUNG SINH NHAT TU DONG: xem mau + kich hoat thu cong ──
+    if (action === 'birthdayTemplates') {
+      return jsonOut_({ list: listBirthdayTemplates_() });
+    }
+    if (action === 'runBirthdayScan') {
+      return jsonOut_(runBirthdayScan_());
+    }
     if (action === 'dedupeCare') return dedupeCare_();
     if (action === 'aiLogStats') return getAILogStats_(Number(e.parameter.limit) || 20);
 
@@ -522,6 +532,7 @@ function doPost(e) {
     if (action === 'dedupeCare')           return dedupeCare_();
     // ── HOI THAM TU DONG: luu bang mau tin (UI Sasum) ──
     if (action === 'saveFollowUpTemplates') return saveFollowUpTemplates_(data.templates);
+    if (action === 'saveBirthdayTemplates')  return saveBirthdayTemplates_(data.templates);
     return jsonOut_({ error: 'Unknown action: ' + action });
   } catch(err) {
     return jsonOut_({ error: err.message });
@@ -572,7 +583,7 @@ function saveSingleCare_(r) {
   if (rowIdx > 0) {
     // Doc du lieu hien tai de bao toan truong mo rong neu incoming khong co
     var existRow = sh.getRange(rowIdx, 1, 1, CARE_HEADERS.length).getValues()[0];
-    mergeExtFields_(r, { khStatus: existRow[15]||'', nickZalos: existRow[16]||'[]', birthday: existRow[17]||'', zaloSetBy: existRow[18]||'' });
+    mergeExtFields_(r, { khStatus: existRow[15]||'', nickZalos: existRow[16]||'[]', birthday: existRow[17]||'', zaloSetBy: existRow[18]||'', tag: existRow[19]||'' });
     sh.getRange(rowIdx, 1, 1, CARE_HEADERS.length).setValues([careRow_(r)]);
   } else {
     sh.appendRow(careRow_(r));
@@ -594,7 +605,7 @@ function saveBatchCare_(rows) {
   for (var k = 0; k < rows.length; k++) {
     var r = rows[k]; var key = normPhone_(String(r.phone));
     if (index[key] !== undefined) {
-      mergeExtFields_(r, { khStatus: data[index[key]][15]||'', nickZalos: data[index[key]][16]||'[]', birthday: data[index[key]][17]||'', zaloSetBy: data[index[key]][18]||'' });
+      mergeExtFields_(r, { khStatus: data[index[key]][15]||'', nickZalos: data[index[key]][16]||'[]', birthday: data[index[key]][17]||'', zaloSetBy: data[index[key]][18]||'', tag: data[index[key]][19]||'' });
       data[index[key]] = careRow_(r); updated++;
     } else {
       data.push(careRow_(r)); index[key] = data.length - 1; appended++;
@@ -1901,13 +1912,197 @@ function runFollowUpScan_() {
   return { ok: true, count: phones.length, campaigns: created };
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  CHUC MUNG SINH NHAT TU DONG (Birthday scheduler)
+//  - Doc CareData.birthday (dinh dang YYYY-MM-DD tu <input type=date>) — chi
+//    phan THANG-NGAY duoc dung de so sanh, nam sinh khong quan trong nen
+//    nhac lai duoc moi nam.
+//  - Mau tin cau hinh trong sheet "BirthdayTemplates" (cot A: cs [de trong =
+//    mau chung], cot B: template). Uu tien mau rieng cua CS phu trach khach —
+//    giong het co che uu tien cua FollowUpTemplates. Sua qua giao dien Sasum,
+//    khong can sua code.
+//  - Placeholder ho tro trong template: {name} {phone} (dung chung renderFollowUpTemplate_).
+//  - Gom theo CS thanh 1 chien dich Broadcast/ngay (y het follow-up) — CS
+//    VAN PHAI TU BAM GUI trong extension, KHONG tu dong gui thang cho khach.
+//  - Chi gui 1 lan/nam cho moi SDT (BirthdayLog, key = phone + nam).
+//  - Dung CHUNG 1 trigger hang ngay voi hoi tham (xem runDailyScansTrigger).
+// ═══════════════════════════════════════════════════════════════
+var SH_BDAY_TEMPLATE = 'BirthdayTemplates';
+var BDAY_TEMPLATE_HEADERS = ['cs', 'template'];
+var SH_BDAY_LOG = 'BirthdayLog';
+var BDAY_LOG_HEADERS = ['phone', 'year', 'sentAt'];
+
+// Doc bang mau: { '': 'mau chung...', 'duyenht': 'mau rieng cua duyenht...' }
+function readBirthdayTemplates_() {
+  var sh = getSheet_(SH_BDAY_TEMPLATE, BDAY_TEMPLATE_HEADERS);
+  var last = sh.getLastRow();
+  var map = {};
+  if (last < 2) return map;
+  var vals = sh.getRange(2, 1, last - 1, BDAY_TEMPLATE_HEADERS.length).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    var cs = String(vals[i][0] || '').trim().toLowerCase();
+    var tpl = String(vals[i][1] || '').trim();
+    if (!tpl) continue;
+    map[cs] = tpl;
+  }
+  return map;
+}
+
+// Danh sach dang mang (cho UI Sasum sua truc tiep, giong listFollowUpTemplates_)
+function listBirthdayTemplates_() {
+  var sh = getSheet_(SH_BDAY_TEMPLATE, BDAY_TEMPLATE_HEADERS);
+  var last = sh.getLastRow();
+  var out = [];
+  if (last < 2) return out;
+  var vals = sh.getRange(2, 1, last - 1, BDAY_TEMPLATE_HEADERS.length).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    if (!String(vals[i][1] || '').trim()) continue;
+    out.push({ cs: String(vals[i][0] || '').trim().toLowerCase(), template: String(vals[i][1] || '') });
+  }
+  return out;
+}
+
+function saveBirthdayTemplates_(list) {
+  if (!Array.isArray(list)) return jsonOut_({ error: 'templates phai la mang' });
+  var sh = getSheet_(SH_BDAY_TEMPLATE, BDAY_TEMPLATE_HEADERS);
+  sh.clearContents();
+  var matrix = [BDAY_TEMPLATE_HEADERS];
+  for (var i = 0; i < list.length; i++) {
+    var t = list[i] || {};
+    if (!String(t.template || '').trim()) continue;
+    matrix.push([String(t.cs || '').trim().toLowerCase(), String(t.template)]);
+  }
+  sh.getRange(1, 1, matrix.length, BDAY_TEMPLATE_HEADERS.length).setValues(matrix);
+  return jsonOut_({ ok: true, written: matrix.length - 1 });
+}
+
+function readBirthdayLogKeys_() {
+  var sh = getSheet_(SH_BDAY_LOG, BDAY_LOG_HEADERS);
+  var last = sh.getLastRow();
+  var set = {};
+  if (last < 2) return set;
+  var vals = sh.getRange(2, 1, last - 1, 2).getValues();
+  for (var i = 0; i < vals.length; i++) set[String(vals[i][0]) + '|' + String(vals[i][1])] = true;
+  return set;
+}
+
+function appendBirthdayLogRows_(rows) {
+  if (!rows.length) return;
+  var sh = getSheet_(SH_BDAY_LOG, BDAY_LOG_HEADERS);
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, BDAY_LOG_HEADERS.length).setValues(rows);
+}
+
+// Doc ten khach tu don hang gan day (chi 3 nam gan nhat, du de ca nhan hoa loi
+// chao — khong bat buoc phai co, template van chay duoc voi ten rong -> 'ban').
+function buildPhoneNameMap_() {
+  var map = {};
+  var oss = getOrderSS_();
+  var curY = new Date().getFullYear();
+  for (var i = 0; i < ORDER_SHEETS.length; i++) {
+    var yrs = ORDER_SHEETS[i].years;
+    if (yrs.indexOf(curY) === -1 && yrs.indexOf(curY - 1) === -1 && yrs.indexOf(curY - 2) === -1) continue;
+    var sh = oss.getSheetByName(ORDER_SHEETS[i].name);
+    if (!sh) continue;
+    var rows = readOrders_(sh);
+    for (var j = 0; j < rows.length; j++) {
+      var np = normPhone_(rows[j].phone);
+      if (np && rows[j].name) map[np] = rows[j].name;
+    }
+  }
+  return map;
+}
+
+function runBirthdayScan_() {
+  var templates = readBirthdayTemplates_();
+  if (!Object.keys(templates).length) {
+    return { ok: true, count: 0, message: 'Chua co mau chuc mung sinh nhat nao — vao Sasum → 🎂 Mẫu chúc mừng sinh nhật để thêm.' };
+  }
+  var doneKeys = readBirthdayLogKeys_();
+  var tz = Session.getScriptTimeZone() || 'GMT+7';
+  var today = new Date();
+  var mmdd = Utilities.formatDate(today, tz, 'MM-dd');
+  var year = today.getFullYear();
+
+  var careRows = readCare_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH_CARE));
+  var nameMap = buildPhoneNameMap_();
+
+  var perPhoneMsg = {}, perPhoneNick = {}, logRows = [];
+  var groups = {};
+
+  for (var i = 0; i < careRows.length; i++) {
+    var cr = careRows[i];
+    if (!cr.birthday) continue;
+    var bd = new Date(cr.birthday);
+    if (isNaN(bd)) continue;
+    if (Utilities.formatDate(bd, tz, 'MM-dd') !== mmdd) continue;
+
+    var np = normPhone_(cr.phone);
+    if (!np) continue;
+    var logKey = np + '|' + year;
+    if (doneKeys[logKey]) continue;
+
+    var csOwn = String(cr.cs || '').trim().toLowerCase();
+    var tpl = (csOwn && templates[csOwn]) || templates[''];
+    if (!tpl) continue; // khong co mau chung lan mau rieng cho CS nay -> bo qua, khong gui tin rong
+
+    var msg = renderFollowUpTemplate_(tpl, { name: nameMap[np] || '', phone: np });
+    perPhoneMsg[np] = msg;
+    perPhoneNick[np] = Array.isArray(cr.nickZalos) ? cr.nickZalos : [];
+    logRows.push([np, year, new Date().toISOString()]);
+
+    if (!groups[csOwn]) groups[csOwn] = [];
+    groups[csOwn].push(np);
+  }
+
+  if (!logRows.length) return { ok: true, count: 0, message: 'Hôm nay không có khách nào sinh nhật (hoặc đã gửi chúc mừng năm nay rồi).' };
+
+  var todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd_HHmm');
+  var dateLabel = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy');
+  var created = [];
+  Object.keys(groups).forEach(function (csName) {
+    var grpPhones = groups[csName];
+    var grpMsg = {}, grpNick = {};
+    for (var pi = 0; pi < grpPhones.length; pi++) {
+      grpMsg[grpPhones[pi]] = perPhoneMsg[grpPhones[pi]];
+      grpNick[grpPhones[pi]] = perPhoneNick[grpPhones[pi]] || [];
+    }
+    var broadcast = {
+      id: 'bday_' + todayStr + (csName ? '_' + csName : '_chung'),
+      label: '🎂 Chúc mừng sinh nhật ' + dateLabel + (csName ? ' — ' + csName : ' — chưa gán CS'),
+      message: '(Nội dung cá nhân hoá riêng theo từng khách — xem chi tiết trong extension)',
+      images: [],
+      phones: grpPhones,
+      csName: csName,
+      expectedNick: '',
+      createdAt: new Date().toISOString(),
+      status: 'active',
+      perPhoneMsg: grpMsg,
+      perPhoneNick: grpNick
+    };
+    saveBroadcast_(broadcast);
+    created.push({ id: broadcast.id, cs: csName || '(chung)', count: grpPhones.length });
+  });
+
+  appendBirthdayLogRows_(logRows);
+  return { ok: true, count: logRows.length, campaigns: created };
+}
+
 // ─── HUONG DAN DAT LICH CHAY TU DONG (setup 1 lan) ───────────────
 // Trong Apps Script editor: Trigger (bieu tuong dong ho o thanh ben trai)
 // → + Add Trigger → Chon ham "runFollowUpScanTrigger" → Chon nguon su kien
 // "Time-driven" → "Day timer" → chon khung gio (VD 8-9 sang) → Save.
 // Ham nay chi la wrapper khong tra ve gi (trigger yeu cau void), log lai
 // ket qua vao Logger de kiem tra trong "Executions" cua Apps Script.
+// Ham nay gio chay CA follow-up (hoi tham theo ngay mua) LAN birthday scan
+// (chuc mung sinh nhat) trong CUNG 1 lan trigger — khong can tao them trigger
+// thu 2, chi can trigger da cai san tu truoc van hoat dong nhu cu.
 function runFollowUpScanTrigger() {
   var res = runFollowUpScan_();
-  Logger.log(JSON.stringify(res));
+  Logger.log('FollowUp: ' + JSON.stringify(res));
+  try {
+    var bres = runBirthdayScan_();
+    Logger.log('Birthday: ' + JSON.stringify(bres));
+  } catch (be) {
+    Logger.log('Birthday scan loi: ' + be.message);
+  }
 }
