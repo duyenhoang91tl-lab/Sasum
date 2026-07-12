@@ -1,4 +1,4 @@
-// Duyen AI - content script Ver 14.30.11.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// Duyen AI - content script Ver 14.06.12.7.26 (gio.phut.ngay.thang.nam xuat ban)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
@@ -24,13 +24,11 @@
   let _activeTone = 'Thân thiện';
   let _currentPhone = '';
   let _chatNamePhoneMap = {}; // { 'ten hien thi doan chat (lowercase, trim)': phone } — HOC CUC BO tren may nay
-  let _zsHistory = {}; // { phone: { status: 'Đã kết bạn', ts: 169999... } } — lich su QUET (khong phai lich su sync) luu cuc bo tren may nay
   // qua nut "🔗 Liên kết đoạn chat này". Zalo hien BIET DANH da luu cho khach da ket ban (khong con
   // hien so DT) nen khong the tu tach so bang regex — phai de CS xac nhan 1 lan, sau do tu nhan dien.
   let _currentCustData = null;
   let _cfgVisible = false;
   let _chatHistory = []; // luu tin nhan khach, khong hien thi trong textarea
-  let _pastedMsgImage = null; // dataURL anh CS dan vao o "Tin nhan khach" (da resize), gui kem AI khi tao goi y
   let _histVisible = false;
   let _currentCS = ''; // CS dang dung, luu vao chrome.storage
   let _currentZaloNick = ''; // Nick Zalo CS dang dung, sticky
@@ -54,6 +52,11 @@
   // Co kiem tra khop Nick Zalo dang dung voi Nick phu trach cua chien dich truoc khi gui khong
   // (mac dinh TAT vi du lieu Nick Zalo theo khach/chien dich chua duoc dong bo day du)
   let _bcCheckNick = false;
+  // Tu dong soan goi y AI ngay khi mo doan chat da nhan dien duoc SDT (khong can bam
+  // Lay TN / Tao goi y thu cong) — mac dinh TAT, CS tu bat trong Cai dat neu muon.
+  let _autoAiReply = false;
+  let _autoAiLastPhone = ''; // tranh soan lap lai nhieu lan cho cung 1 doan chat dang mo
+  let _autoAiPerPhone = {}; // {[phone]: true/false} — CS bat/tat rieng cho tung khach, ghi de cai dat chung
   // Bo loc + an/hien danh sach chien dich
   let _bcSearch = '';
   let _bcDateFrom = '';
@@ -108,7 +111,7 @@
     // Header
     const hdr = document.createElement('div');
     hdr.className = 'zai-hdr';
-    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 14.30.11.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
+    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 14.06.12.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'zai-cfg-btn'; cfgBtn.id = 'zai-cfg-toggle'; cfgBtn.title = 'Cài đặt'; cfgBtn.textContent = '⚙';
     hdr.appendChild(cfgBtn); panel.appendChild(hdr);
@@ -120,6 +123,12 @@
     const inpGas = addEl(cfg, 'input', {id:'zai-gas-url', type:'text', placeholder:'https://script.google.com/macros/s/...'});
     addEl(cfg, 'label', {textContent:'🔑 Groq API Key (lưu 1 lần dùng chung cả team)'});
     addEl(cfg, 'input', {id:'zai-gemini-key', type:'text', placeholder:'gsk_... (lấy miễn phí tại console.groq.com)'});
+    addEl(cfg, 'label', {textContent:'📄 Link Google Sheet chi tiết sản phẩm/thành phần (tuỳ chọn, dùng chung cả team)'});
+    const inpProdSheet = addEl(cfg, 'input', {id:'zai-product-sheet-url', type:'text', placeholder:'https://docs.google.com/spreadsheets/d/...'});
+    addEl(cfg, 'div', {style:'font-size:10px;color:#9ca3af;margin:2px 0 6px', textContent:'Hỗ trợ nhiều tab (mỗi tab 1 hãng), dòng 1 mỗi tab là tiêu đề cột, cột đầu là tên sản phẩm. Sheet phải chia sẻ "Bất kỳ ai có liên kết – Xem" hoặc chia sẻ cho tài khoản chạy GAS. AI sẽ tự tìm đúng vài sản phẩm khớp với câu hỏi/ngữ cảnh (không nhét cả sheet) để tư vấn chính xác.'});
+    const autoAiRow = addEl(cfg, 'label', {style:'display:flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer;font-weight:400;'});
+    const autoAiChk = addEl(autoAiRow, 'input', {type:'checkbox', id:'zai-auto-ai-chk'});
+    addEl(autoAiRow, 'span', {textContent:'⚡ Tự động soạn 3 câu mở đầu khi mở đoạn chat khách (đỡ phải bấm Lấy TN / Tạo gợi ý)'});
     const saveBtn = addEl(cfg, 'button', {className:'zai-cfg-save', id:'zai-cfg-save', textContent:'💾 Lưu cài đặt'});
     addEl(cfg, 'div', {className:'zai-cfg-hint', textContent:'Key Groq được lưu vào Google Sheets, dùng chung cho cả team.'});
     panel.appendChild(cfg);
@@ -206,7 +215,7 @@
     zsWrap.appendChild(zsBody);
     panel.appendChild(zsWrap);
     zsBody.querySelector('#zai-zs-scan-btn').addEventListener('click', () => {
-      scanAndFilterZs_();
+      renderZsPreview_(scanZaloFriendStatus_());
     });
 
     // Body
@@ -219,6 +228,9 @@
     addEl(phoneRow, 'input', {id:'zai-phone-input', type:'tel', placeholder:'0901234567'});
     addEl(phoneRow, 'button', {className:'zai-btn zai-btn-primary zai-btn-sm', id:'zai-lookup-btn', textContent:'Tra cứu'});
     addEl(body, 'div', {id:'zai-auto-hint', style:'font-size:10px;color:#00b14f;margin-top:3px'});
+    const perAutoRow = addEl(body, 'label', {id:'zai-per-auto-row', style:'display:none;align-items:center;gap:6px;margin-top:5px;font-size:11px;color:#374151;cursor:pointer;'});
+    const perAutoChk = addEl(perAutoRow, 'input', {type:'checkbox', id:'zai-per-auto-chk'});
+    addEl(perAutoRow, 'span', {textContent:'⚡ Tự động soạn câu mở đầu cho khách này'});
 
     body.appendChild(Object.assign(document.createElement('hr'), {className:'zai-div'}));
 
@@ -230,7 +242,7 @@
     });
 
     addEl(aiWrap, 'button', {className:'zai-btn zai-btn-secondary', id:'zai-open-btn',
-      textContent:'💬 Tạo TN mở đầu (dựa lịch sử mua)', style:'width:100%;margin-bottom:8px'});
+      textContent:'💬 Tạo 3 câu mở đầu đa dạng (mua hàng + chat)', style:'width:100%;margin-bottom:8px'});
 
     // Grab row
     const msgHdr = addEl(aiWrap, 'div', {style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:4px'});
@@ -246,19 +258,9 @@
 
     // Textarea (an mac dinh, chi hien khi bam "Xem")
     const msgTa = addEl(aiWrap, 'textarea', {className:'zai-msg-area', id:'zai-msg',
-      placeholder:'Dán thủ công nếu cần... (Ctrl+V để dán cả ảnh chụp màn hình tin nhắn/sản phẩm)'});
+      placeholder:'Dán thủ công nếu cần...'});
     msgTa.style.display = 'none';
     msgZoomBtn.addEventListener('click', () => openZoomModal_(msgTa, {title:'Tin nhắn khách'}));
-
-    // Anh dan vao (Ctrl+V) — de CS dan screenshot doan chat/anh san pham khach gui, giup AI hieu ro hon
-    const msgImgWrap = addEl(aiWrap, 'div', {id:'zai-msg-img-wrap', style:'display:none;margin-top:4px;position:relative;'});
-    const msgImgThumb = addEl(msgImgWrap, 'img', {id:'zai-msg-img', style:'max-width:100%;max-height:110px;border:1px solid #d1d5db;border-radius:6px;display:block;'});
-    const msgImgClear = addEl(msgImgWrap, 'button', {type:'button', id:'zai-msg-img-clear', textContent:'✕ Xóa ảnh',
-      style:'position:absolute;top:4px;right:4px;font-size:10px;padding:1px 6px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;'});
-    const msgImgHint = addEl(aiWrap, 'div', {id:'zai-msg-img-hint', style:'font-size:10px;color:#9ca3af;margin-top:3px;',
-      textContent:'💡 Có thể dán (Ctrl+V) ảnh chụp màn hình tin nhắn/sản phẩm vào ô "Tin nhắn khách" ở trên để AI hiểu rõ hơn.'});
-    msgImgClear.addEventListener('click', () => clearPastedMsgImage_());
-    msgTa.addEventListener('paste', handleMsgImagePaste_);
 
     // Nguyen canh input
     addEl(aiWrap, 'div', {style:'margin-top:5px;font-size:11px;color:#6b7280', textContent:'Ngữ cảnh / Sản phẩm (tuỳ chọn)'});
@@ -362,11 +364,10 @@
       _bcVariants = res.ome_bc_variants || {};
       _bcCheckDailyReset_();
     });
-    chrome.storage.local.get(['ome_gas_url','ome_current_cs','ome_current_nz'], (res) => {
+    chrome.storage.local.get(['ome_gas_url','ome_current_cs','ome_current_nz','ome_auto_ai_reply','ome_auto_ai_per_phone'], (res) => {
       GAS_URL = res.ome_gas_url || '';
-      if (GAS_URL) { inpGas.value = GAS_URL; loadCSNames_(); loadNickZaloList_(); loadCareStatusTree_(); }
+      if (GAS_URL) { inpGas.value = GAS_URL; loadCSNames_(); loadNickZaloList_(); loadCareStatusTree_(); loadProductSheetUrl_(); }
       loadChatNamePhoneMap_();
-      loadZsHistory_();
       if (!GAS_URL) { _cfgVisible = true; cfg.style.display = 'block'; }
       _currentCS = res.ome_current_cs || '';
       if (_currentCS) {
@@ -374,7 +375,14 @@
         csBarHint.textContent = 'tự động áp dụng';
       }
       _currentZaloNick = res.ome_current_nz || '';
+      _autoAiReply = !!res.ome_auto_ai_reply;
+      autoAiChk.checked = _autoAiReply;
+      _autoAiPerPhone = res.ome_auto_ai_per_phone || {};
       startReminderPoll_();
+    });
+    autoAiChk.addEventListener('change', () => {
+      _autoAiReply = autoAiChk.checked;
+      chrome.storage.local.set({ ome_auto_ai_reply: _autoAiReply });
     });
     nzSel.addEventListener('change', () => {
       _currentZaloNick = nzSel.value;
@@ -416,6 +424,12 @@
       const csSel = document.getElementById('zai-cs-sel');
       if (csSel) csSel.value = _currentCS;
     });
+    perAutoChk.addEventListener('change', () => {
+      const phone = _currentCustData && _currentCustData.phone;
+      if (!phone) return;
+      _autoAiPerPhone[phone] = perAutoChk.checked;
+      chrome.storage.local.set({ ome_auto_ai_per_phone: _autoAiPerPhone });
+    });
   }
 
   function addEl(parent, tag, props) {
@@ -449,12 +463,28 @@
         else { showError('Lỗi lưu key: '+JSON.stringify(d)); return; }
       } catch(e) { showError('Lỗi kết nối GAS: '+e.message); return; }
     }
+    const prodSheetEl = document.getElementById('zai-product-sheet-url');
+    const prodSheetUrl = prodSheetEl ? prodSheetEl.value.trim() : '';
+    try {
+      await fetch(GAS_URL, { method:'POST', body:JSON.stringify({action:'setSetting',key:'productSheetUrl',value:prodSheetUrl}), headers:{'Content-Type':'text/plain'} });
+    } catch(e) { /* khong chan luong luu chinh neu loi rieng phan nay */ }
     _cfgVisible = false;
     document.getElementById('zai-cfg').style.display = 'none';
     _lookupCache = {};
     loadCSNames_();
     loadCareStatusTree_();
     if (!key) showMsg('zai-save-status','✓ Đã lưu cài đặt',2000);
+  }
+
+  async function loadProductSheetUrl_() {
+    if (!GAS_URL) return;
+    try {
+      const sep = GAS_URL.includes('?') ? '&' : '?';
+      const r = await fetch(GAS_URL + sep + 'action=getSetting&key=productSheetUrl', {redirect:'follow'});
+      const d = await r.json();
+      const el = document.getElementById('zai-product-sheet-url');
+      if (el && d && d.value) el.value = d.value;
+    } catch(e) {}
   }
 
   function normPhone(p) {
@@ -502,11 +532,50 @@
           const hint = document.getElementById('zai-auto-hint');
           if (hint) hint.textContent = '✓ Tự động: '+name.trim();
           doLookup();
+          _autoSuggestForOpenChat_(phone);
         }
       }
     }
     new MutationObserver(check).observe(document.body, {childList:true, subtree:true, characterData:true});
     setInterval(check, 1500);
+  }
+
+  // Trang thai bat/tat "tu dong soan AI" hieu luc cho 1 SDT: uu tien lua chon rieng CS
+  // da bam cho khach nay (checkbox trong panel), neu chua tung chon thi dung cai dat chung.
+  function _effectiveAutoAi_(phone) {
+    if (!phone) return _autoAiReply;
+    if (Object.prototype.hasOwnProperty.call(_autoAiPerPhone, phone)) return !!_autoAiPerPhone[phone];
+    return _autoAiReply;
+  }
+
+  // Hien/dong bo checkbox "Tu dong soan AI cho khach nay" theo dung SDT dang xem
+  function _updatePerPhoneToggleUI_(phone) {
+    const row = document.getElementById('zai-per-auto-row');
+    const chk = document.getElementById('zai-per-auto-chk');
+    if (!row || !chk) return;
+    if (!phone) { row.style.display = 'none'; return; }
+    row.style.display = 'flex';
+    chk.checked = _effectiveAutoAi_(phone);
+  }
+
+  // Tu dong soan san 3 câu MỞ ĐẦU đa dạng (khong can CS bam Lay TN / Tao goi y) — muc dich
+  // chinh cua AI la giup CS co cau chuyen khoi gợi khi CHU DONG bat chuyen voi khach, con
+  // doan chat tiep theo CS tu nghi, chi bam nut "✨ Tạo gợi ý phản hồi" thu cong khi nao bi.
+  // Vi vay o day LUON goi doGenerateOpener() (3 huong da dang), khong tu dong tra loi thay CS.
+  // Doi 1 chut de: (1) doLookup() render xong _currentCustData, (2) khung chat Zalo kip
+  // load tin nhan len DOM de doGrabMessage() doc duoc (chi de AI THAM KHAO, tranh trung chu de).
+  function _autoSuggestForOpenChat_(phone) {
+    if (_autoAiLastPhone === phone) return; // da soan cho doan chat nay roi, khong lap lai
+    setTimeout(() => {
+      // CS co the da chuyen sang doan chat khac trong luc cho -> bo qua, tranh soan nham
+      if (_currentPhone !== phone) return;
+      if (!_currentCustData || _currentCustData.phone !== phone) return;
+      _updatePerPhoneToggleUI_(phone); // dam bao checkbox hien dung trang thai cua khach nay
+      if (!_effectiveAutoAi_(phone)) return; // CS da tat rieng cho khach nay (hoac tat chung)
+      _autoAiLastPhone = phone;
+      try { doGrabMessage(); } catch(e) {}
+      doGenerateOpener();
+    }, 1200);
   }
 
   // ── GRAB TIN NHẮN KHÁCH ──
@@ -636,10 +705,16 @@
     const care = (_currentCustData && _currentCustData.care) ||
                  (_lookupCache[phone] && _lookupCache[phone].care) || null;
     if (care && (care.zalo || '') === st) return; // đã đúng trạng thái → bỏ qua
-    const row = Object.assign({}, care || { phone: phone, cs: _currentCS || '' });
-    row.phone = phone; row.zalo = st;
     try {
-      await fetch(GAS_URL, { method:'POST', body: JSON.stringify({ action:'saveSingle', row }), headers:{'Content-Type':'text/plain'} });
+      // FIX: KHONG dung 'saveSingle' o day nua. 'care' o tren co the la ban cache cuc bo
+      // (toi da 5 phut, xem _lookupCache) — neu dung saveSingle se ghi DE TOAN BO dong
+      // (status/cs/note/schedules...) bang du lieu cu trong cache, xoa mat nhung gi CS
+      // vua luu tren Sasum trong luc do. Chi dung action 'syncZaloFriendStatus' — action
+      // nay CHI ghi dung cot zalo/updated/nick/zaloSetBy, khong dung vao cac truong khac.
+      await fetch(GAS_URL, { method:'POST', body: JSON.stringify({
+        action:'syncZaloFriendStatus',
+        rows:[{ phone: phone, zalo: st, scannedBy: _currentCS || '', nick: _currentZaloNick || '' }]
+      }), headers:{'Content-Type':'text/plain'} });
       if (_currentCustData && _currentCustData.phone === phone) _currentCustData.care = Object.assign({}, care||{}, { zalo: st });
       if (_lookupCache[phone] && _lookupCache[phone].care) _lookupCache[phone].care.zalo = st;
       showMsg('zai-save-status', '🔗 Đã cập nhật kết bạn Zalo: ' + st, 3000);
@@ -728,6 +803,7 @@
     _lastServerCare  = {};
     updSec.style.display = 'block';
     clearForm_();
+    _updatePerPhoneToggleUI_(phone);
   }
 
   function clearForm_() {
@@ -740,7 +816,6 @@
     const rawEl = document.getElementById('zai-note-raw');
     if (rawEl) rawEl.value = '';
     renderNoteHistory_('');
-    clearPastedMsgImage_();
   }
 
   // Chi ve lai khung the thong tin (doc, an toan de goi lai khi poll ma khong lam mat du lieu CS dang go)
@@ -763,54 +838,15 @@
         </div>
         ${care&&care.note ? `<div class="zai-card-note">📝 ${escHtml(_latestNoteText_(care.note))}</div>` : ''}
         ${orders.slice(0,3).length ? `<div class="zai-card-orders"><strong>Đơn gần nhất:</strong><br>${
-          orders.slice(0,3).map((o, oi) => {
+          orders.slice(0,3).map(o => {
             const d = fmtDate_(o.date);
             const rev = o.revenue ? Number(o.revenue).toLocaleString('vi-VN')+'đ' : '';
             const sp = (o.product||'') + (o.productDetail?' — '+o.productDetail:'');
-            return `<div style="display:flex;align-items:flex-start;gap:4px;margin-bottom:2px">`+
-              `<div style="flex:1;min-width:0">• <b>${d}</b> | ${rev}<br>&nbsp;&nbsp;${escHtml(sp)}</div>`+
-              `<button type="button" class="zai-order-del" data-oi="${oi}" title="Xóa đơn này (VD: đơn bị trùng/nhập sai)" `+
-              `style="flex:0 0 auto;font-size:10px;padding:1px 5px;border:1px solid #fca5a5;background:#fff1f2;color:#dc2626;border-radius:4px;cursor:pointer;">🗑</button>`+
-              `</div>`;
-          }).join('')
+            return `• <b>${d}</b> | ${rev}<br>&nbsp;&nbsp;${escHtml(sp)}`;
+          }).join('<br>')
         }</div>` : ''}
       </div>`;
-    area.querySelectorAll('.zai-order-del').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const o = orders[parseInt(btn.dataset.oi, 10)];
-        if (o) deleteOrderZs_(phone, o, btn, area, raw, care, orders);
-      });
-    });
     return name;
-  }
-
-  // Xoa 1 don hang cua khach ngay tu the thong tin trong Zalo AI — luon hoi xac nhan truoc.
-  // Dung chung API deleteOrder voi Sasum, nen xoa o day cung xoa luon o Sasum/GSheets.
-  async function deleteOrderZs_(phone, o, btn, area, raw, care, orders) {
-    const label = [fmtDate_(o.date)||'Không rõ ngày', o.product||'Không có sản phẩm',
-      o.revenue ? Number(o.revenue).toLocaleString('vi-VN')+'đ' : '0đ'].join(' · ');
-    if (!window.confirm('Xác nhận xóa đơn hàng này?\n\n' + label + '\n\nThao tác này không thể hoàn tác.')) return;
-    if (!GAS_URL) { showError('Chưa cài đặt URL GAS.'); return; }
-    btn.disabled = true; btn.textContent = '…';
-    try {
-      const res = await fetch(GAS_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'deleteOrder', phone, oldYear: o.year, oldMonth: o.month, oldRevenue: o.revenue }),
-        redirect: 'follow'
-      });
-      const d = await res.json();
-      if (d && d.ok) {
-        const idx = orders.indexOf(o);
-        if (idx !== -1) orders.splice(idx, 1);
-        renderCustCard_(area, phone, raw, care, orders);
-      } else {
-        showError('Lỗi xóa đơn: ' + ((d && d.error) || 'không rõ'));
-        btn.disabled = false; btn.textContent = '🗑';
-      }
-    } catch (e) {
-      showError('Lỗi kết nối: ' + e.message);
-      btn.disabled = false; btn.textContent = '🗑';
-    }
   }
 
   function renderCard_(area, updSec, phone, raw, care, orders) {
@@ -836,6 +872,7 @@
     const noteRaw = (care && care.note) || '';
     if (rawEl) rawEl.value = noteRaw;
     renderNoteHistory_(noteRaw);
+    _updatePerPhoneToggleUI_(phone);
   }
 
   // ── ĐỒNG BỘ GẦN-TỨC-THỜI (polling) ──
@@ -989,18 +1026,90 @@
     return lines;
   }
 
+  // 3 huong mo dau khac nhau — CS chon huong hop voi tinh huong tung khach thay vi chi
+  // co 1 goi y duy nhat. Moi huong deu duoc AI viet dua tren ho so mua hang + (neu co)
+  // lich su chat gan day, de tranh lap lai chuyen da noi va bam sat dung khach that.
+  const OPENER_ANGLES = [
+    { key:'follow',  label:'🩺 Hỏi thăm trải nghiệm', instr:'Hỏi thăm cảm nhận/trải nghiệm khách sau khi dùng sản phẩm đã mua gần nhất, thể hiện sự quan tâm chân thành.' },
+    { key:'upsell',  label:'🛍 Gợi ý sản phẩm liên quan', instr:'Gợi ý nhẹ nhàng 1 sản phẩm liên quan hoặc dùng kèm với sản phẩm khách đã mua, mở đầu bằng câu hỏi/quan tâm chứ không chào bán trực tiếp.' },
+    { key:'connect', label:'✨ Khơi gợi trò chuyện',    instr:'Mở đầu bằng 1 câu hỏi mở hoặc chia sẻ nhỏ (ưu đãi mới, mẹo dùng sản phẩm, hỏi thăm dịp gần đây) để khơi gợi khách phản hồi, tạo cảm giác gần gũi cá nhân.' }
+  ];
+
+  // Goi AI qua GAS — TUAN TU + tu retry khi Groq bao 429 (rate limit theo token/phut).
+  // Groq tra ve "Please try again in X.XXs" -> doi dung X giay roi thu lai (toi da 2 lan).
+  async function _aiCall_(prompt) {
+    for (let attempt = 0; attempt <= 2; attempt++) {
+      let data;
+      try {
+        const res = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({action:'ai',prompt}), headers:{'Content-Type':'text/plain'}});
+        data = await res.json();
+      } catch(e) { return { error: e.message }; }
+      if (data && data.ok) return data;
+      const err = String((data && data.error) || 'Lỗi GAS');
+      if (err.indexOf('429') !== -1 && attempt < 2) {
+        const m = err.match(/try again in ([0-9.]+)s/i);
+        const waitMs = m ? Math.ceil(parseFloat(m[1]) * 1000) + 1500 : 16000;
+        await sleep_(waitMs);
+        continue;
+      }
+      return { error: err };
+    }
+    return { error: 'Quá số lần thử lại' };
+  }
+
   async function doGenerateOpener() {
     if (!GAS_URL) { showError('Chưa cài đặt URL GAS.'); return; }
     if (!_currentCustData) { showError('Tra cứu khách trước đã.'); return; }
     const btn = document.getElementById('zai-open-btn');
     const sug = document.getElementById('zai-sug-area');
     hideError(); btn.disabled=true; btn.textContent='AI đang soạn...';
-    sug.innerHTML='<div class="zai-loading"><div class="zai-spinner"></div>Đang soạn tin mở đầu...</div>';
+    sug.innerHTML='<div class="zai-loading"><div class="zai-spinner"></div>Đang soạn 3 câu mở đầu...</div>';
+
     const lines = buildCustLines();
     const ctx = (document.getElementById('zai-ctx').value||'').trim();
     if (ctx) lines.push('Ngữ cảnh: '+ctx);
-    const prompt = '[KH] '+lines.join(' | ')+'\n[Giọng văn] '+_activeTone+'\nSoạn 1 tin nhắn Zalo CHỦ ĐỘNG bắt chuyện chăm sóc khách sau mua, dựa vào lịch sử mua hàng trên. Ngắn gọn, tự nhiên, tiếng Việt.';
-    await callAI_(prompt, btn, '💬 Tạo TN mở đầu (dựa lịch sử mua)', sug);
+    // Lich su chat gan day (neu co) chi de AI THAM KHAO, tranh lap lai chu de da noi —
+    // KHONG phai de tra loi truc tiep tin cuoi (do la viec cua nut "Tạo gợi ý phản hồi").
+    let histText = _chatHistory.length ? _chatHistory.slice(-8).join(' | ') : '';
+    if (histText.length > 1200) histText = histText.slice(-1200); // giu prompt nhe de khong cham tran token/phut cua Groq
+    const custBlock = '[KH] '+lines.join(' | ')+
+      (histText ? '\n[Đã từng trò chuyện — chỉ để tham khảo, KHÔNG lặp lại chủ đề này] '+histText : '');
+
+    try {
+      // TUAN TU tung huong (khong Promise.all): Groq gioi han token/PHUT,
+      // ban 3 request cung luc chac chan dinh 429 — tuan tu + retry thi on dinh.
+      const results = [];
+      for (let ai = 0; ai < OPENER_ANGLES.length; ai++) {
+        const angle = OPENER_ANGLES[ai];
+        sug.innerHTML = '<div class="zai-loading"><div class="zai-spinner"></div>Đang soạn câu ' + (ai+1) + '/' + OPENER_ANGLES.length + ' — ' + escHtml(angle.label) + '...</div>';
+        const prompt = custBlock+'\n[Giọng văn] '+_activeTone+
+          '\nSoạn 1 tin nhắn Zalo CHỦ ĐỘNG bắt chuyện với khách, theo hướng: '+angle.instr+
+          ' Ngắn gọn, tự nhiên, tiếng Việt, không giống mẫu quảng cáo.';
+        const data = await _aiCall_(prompt);
+        if (data.error) results.push({ angle, error: data.error });
+        else results.push({ angle, prompt, text: (data.text||'').trim() });
+      }
+
+      sug.innerHTML='';
+      addEl(sug,'div',{className:'zai-section-label',textContent:'💡 3 câu mở đầu — sửa nếu cần rồi gửi'});
+      results.forEach((r) => {
+        const box = addEl(sug,'div',{style:'border:1px solid #e5e7eb;border-radius:8px;padding:8px;margin-top:6px;background:#fafafa'});
+        addEl(box,'div',{style:'font-size:11px;font-weight:600;color:#374151;margin-bottom:4px',textContent:r.angle.label});
+        if (r.error) { addEl(box,'div',{className:'zai-error',style:'display:block',textContent:'Lỗi: '+r.error}); return; }
+        const ta = addEl(box,'textarea',{rows:3});
+        ta.style.cssText='width:100%;box-sizing:border-box;font-size:12px;padding:7px;border:1px solid #d1d5db;border-radius:6px;resize:vertical;font-family:inherit';
+        ta.value = r.text;
+        attachExpandBtn_(box, ta, r.angle.label);
+        const btnRow = addEl(box,'div',{style:'display:flex;gap:6px;margin-top:6px'});
+        const sendZaloBtn = addEl(btnRow,'button',{className:'zai-btn zai-btn-primary zai-btn-sm',textContent:'📤 Gởi Zalo'});
+        sendZaloBtn.title='Tự điền vào ô chat Zalo và gởi ngay';
+        sendZaloBtn.addEventListener('click',() => sendToZalo_(ta.value, sendZaloBtn));
+        const saveBtn2 = addEl(btnRow,'button',{className:'zai-btn zai-btn-secondary zai-btn-sm',textContent:'💾 Lưu mẫu'});
+        saveBtn2.title='Lưu câu này (sau khi sửa) làm mẫu để AI học';
+        saveBtn2.addEventListener('click',() => saveAIExample_(r.prompt, ta.value, saveBtn2));
+      });
+    } catch(e) { sug.innerHTML=''; showError('Lỗi: '+e.message); }
+    finally { btn.disabled=false; btn.textContent='💬 Tạo 3 câu mở đầu đa dạng (mua hàng + chat)'; }
   }
 
   async function doGenerate() {
@@ -1009,7 +1118,7 @@
     const histText = _chatHistory.length ? _chatHistory.join('\n---\n') : '';
     const taText   = (document.getElementById('zai-msg').value||'').trim();
     const msg = histText || taText;
-    if (!msg && !_pastedMsgImage) { showError('Chưa có tin nhắn khách. Nhấn 📥 Lấy TN, dán thủ công, hoặc dán ảnh chụp màn hình.'); return; }
+    if (!msg) { showError('Chưa có tin nhắn khách. Nhấn 📥 Lấy TN hoặc dán thủ công.'); return; }
     const btn = document.getElementById('zai-gen-btn');
     const sug = document.getElementById('zai-sug-area');
     hideError(); btn.disabled=true; btn.textContent='AI đang soạn...';
@@ -1017,19 +1126,15 @@
     const lines = buildCustLines();
     const ctx = (document.getElementById('zai-ctx').value||'').trim();
     if (ctx) lines.push('Ngữ cảnh: '+ctx);
-    const msgPart = msg ? msg : '(CS đính kèm ảnh chụp màn hình bên dưới, chưa gõ text — xem nội dung trong ảnh)';
     const prompt = (lines.length?'[KH] '+lines.join(' | ')+'\n':'')+
-      '[TN khách] '+msgPart+'\n[Giọng văn] '+_activeTone+'\nSoạn 1 tin nhắn trả lời phù hợp, ngắn gọn, tiếng Việt tự nhiên.';
-    await callAI_(prompt, btn, '✨ Tạo gợi ý phản hồi', sug, _pastedMsgImage);
+      '[TN khách] '+msg+'\n[Giọng văn] '+_activeTone+'\nSoạn 1 tin nhắn trả lời phù hợp, ngắn gọn, tiếng Việt tự nhiên.';
+    await callAI_(prompt, btn, '✨ Tạo gợi ý phản hồi', sug);
   }
 
-  async function callAI_(prompt, btn, label, sug, image) {
+  async function callAI_(prompt, btn, label, sug) {
     try {
-      const body = { action:'ai', prompt };
-      if (image) body.image = image;
-      const res = await fetch(GAS_URL, {method:'POST', body:JSON.stringify(body), headers:{'Content-Type':'text/plain'}});
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error||'GAS lỗi');
+      const data = await _aiCall_(prompt);
+      if (data.error) throw new Error(data.error);
       const text = (data.text||'').trim();
       sug.innerHTML='';
       addEl(sug,'div',{className:'zai-section-label',textContent:'💡 Gợi ý — sửa nếu cần rồi copy/lưu'});
@@ -1051,41 +1156,6 @@
 
     } catch(e) { sug.innerHTML=''; showError('Lỗi: '+e.message); }
     finally { btn.disabled=false; btn.textContent=label; }
-  }
-
-  // ── Dan anh (Ctrl+V) vao o "Tin nhan khach" ──
-  function clearPastedMsgImage_() {
-    _pastedMsgImage = null;
-    const wrap = document.getElementById('zai-msg-img-wrap');
-    if (wrap) wrap.style.display = 'none';
-  }
-  function handleMsgImagePaste_(e) {
-    const items = (e.clipboardData || window.clipboardData) ? (e.clipboardData || window.clipboardData).items : null;
-    if (!items) return;
-    let file = null;
-    for (const it of items) { if (it.type && it.type.indexOf('image/') === 0) { file = it.getAsFile(); break; } }
-    if (!file) return; // khong co anh trong clipboard -> de mac dinh dan text binh thuong
-    e.preventDefault();
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        // Resize ve toi da 1024px canh dai de giam dung luong truoc khi gui AI
-        const MAX = 1024;
-        let w = img.width, h = img.height;
-        if (w > MAX || h > MAX) { const r = Math.min(MAX / w, MAX / h); w = Math.round(w * r); h = Math.round(h * r); }
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        _pastedMsgImage = canvas.toDataURL('image/jpeg', 0.75);
-        const thumb = document.getElementById('zai-msg-img');
-        const wrap = document.getElementById('zai-msg-img-wrap');
-        if (thumb) thumb.src = _pastedMsgImage;
-        if (wrap) wrap.style.display = 'block';
-      };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
   }
 
   // Gui tin nhan vao o chat Zalo
@@ -1400,21 +1470,6 @@ async function startReminderPoll_() {
   function saveChatNamePhoneMap_() {
     chrome.storage.local.set({ ome_chat_name_map: _chatNamePhoneMap });
   }
-
-  // Lich su QUET trang thai ket ban cuc bo (may nay) — de lan quet sau bo qua nhung
-  // KH ma trang thai KHONG doi so voi lan quet/dong bo truoc, tranh phai kiem tra lai.
-  function loadZsHistory_() {
-    chrome.storage.local.get(['ome_zs_history'], (res) => {
-      _zsHistory = res.ome_zs_history || {};
-    });
-  }
-  function saveZsHistory_() {
-    chrome.storage.local.set({ ome_zs_history: _zsHistory });
-  }
-  function rememberZsStatus_(phone, status) {
-    if (!phone || !status) return;
-    _zsHistory[phone] = { status: status, ts: Date.now() };
-  }
   // Ghi nho: ten doan chat dang mo HIEN LA cua SDT nay (CS xac nhan 1 lan, sau do tu nhan dien)
   function learnChatNameForPhone_(name, phone) {
     if (!name || !phone) return;
@@ -1728,9 +1783,8 @@ async function startReminderPoll_() {
         '- TUYỆT ĐỐI KHÔNG: thêm ý mới, bớt ý, đổi cấu trúc câu hỏi, đổi thành văn phong trang trọng/khác thể loại, tự xưng "nhân viên CSKH", nhắc tới gọi điện, giới thiệu sản phẩm mới, hay chương trình ưu đãi nếu bản gốc không có.\n' +
         '- Độ dài từng phiên bản xấp xỉ bản gốc.\n' +
         'Trả về đúng 3 phiên bản, phân cách bằng dòng riêng chứa duy nhất "' + VARIANT_DELIM + '", không đánh số, không ghi chú gì thêm.';
-      const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'ai', prompt }), headers: { 'Content-Type': 'text/plain' } });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'GAS lỗi');
+      const data = await _aiCall_(prompt);
+      if (data.error) throw new Error(data.error);
       let parts = (data.text || '').split(VARIANT_DELIM).map(s => s.trim()).filter(Boolean);
       if (parts.length < 2) parts = (data.text || '').split(/\n\s*\n/).map(s => s.trim()).filter(Boolean); // fallback neu AI khong theo dung dinh dang
       parts = parts.slice(0, 3);
@@ -2182,10 +2236,13 @@ async function startReminderPoll_() {
       const d = await r.json();
       const care = (d && d.care) || null;
       if (care && (care.zalo || '') === st) return; // da dung trang thai nay roi -> bo qua
-      const row = Object.assign({}, care || { phone: phone, cs: _currentCS || '' });
-      row.phone = phone;
-      row.zalo = st;
-      await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveSingle', row }), headers: { 'Content-Type': 'text/plain' } });
+      // FIX: dung action ghi hep 'syncZaloFriendStatus' thay vi 'saveSingle' — tranh ghi de
+      // status/cs/note/schedules cua khach bang du lieu lookup co the da cu tai thoi diem ghi.
+      await fetch(GAS_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'syncZaloFriendStatus', rows: [{ phone: phone, zalo: st, scannedBy: _currentCS || '', nick: _currentZaloNick || '' }] }),
+        headers: { 'Content-Type': 'text/plain' }
+      });
       bcLog_('🔗 Cập nhật Zalo "' + st + '" → Sasum: ' + phone);
     } catch (e) {}
   }
@@ -2394,62 +2451,12 @@ async function startReminderPoll_() {
     return Object.values(byPhone).map(r => ({ phone: r.phone, rawName: r.rawName, nameGuess: r.nameGuess, zaloStatus: r.zaloStatus }));
   }
 
-  // Quet man hinh + loc bo nhung KH ma trang thai KHONG doi (so voi lich su quet cuc bo
-  // TREN MAY NAY, hoac so voi trang thai dang luu tren Sasum) — chi con lai KH MOI hoac
-  // KH co thay doi that su moi hien vao danh sach de CS kiem tra & dong bo.
-  async function scanAndFilterZs_() {
-    const box = document.getElementById('zai-zs-preview');
-    const allRows = scanZaloFriendStatus_();
-    if (!allRows.length) { renderZsPreview_(allRows, 0); return; }
-    if (box) box.innerHTML = '<div style="font-size:11px;color:#6b7280">Đang đối chiếu ' + allRows.length + ' khách với lịch sử quét & Sasum...</div>';
-
-    // Buoc 1: loc theo lich su quet cuc bo (khong can hoi server)
-    const afterLocal = [];
-    let localSkipped = 0;
-    for (const r of allRows) {
-      const hist = _zsHistory[r.phone];
-      if (hist && hist.status === r.zaloStatus) { localSkipped++; continue; }
-      afterLocal.push(r);
-    }
-
-    // Buoc 2: doi chieu phan con lai voi trang thai hien co tren Sasum (dry-run, khong ghi gi)
-    let finalRows = afterLocal;
-    let serverSkipped = 0;
-    if (GAS_URL && afterLocal.length) {
-      try {
-        const chkRes = await fetch(GAS_URL, {
-          method: 'POST',
-          body: JSON.stringify({
-            action: 'syncZaloFriendStatus', dryRun: true,
-            rows: afterLocal.map(r => ({ phone: r.phone, zalo: r.zaloStatus, scannedBy: _currentCS || '' }))
-          }),
-          redirect: 'follow'
-        });
-        const chkData = await chkRes.json();
-        const known = (chkData && chkData.ok && chkData.known) ? chkData.known : {};
-        finalRows = afterLocal.filter(r => {
-          const oldZalo = known[r.phone];
-          if (oldZalo !== undefined && oldZalo === r.zaloStatus) {
-            rememberZsStatus_(r.phone, r.zaloStatus); // ghi nho de lan sau khoi phai hoi server nua
-            serverSkipped++;
-            return false;
-          }
-          return true;
-        });
-        if (serverSkipped) saveZsHistory_();
-      } catch (e) { /* offline hoac loi mang -> giu nguyen finalRows = afterLocal, de CS tu kiem tra */ }
-    }
-
-    renderZsPreview_(finalRows, localSkipped + serverSkipped);
-  }
-
-  function renderZsPreview_(rows, skippedCount) {
+  function renderZsPreview_(rows) {
     const box = document.getElementById('zai-zs-preview');
     if (!box) return;
-    const skipNote = skippedCount ? ' (đã bỏ qua ' + skippedCount + ' khách không đổi trạng thái)' : '';
-    if (!rows.length) { box.innerHTML = '<div style="font-size:11px;color:#6b7280">Không có khách nào cần đồng bộ' + skipNote + '. Thử cuộn/mở danh bạ rồi quét lại nếu thiếu khách.</div>'; return; }
+    if (!rows.length) { box.innerHTML = '<div style="font-size:11px;color:#6b7280">Không tìm thấy số điện thoại nào trên màn hình hiện tại. Thử cuộn/mở danh bạ rồi quét lại.</div>'; return; }
     box.innerHTML =
-      '<div style="font-size:11px;color:#166534;margin-bottom:5px">Tìm thấy ' + rows.length + ' khách cần kiểm tra' + skipNote + ' — xem lại trạng thái (có thể sửa) rồi bấm Đồng bộ:</div>' +
+      '<div style="font-size:11px;color:#166534;margin-bottom:5px">Tìm thấy ' + rows.length + ' khách — kiểm tra lại trạng thái (có thể sửa) rồi bấm Đồng bộ:</div>' +
       '<div style="max-height:220px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff;">' +
       rows.map((r, i) =>
         '<div style="display:flex;gap:6px;align-items:center;padding:5px 8px;font-size:11px;border-bottom:1px solid #f3f4f6;">' +
@@ -2545,8 +2552,6 @@ async function startReminderPoll_() {
       const d = await res.json();
       if (d.ok) {
         const skipped = conflicts.length && selected.length < checks.length ? (checks.length - selected.length) : 0;
-        selected.forEach(r => rememberZsStatus_(r.phone, r.zalo));
-        saveZsHistory_();
         showMsg('zai-zs-sync-status', '✓ Đã đồng bộ ' + ((d.updated||0) + (d.appended||0)) + ' khách lên Sasum' + (skipped ? ' (bỏ qua ' + skipped + ' SĐT xung đột)' : ''), 4500);
       }
       else showMsg('zai-zs-sync-status', 'Lỗi: ' + (d.error || 'không rõ'), 4000);

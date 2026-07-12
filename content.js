@@ -1,4 +1,4 @@
-// Duyen AI - content script Ver 17.30.12.7.26 (gio.phut.ngay.thang.nam xuat ban)
+// Duyen AI - content script Ver 14.06.12.7.26 (gio.phut.ngay.thang.nam xuat ban)
 // v15.5: Kich ban gui hang loat doi lai thanh 1 KICH BAN GOC (CS go/sua) + 3 KICH BAN AI sinh THEM
 //        (prompt bat buoc AI chi doi rat it cau chu, khong duoc doi y/van phong/the loai);
 //        Them nut "⛶ Phong to" mo khung lon cho o tin nhan/kich ban/goi y AI dai, doc xong dong lai
@@ -111,7 +111,7 @@
     // Header
     const hdr = document.createElement('div');
     hdr.className = 'zai-hdr';
-    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 17.30.12.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
+    hdr.innerHTML = `<div style="flex:1"><div class="zai-hdr-title">🤖 Duyên AI <span style="font-size:9px;font-weight:600;opacity:.85">Ver 14.06.12.7.26</span></div><div class="zai-hdr-sub">Tra cứu & gợi ý phản hồi khách</div></div>`;
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'zai-cfg-btn'; cfgBtn.id = 'zai-cfg-toggle'; cfgBtn.title = 'Cài đặt'; cfgBtn.textContent = '⚙';
     hdr.appendChild(cfgBtn); panel.appendChild(hdr);
@@ -1035,6 +1035,28 @@
     { key:'connect', label:'✨ Khơi gợi trò chuyện',    instr:'Mở đầu bằng 1 câu hỏi mở hoặc chia sẻ nhỏ (ưu đãi mới, mẹo dùng sản phẩm, hỏi thăm dịp gần đây) để khơi gợi khách phản hồi, tạo cảm giác gần gũi cá nhân.' }
   ];
 
+  // Goi AI qua GAS — TUAN TU + tu retry khi Groq bao 429 (rate limit theo token/phut).
+  // Groq tra ve "Please try again in X.XXs" -> doi dung X giay roi thu lai (toi da 2 lan).
+  async function _aiCall_(prompt) {
+    for (let attempt = 0; attempt <= 2; attempt++) {
+      let data;
+      try {
+        const res = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({action:'ai',prompt}), headers:{'Content-Type':'text/plain'}});
+        data = await res.json();
+      } catch(e) { return { error: e.message }; }
+      if (data && data.ok) return data;
+      const err = String((data && data.error) || 'Lỗi GAS');
+      if (err.indexOf('429') !== -1 && attempt < 2) {
+        const m = err.match(/try again in ([0-9.]+)s/i);
+        const waitMs = m ? Math.ceil(parseFloat(m[1]) * 1000) + 1500 : 16000;
+        await sleep_(waitMs);
+        continue;
+      }
+      return { error: err };
+    }
+    return { error: 'Quá số lần thử lại' };
+  }
+
   async function doGenerateOpener() {
     if (!GAS_URL) { showError('Chưa cài đặt URL GAS.'); return; }
     if (!_currentCustData) { showError('Tra cứu khách trước đã.'); return; }
@@ -1048,22 +1070,25 @@
     if (ctx) lines.push('Ngữ cảnh: '+ctx);
     // Lich su chat gan day (neu co) chi de AI THAM KHAO, tranh lap lai chu de da noi —
     // KHONG phai de tra loi truc tiep tin cuoi (do la viec cua nut "Tạo gợi ý phản hồi").
-    const histText = _chatHistory.length ? _chatHistory.slice(-15).join(' | ') : '';
+    let histText = _chatHistory.length ? _chatHistory.slice(-8).join(' | ') : '';
+    if (histText.length > 1200) histText = histText.slice(-1200); // giu prompt nhe de khong cham tran token/phut cua Groq
     const custBlock = '[KH] '+lines.join(' | ')+
       (histText ? '\n[Đã từng trò chuyện — chỉ để tham khảo, KHÔNG lặp lại chủ đề này] '+histText : '');
 
     try {
-      const results = await Promise.all(OPENER_ANGLES.map(async (angle) => {
+      // TUAN TU tung huong (khong Promise.all): Groq gioi han token/PHUT,
+      // ban 3 request cung luc chac chan dinh 429 — tuan tu + retry thi on dinh.
+      const results = [];
+      for (let ai = 0; ai < OPENER_ANGLES.length; ai++) {
+        const angle = OPENER_ANGLES[ai];
+        sug.innerHTML = '<div class="zai-loading"><div class="zai-spinner"></div>Đang soạn câu ' + (ai+1) + '/' + OPENER_ANGLES.length + ' — ' + escHtml(angle.label) + '...</div>';
         const prompt = custBlock+'\n[Giọng văn] '+_activeTone+
           '\nSoạn 1 tin nhắn Zalo CHỦ ĐỘNG bắt chuyện với khách, theo hướng: '+angle.instr+
           ' Ngắn gọn, tự nhiên, tiếng Việt, không giống mẫu quảng cáo.';
-        try {
-          const res = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({action:'ai',prompt}), headers:{'Content-Type':'text/plain'}});
-          const data = await res.json();
-          if (!data.ok) return { angle, error: data.error||'Lỗi GAS' };
-          return { angle, prompt, text: (data.text||'').trim() };
-        } catch(e) { return { angle, error: e.message }; }
-      }));
+        const data = await _aiCall_(prompt);
+        if (data.error) results.push({ angle, error: data.error });
+        else results.push({ angle, prompt, text: (data.text||'').trim() });
+      }
 
       sug.innerHTML='';
       addEl(sug,'div',{className:'zai-section-label',textContent:'💡 3 câu mở đầu — sửa nếu cần rồi gửi'});
@@ -1108,9 +1133,8 @@
 
   async function callAI_(prompt, btn, label, sug) {
     try {
-      const res = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({action:'ai',prompt}), headers:{'Content-Type':'text/plain'}});
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error||'GAS lỗi');
+      const data = await _aiCall_(prompt);
+      if (data.error) throw new Error(data.error);
       const text = (data.text||'').trim();
       sug.innerHTML='';
       addEl(sug,'div',{className:'zai-section-label',textContent:'💡 Gợi ý — sửa nếu cần rồi copy/lưu'});
@@ -1759,9 +1783,8 @@ async function startReminderPoll_() {
         '- TUYỆT ĐỐI KHÔNG: thêm ý mới, bớt ý, đổi cấu trúc câu hỏi, đổi thành văn phong trang trọng/khác thể loại, tự xưng "nhân viên CSKH", nhắc tới gọi điện, giới thiệu sản phẩm mới, hay chương trình ưu đãi nếu bản gốc không có.\n' +
         '- Độ dài từng phiên bản xấp xỉ bản gốc.\n' +
         'Trả về đúng 3 phiên bản, phân cách bằng dòng riêng chứa duy nhất "' + VARIANT_DELIM + '", không đánh số, không ghi chú gì thêm.';
-      const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'ai', prompt }), headers: { 'Content-Type': 'text/plain' } });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'GAS lỗi');
+      const data = await _aiCall_(prompt);
+      if (data.error) throw new Error(data.error);
       let parts = (data.text || '').split(VARIANT_DELIM).map(s => s.trim()).filter(Boolean);
       if (parts.length < 2) parts = (data.text || '').split(/\n\s*\n/).map(s => s.trim()).filter(Boolean); // fallback neu AI khong theo dung dinh dang
       parts = parts.slice(0, 3);
