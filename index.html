@@ -841,6 +841,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
     <button class="btn sm" id="syncbtn" style="display:none" onclick="syncFromGS({pullOrders:true,manual:true})" title="Tải dữ liệu (đơn hàng + CS) từ GSheets">↓ Sync GS <span id="sync-countdown" style="font-size:10px;opacity:0.7"></span></button>
     <button class="btn sm" id="pushbtn" style="display:none" onclick="pushOrdersToGS()" title="Thêm nhanh các đơn MỚI lên Google Sheets (không xóa/sửa đơn cũ)">📤 Đẩy dữ liệu</button>
     <button class="btn sm" id="fullsyncbtn" style="display:none" onclick="fullSyncOrdersToGS()" title="Đồng bộ 2 chiều (GỘP): tải đơn từ Google Sheets về máy + đẩy đơn mới của máy lên Sheets. KHÔNG xóa đơn nào.">🔁 Đồng bộ 2 chiều</button>
+    <button class="btn sm" id="dupbtn" style="display:none" onclick="openDupOrdersModal()" title="Quét đơn hàng bị trùng (cùng SĐT + tháng + doanh thu) trên Google Sheets — luôn hỏi xác nhận trước khi xóa">🗑️ Đơn trùng</button>
     <button class="btn primary" onclick="document.getElementById('fi').click()">
       <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
       Tải Excel
@@ -1607,7 +1608,7 @@ function saveGsUrl() {
   closeGsModal();
   toast('✓ Đã lưu URL Google Sheets');
   show('syncbtn'); // Hiện nút Sync ngay
-  if (allCustomers.length) { show('pushbtn'); show('fullsyncbtn'); }
+  if (allCustomers.length) { show('pushbtn'); show('fullsyncbtn'); show('dupbtn'); }
 }
 async function testGsConnection() {
   const raw = document.getElementById('gs-url-input').value;
@@ -1782,7 +1783,7 @@ async function syncFromGS(opts) {
     if (orderCount > 0) {
       buildCustomers();
       show('syncbtn');
-      show('pushbtn'); show('fullsyncbtn');
+      show('pushbtn'); show('fullsyncbtn'); show('dupbtn');
     } else {
       rebuildCareOnCustomers();
     }
@@ -1963,7 +1964,7 @@ async function processFiles(files) {
   if (gsUrl) {
     // sync-banner hidden
     show('syncbtn');
-    show('pushbtn'); show('fullsyncbtn');
+    show('pushbtn'); show('fullsyncbtn'); show('dupbtn');
     syncFromGS({ pullOrders: false });
   }
 }
@@ -2121,7 +2122,7 @@ function buildCustomers() {
   document.getElementById('data-view').style.display = 'flex';
   document.getElementById('clearbtn').style.display = '';
   txt('fstatus', `${fmt(allCustomers.length)} KH — ${loadedFiles.length} file`);
-  if (gsUrl) { updateGsPill(true); show('syncbtn'); show('pushbtn'); show('fullsyncbtn'); }
+  if (gsUrl) { updateGsPill(true); show('syncbtn'); show('pushbtn'); show('fullsyncbtn'); show('dupbtn'); }
   if (typeof updateMyDataBadge === 'function') updateMyDataBadge();
 }
 
@@ -4713,6 +4714,7 @@ function clearData() {
   document.getElementById('syncbtn').style.display='none';
   document.getElementById('pushbtn').style.display='none';
   var _fsb=document.getElementById('fullsyncbtn'); if(_fsb) _fsb.style.display='none';
+  var _dpb=document.getElementById('dupbtn'); if(_dpb) _dpb.style.display='none';
   hide('sync-banner');
   txt('fstatus','Chưa có dữ liệu');
 }
@@ -10457,6 +10459,115 @@ setTimeout(function(){
     hdrR.insertBefore(b, hdrR.firstChild);
   }
 }, 400);
+</script>
+
+<!-- ═══ XÓA ĐƠN TRÙNG (DuplicateOrders) ═══ -->
+<div class="modal-overlay" id="dup-orders-modal" style="z-index:2600">
+<div class="modal" style="max-width:820px;width:95vw">
+  <div class="modal-hdr">
+    <div class="modal-title">🗑️ Xóa đơn hàng bị trùng</div>
+    <div class="modal-sub">Trùng = cùng SĐT + tháng + doanh thu. Mỗi nhóm giữ lại đơn đầu tiên, các đơn "dư thừa" (đã tick sẵn) sẽ bị xóa nếu bạn xác nhận. Bỏ tick dòng nào nếu muốn giữ lại.</div>
+  </div>
+  <div class="modal-body" style="max-height:60vh;overflow-y:auto">
+    <div id="dup-orders-status" style="font-size:12px;color:#6b7280;padding:8px 0"></div>
+    <div id="dup-orders-table"></div>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:space-between;align-items:center;padding:12px 16px;border-top:1px solid #e5e7eb">
+    <span style="font-size:12px;color:#6b7280" id="dup-orders-summary"></span>
+    <div style="display:flex;gap:8px">
+      <button onclick="closeDupOrdersModal()" style="padding:8px 16px;border:1px solid #d1d5db;background:#fff;border-radius:6px;cursor:pointer;font-size:13px">Đóng</button>
+      <button id="dup-orders-delete-btn" onclick="confirmDeleteDupOrders()" style="padding:8px 16px;border:none;background:#dc2626;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600" disabled>🗑️ Xóa các đơn đã chọn</button>
+    </div>
+  </div>
+</div>
+</div>
+<script>
+var _dupOrdersGroups = [];
+
+async function openDupOrdersModal(){
+  var m = document.getElementById('dup-orders-modal');
+  m.classList.add('open');
+  document.getElementById('dup-orders-summary').textContent = '';
+  document.getElementById('dup-orders-delete-btn').disabled = true;
+  document.getElementById('dup-orders-status').textContent = 'Đang quét toàn bộ đơn hàng...';
+  document.getElementById('dup-orders-table').innerHTML = '';
+  if (!gsUrl) { document.getElementById('dup-orders-status').innerHTML = '<span style="color:#dc2626">Chưa kết nối Google Sheets.</span>'; return; }
+  try {
+    var sep = gsUrl.includes('?') ? '&' : '?';
+    var r = await fetch(gsUrl + sep + 'action=findDuplicateOrders', {redirect:'follow'});
+    var d = await r.json();
+    if (!d.ok) { document.getElementById('dup-orders-status').innerHTML = '<span style="color:#dc2626">Lỗi: '+esc(d.error||'không rõ')+'</span>'; return; }
+    _dupOrdersGroups = d.groups || [];
+    if (!_dupOrdersGroups.length) {
+      document.getElementById('dup-orders-status').textContent = '✓ Không phát hiện đơn trùng nào.';
+      return;
+    }
+    document.getElementById('dup-orders-status').textContent = '';
+    renderDupOrdersTable();
+  } catch(e) {
+    document.getElementById('dup-orders-status').innerHTML = '<span style="color:#dc2626">Lỗi kết nối: '+esc(e.message)+'</span>';
+  }
+}
+function closeDupOrdersModal(){ document.getElementById('dup-orders-modal').classList.remove('open'); }
+
+function renderDupOrdersTable(){
+  var box = document.getElementById('dup-orders-table');
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<tr style="text-align:left;border-bottom:1px solid #e5e7eb;color:#6b7280">'
+    + '<th style="padding:6px 4px">Khách</th><th>SP</th><th>Tháng/Năm</th><th>Doanh thu</th><th>Trạng thái</th><th>Xóa?</th></tr>';
+  _dupOrdersGroups.forEach(function(g, gi){
+    var k = g.keep;
+    html += '<tr style="background:#f0fdf4"><td style="padding:6px 4px">'+esc(k.name||k.phone)+' <span style="color:#9ca3af">'+esc(k.phone)+'</span></td>'
+      + '<td>'+esc((g.product||'')+(g.productDetail?' — '+g.productDetail:''))+'</td>'
+      + '<td>'+esc(g.month)+'/'+esc(g.year)+'</td>'
+      + '<td>'+Number(g.revenue||0).toLocaleString('vi-VN')+'đ</td>'
+      + '<td style="color:#16a34a;font-weight:600">Giữ lại</td><td></td></tr>';
+    g.extras.forEach(function(ex, ei){
+      html += '<tr style="border-bottom:1px solid #f3f4f6"><td style="padding:6px 4px 6px 20px;color:#9ca3af">↳ trùng</td>'
+        + '<td colspan="3" style="color:#6b7280">'+esc(fmtDupDate_(ex.date))+' · CS: '+esc(ex.cs||'—')+' · Nguồn: '+esc(ex.source||'—')+'</td>'
+        + '<td style="color:#dc2626">Dư thừa</td>'
+        + '<td><input type="checkbox" checked data-gi="'+gi+'" data-ei="'+ei+'" onchange="updateDupOrdersSummary()"></td></tr>';
+    });
+  });
+  html += '</table>';
+  box.innerHTML = html;
+  updateDupOrdersSummary();
+}
+function fmtDupDate_(d){ try { return (typeof fmtDate_==='function') ? fmtDate_(d) : String(d); } catch(e){ return String(d||''); } }
+
+function updateDupOrdersSummary(){
+  var boxes = document.querySelectorAll('#dup-orders-table input[type=checkbox]');
+  var checked = 0; boxes.forEach(function(b){ if (b.checked) checked++; });
+  document.getElementById('dup-orders-summary').textContent = checked ? checked+' đơn sẽ bị xóa' : 'Chưa chọn đơn nào để xóa';
+  document.getElementById('dup-orders-delete-btn').disabled = !checked;
+}
+
+async function confirmDeleteDupOrders(){
+  var boxes = document.querySelectorAll('#dup-orders-table input[type=checkbox]:checked');
+  if (!boxes.length) return;
+  var items = [];
+  boxes.forEach(function(b){
+    var g = _dupOrdersGroups[+b.getAttribute('data-gi')];
+    var ex = g && g.extras[+b.getAttribute('data-ei')];
+    if (ex) items.push({sheet: ex.sheet, rowIndex: ex.rowIndex});
+  });
+  if (!confirm('Xác nhận XÓA '+items.length+' đơn hàng trùng?\n\nThao tác này không thể hoàn tác trên Google Sheets.')) return;
+  var btn = document.getElementById('dup-orders-delete-btn');
+  btn.disabled = true; btn.textContent = '⏳ Đang xóa...';
+  try {
+    var r = await fetch(gsUrl, {method:'POST', redirect:'follow', body: JSON.stringify({action:'deleteDuplicateOrders', items: items})});
+    var d = await r.json();
+    if (!d.ok) { alert('Lỗi: '+(d.error||'không rõ')); return; }
+    if (typeof toast==='function') toast('✓ Đã xóa '+d.deleted+' đơn trùng');
+    closeDupOrdersModal();
+    // Tải lại dữ liệu từ Sheets để danh sách khớp lại
+    if (typeof syncFromGS==='function') syncFromGS({pullOrders:true,manual:true});
+  } catch(e) {
+    alert('Lỗi kết nối: '+e.message);
+  } finally {
+    btn.textContent = '🗑️ Xóa các đơn đã chọn'; btn.disabled = false;
+  }
+}
 </script>
 
 <!-- ═══ TẠO CHIẾN DỊCH BẮN THEO ĐIỀU KIỆN ═══ -->

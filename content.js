@@ -765,6 +765,37 @@
     } catch (e) { /* im lang, se thu lai o lan tra cuu/poll sau */ }
   }
 
+  // Kiem tra don trung cua 1 khach (cung SDT + thang + doanh thu) va hoi xac nhan
+  // truoc khi xoa. Chi tac dong len khach dang xem tren the (khong dung de dedupe
+  // toan bo he thong — viec do lam ben Sasum).
+  async function zaiCheckDuplicates_(phone) {
+    if (!GAS_URL) { alert('Chưa cấu hình Google Sheets URL.'); return; }
+    try {
+      const sep = GAS_URL.includes('?') ? '&' : '?';
+      const r = await fetch(GAS_URL + sep + 'action=findDuplicateOrders&phone=' + encodeURIComponent(phone), {redirect:'follow'});
+      const d = await r.json();
+      if (!d.ok) { alert('Lỗi kiểm tra: ' + (d.error || 'không rõ')); return; }
+      const groups = d.groups || [];
+      if (!groups.length) { alert('Không phát hiện đơn trùng cho khách này.'); return; }
+      const items = [];
+      let msg = 'Phát hiện đơn trùng của khách này:\n\n';
+      groups.forEach(g => {
+        msg += '• Tháng ' + g.month + '/' + g.year + ' — ' + Number(g.revenue||0).toLocaleString('vi-VN') + 'đ — dư ' + g.extras.length + ' đơn\n';
+        g.extras.forEach(ex => items.push({ sheet: ex.sheet, rowIndex: ex.rowIndex }));
+      });
+      msg += '\nXóa ' + items.length + ' đơn dư thừa (giữ lại đơn đầu tiên mỗi nhóm)? Không thể hoàn tác.';
+      if (!confirm(msg)) return;
+      const r2 = await fetch(GAS_URL, { method:'POST', body: JSON.stringify({ action:'deleteDuplicateOrders', items }), headers:{'Content-Type':'text/plain'} });
+      const d2 = await r2.json();
+      if (!d2.ok) { alert('Lỗi xóa: ' + (d2.error || 'không rõ')); return; }
+      alert('✓ Đã xóa ' + d2.deleted + ' đơn trùng.');
+      delete _lookupCache[phone];
+      await _revalidateFromServer_(phone);
+    } catch (e) {
+      alert('Lỗi kết nối: ' + e.message);
+    }
+  }
+
   async function doLookup() {
     const raw = (document.getElementById('zai-phone-input').value||'').trim();
     if (!raw) { showError('Vui lòng nhập số điện thoại.'); return; }
@@ -864,7 +895,10 @@
             return `• <b>${d}</b> | ${rev}<br>&nbsp;&nbsp;${escHtml(sp)}`;
           }).join('<br>')
         }</div>` : ''}
+        ${orders.length > 1 ? `<button type="button" class="zai-btn zai-btn-ghost zai-btn-sm zai-dup-btn" style="margin-top:6px;color:#dc2626" title="Kiểm tra & xóa đơn hàng bị trùng (cùng tháng + doanh thu) của khách này">🗑️ Kiểm tra đơn trùng</button>` : ''}
       </div>`;
+    const dupBtn = area.querySelector('.zai-dup-btn');
+    if (dupBtn) dupBtn.onclick = () => zaiCheckDuplicates_(phone);
     return name;
   }
 

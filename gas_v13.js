@@ -441,6 +441,11 @@ function doGet(e) {
     if (action === 'runFollowUpScan') {
       return jsonOut_(runFollowUpScan_());
     }
+    // ── XOA DON TRUNG: quet don trung (cung SDT+nam+thang+doanh thu). Truyen &phone= de chi quet 1 khach (ZaloAI extension) ──
+    if (action === 'findDuplicateOrders') {
+      var fdoPhone = (e && e.parameter && e.parameter.phone) ? String(e.parameter.phone) : '';
+      return jsonOut_(findDuplicateOrders_(fdoPhone));
+    }
     if (action === 'dedupeCare') return dedupeCare_();
 
     // default — backward compat voi appweb v10
@@ -483,6 +488,8 @@ function doPost(e) {
     if (action === 'saveOrders')          return saveOrders_(data.orders);
     if (action === 'patchOrder')          return patchOrder_(data);
     if (action === 'deleteOrder')         return deleteOrder_(data);
+    // ── XOA DON TRUNG: xoa cac dong trung da duoc CS/admin xac nhan (danh sach items tra ve tu findDuplicateOrders) ──
+    if (action === 'deleteDuplicateOrders') return deleteDuplicateOrders_(data.items);
     if (action === 'replaceOrders')       return replaceOrders_(data.orders, data);
     if (action === 'setOrderCareCS')      return setOrderCareCS_(data.phone, data.careCS);
     if (action === 'setOrderCareCSBatch') return setOrderCareCSBatch_(data.updates);
@@ -820,6 +827,85 @@ function deleteOrder_(data) {
     }
   }
   return jsonOut_({ ok: true, deleted: false });
+}
+
+// ─── XOA DON TRUNG ────────────────────────────────────────────────
+// Trung = cung SDT + nam + thang + doanh thu (dung DUNG key da dung de
+// chong trung luc luu don o saveOrders_). Neu 1 key co >1 dong -> giu
+// dong DAU TIEN (rowIndex nho nhat trong sheet), cac dong con lai la
+// "du thua" duoc de xuat xoa. Chi TRA VE danh sach, KHONG tu dong xoa —
+// giao dien (Sasum / ZaloAI extension) phai hoi xac nhan CS/admin truoc
+// khi goi deleteDuplicateOrders_ voi danh sach da chon.
+function findDuplicateOrders_(phoneFilter) {
+  var ss = getOrderSS_();
+  var normP = phoneFilter ? normPhone_(phoneFilter) : '';
+  var groupsByKey = {};
+  for (var si = 0; si < ORDER_SHEETS.length; si++) {
+    var shName = ORDER_SHEETS[si].name;
+    var sh = ss.getSheetByName(shName);
+    if (!sh || sh.getLastRow() < 2) continue;
+    var vals = sh.getDataRange().getValues();
+    for (var i = 1; i < vals.length; i++) {
+      var r = vals[i];
+      if (!r[0]) continue;
+      var np = normPhone_(r[0]);
+      if (normP && np !== normP) continue;
+      var key = np + '|' + r[3] + '|' + r[4] + '|' + r[7];
+      if (!groupsByKey[key]) groupsByKey[key] = [];
+      groupsByKey[key].push({
+        sheet: shName, rowIndex: i + 1, phone: r[0], name: r[1] || '', date: r[2] || '',
+        year: r[3] || '', month: r[4] || '', cs: r[5] || '', source: r[6] || '',
+        revenue: r[7] || 0, product: r[8] || '', productDetail: r[9] || '', status: r[10] || ''
+      });
+    }
+  }
+  var dupGroups = [];
+  Object.keys(groupsByKey).forEach(function (k) {
+    var g = groupsByKey[k];
+    if (g.length > 1) {
+      g.sort(function (a, b) { return a.rowIndex - b.rowIndex; }); // giu dong dau tien
+      dupGroups.push({
+        key: k, phone: g[0].phone, name: g[0].name, year: g[0].year, month: g[0].month,
+        revenue: g[0].revenue, product: g[0].product, productDetail: g[0].productDetail,
+        count: g.length, keep: g[0], extras: g.slice(1)
+      });
+    }
+  });
+  var totalExtra = 0;
+  dupGroups.forEach(function (g) { totalExtra += g.extras.length; });
+  return { ok: true, groups: dupGroups, groupCount: dupGroups.length, totalExtra: totalExtra };
+}
+
+// items: [{sheet, rowIndex}, ...] — lay tu extras cua findDuplicateOrders_, do CS/admin da xac nhan chon.
+function deleteDuplicateOrders_(items) {
+  if (!items || !items.length) return jsonOut_({ ok: true, deleted: 0 });
+  var ss = getOrderSS_();
+  var bySheet = {};
+  items.forEach(function (it) {
+    if (!it || !it.sheet || !it.rowIndex) return;
+    if (!bySheet[it.sheet]) bySheet[it.sheet] = [];
+    bySheet[it.sheet].push(it.rowIndex);
+  });
+  var deleted = 0, affectedPhones = {};
+  Object.keys(bySheet).forEach(function (shName) {
+    var sh = ss.getSheetByName(shName);
+    if (!sh) return;
+    // Xoa tu duoi len tren trong cung 1 sheet de khong lam lech chi so cac dong con lai
+    var rows = bySheet[shName].slice().sort(function (a, b) { return b - a; });
+    rows.forEach(function (rIdx) {
+      try {
+        var phoneCell = sh.getRange(rIdx, 1).getValue();
+        if (phoneCell) affectedPhones[normPhone_(String(phoneCell))] = true;
+        sh.deleteRow(rIdx);
+        deleted++;
+      } catch (e) {}
+    });
+  });
+  try {
+    var cache = CacheService.getScriptCache();
+    Object.keys(affectedPhones).forEach(function (p) { cache.remove('lk_' + p); });
+  } catch (ec) {}
+  return jsonOut_({ ok: true, deleted: deleted });
 }
 
 function replaceOrders_(orders, data) {
