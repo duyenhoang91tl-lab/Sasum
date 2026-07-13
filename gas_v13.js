@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  OME CS Portal — Google Apps Script — PHIEN BAN 14.18.12.7.2026 (gio.phut.ngay.thang.nam)
+//  OME CS Portal — Google Apps Script — PHIEN BAN 10.57.13.7.2026 (gio.phut.ngay.thang.nam)
 //  v12.0: Hop nhat appweb v10.0 + ZaloAI v11.2
 //         Them birthday vao CareData (col 18)
 //         saveAllCare / saveSingleCare bao toan truong mo rong (khStatus, nickZalos, birthday)
@@ -381,7 +381,7 @@ function doGet(e) {
         var sho = getOrderSS_().getSheetByName(ORDER_SHEETS[si].name);
         if (sho) totalOrders += Math.max(0, sho.getLastRow() - 1);
       }
-      return jsonOut_({ orderRows: totalOrders, careRows: shC ? Math.max(0, shC.getLastRow()-1) : 0, ver: 'v14.18.12.7.2026' });
+      return jsonOut_({ orderRows: totalOrders, careRows: shC ? Math.max(0, shC.getLastRow()-1) : 0, ver: 'v10.57.13.7.2026' });
     }
 
     // ── lich hen hom nay / qua han (ZaloAI extension) ──
@@ -1220,6 +1220,47 @@ function _productSheetIndexForTab_(ss, tabName) {
   return idx;
 }
 
+// ─── Q&A / FAQ: doc sheet "FAQ" trong CareData, khop tu khoa cau hoi khach -> lay top Q&A ───
+// Cot: A=STT | B=Ten SP | C=Trang thai | D=CAU HOI | E=CAU TRA LOI (dong 1 la tieu de)
+function readFaqSheet_(query) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = null;
+  var names = ['FAQ', 'Q&A', 'QA', 'FAQs', 'Hỏi đáp', 'Hoi dap', 'HoiDap'];
+  for (var n = 0; n < names.length; n++) { sh = ss.getSheetByName(names[n]); if (sh) break; }
+  if (!sh || sh.getLastRow() < 2) return '';
+  var qWords = _psheetNoAccent_(query).replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+    .filter(function(w) { return w.length >= 3 && _PSHEET_STOPWORDS_.indexOf(w) === -1; });
+  if (!qWords.length) return '';
+
+  var vals = sh.getDataRange().getValues();
+  // Tu do cot: tim cot tieu de chua "cau hoi" / "cau tra loi" / "ten sp"
+  var header = vals[0].map(function(h){ return _psheetNoAccent_(h); });
+  var findCol = function(kw, def){ for (var c=0;c<header.length;c++){ if (header[c].indexOf(kw)!==-1) return c; } return def; };
+  var cQ  = findCol('cau hoi', 3);
+  var cA  = findCol('tra loi', 4);
+  var cSP = findCol('ten sp', 1);
+  var cands = [];
+  for (var i = 1; i < vals.length; i++) {
+    var sp   = String(vals[i][cSP] || '').trim();
+    var ques = String(vals[i][cQ] || '').trim();
+    var ans  = String(vals[i][cA] || '').trim();
+    if (!ques || !ans) continue;
+    var hay = _psheetNoAccent_(sp + ' ' + ques + ' ' + ans);
+    var score = 0;
+    for (var w = 0; w < qWords.length; w++) { if (hay.indexOf(qWords[w]) !== -1) score++; }
+    if (score > 0) cands.push({ sp: sp, q: ques, a: ans, score: score });
+  }
+  if (!cands.length) return '';
+  cands.sort(function(a, b) { return b.score - a.score; });
+  var top = cands.slice(0, 4);
+  var blocks = [];
+  for (var k = 0; k < top.length; k++) {
+    var a = top[k].a; if (a.length > 700) a = a.substring(0, 700) + '...';
+    blocks.push((top[k].sp ? '[' + top[k].sp + '] ' : '') + 'HOI: ' + top[k].q + '\nTRA LOI MAU: ' + a);
+  }
+  return blocks.join('\n\n');
+}
+
 function readExternalProductSheet_(query) {
   var url = getSetting_('productSheetUrl');
   if (!url) return '';
@@ -1286,6 +1327,9 @@ function _buildAISystemPrompt_(userMsg, withProducts) {
     var ext = readExternalProductSheet_(userMsg);
     if (ext) parts.push('\n\nTHONG TIN CHI TIET SAN PHAM / THANH PHAN (nguon: Google Sheet rieng cua team, khop tu khoa trong yeu cau — uu tien dung khi tra loi ve thanh phan/cong dung cu the):\n' + ext);
   }
+  // Q&A tu sheet FAQ (khop tu khoa cau hoi khach) — de AI hoc cach xu ly cau hoi kho theo team
+  var faq = readFaqSheet_(userMsg);
+  if (faq) parts.push('\n\nCAC CAU HOI KHO & CACH TRA LOI MAU CUA TEAM (uu tien bam sat cach xu ly / giong dieu nay khi tra loi cau tuong tu; dieu chinh cho hop ngu canh khach, KHONG copy nguyen van neu khong khop hoan toan):\n' + faq);
   parts.push('\n\nYEU CAU: Chi dua ra DUY NHAT 1 cau tra loi ngan gon (toi da 150 tu). Khong danh so, khong giai thich them.');
   return parts.join('');
 }
