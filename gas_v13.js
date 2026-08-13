@@ -18,11 +18,21 @@ var SH_ASSIGN  = 'AssignData';
 var SH_USER    = 'Users';
 var SH_CONTEXT = 'AIContext';
 
-var ORDER_SS_ID = '1JVIFMIUgKdfTG1FEMDGoYjQ3Qll2ChkbSHHTjgieLPs';
+var ORDER_SS_ID = '1JVIFMIUgKdfTG1FEMDGoYjQ3Qll2ChkbSHHTjgieLPs'; // File chua OrderData2x (doanh thu/don hang)
+var CRM_SS_ID   = ''; // File chua CareData/Users/Teams/Settings/AuditLog/AssignData/AIContext (CRM).
+                        // De trong = dung file dang gan Apps Script nay (mac dinh, hanh vi cu).
+                        // Dan Spreadsheet ID moi vao day de doi nguon CRM MA KHONG can gan lai script vao file khac.
+// >>> Muon doi nguon du lieu sau nay: chi can sua 2 dong ID o tren (ORDER_SS_ID va/hoac CRM_SS_ID) roi Deploy lai. <<<
 
 function getOrderSS_() {
   return ORDER_SS_ID
     ? SpreadsheetApp.openById(ORDER_SS_ID)
+    : SpreadsheetApp.getActiveSpreadsheet();
+}
+
+function getCrmSS_() {
+  return CRM_SS_ID
+    ? SpreadsheetApp.openById(CRM_SS_ID)
     : SpreadsheetApp.getActiveSpreadsheet();
 }
 
@@ -51,7 +61,7 @@ var USER_HEADERS   = ['username','passHash','role','name','team','active'];
 
 // ─── HELPERS ───────────────────────────────────────────────────
 function getSheet_(name, headers) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getCrmSS_();
   var sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
   if (sh.getLastRow() === 0 && headers) sh.appendRow(headers);
@@ -94,7 +104,7 @@ function normPhone_(p) {
 
 // ─── SETTINGS (1 signature duy nhat) ──────────────────────────
 function getSetting_(key) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getCrmSS_();
   var sh = ss.getSheetByName(SH_SET);
   if (!sh || sh.getLastRow() < 2) return null;
   var vals = sh.getDataRange().getValues();
@@ -176,7 +186,7 @@ function readCare_(sh) {
 }
 
 function findCareByPhone_(phone) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getCrmSS_();
   var sh = ss.getSheetByName(SH_CARE);
   if (!sh || sh.getLastRow() < 2) return null;
   var ph = normPhone_(phone);
@@ -326,7 +336,7 @@ function readUsers_(sh) {
 // ═══════════════════════════════════════════════════════════════
 function doGet(e) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = getCrmSS_();
     var action = (e && e.parameter && e.parameter.action) ? e.parameter.action : '';
 
     // ── lookup theo phone (ZaloAI extension) ──
@@ -465,7 +475,7 @@ function doGet(e) {
 }
 
 function buildDashboard_() {
-  var care = readCare_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH_CARE));
+  var care = readCare_(getCrmSS_().getSheetByName(SH_CARE));
   var orders = readAllOrders_();
   var phones = {}, revenue = 0, friend = 0;
   for (var i = 0; i < care.length; i++) {
@@ -1139,7 +1149,7 @@ function saveAssignHistory_(history) {
 //  AI — Groq + AIContext
 // ═══════════════════════════════════════════════════════════════
 function readAIContext_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getCrmSS_();
   var sh = ss.getSheetByName(SH_CONTEXT);
   var result = {
     systemPrompt: '', careProcess: '', callbackScript: '',
@@ -1166,7 +1176,7 @@ function readAIContext_() {
 
 function saveAIContext_(type, content, context) {
   if (!type || !content) return jsonOut_({ error: 'Thieu type hoac content' });
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getCrmSS_();
   var sh = ss.getSheetByName(SH_CONTEXT);
   if (!sh) { sh = ss.insertSheet(SH_CONTEXT); sh.appendRow(['type','content','context','created']); }
   sh.appendRow([type, content, context||'', new Date().toISOString()]);
@@ -1223,7 +1233,7 @@ function _productSheetIndexForTab_(ss, tabName) {
 // ─── Q&A / FAQ: doc sheet "FAQ" trong CareData, khop tu khoa cau hoi khach -> lay top Q&A ───
 // Cot: A=STT | B=Ten SP | C=Trang thai | D=CAU HOI | E=CAU TRA LOI (dong 1 la tieu de)
 function readFaqSheet_(query) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getCrmSS_();
   var sh = null;
   var names = ['FAQ', 'Q&A', 'QA', 'FAQs', 'Hỏi đáp', 'Hoi dap', 'HoiDap'];
   for (var n = 0; n < names.length; n++) { sh = ss.getSheetByName(names[n]); if (sh) break; }
@@ -1420,7 +1430,7 @@ function testScript() {
     var _s = oss.getSheetByName(ORDER_SHEETS[i].name) || oss.insertSheet(ORDER_SHEETS[i].name);
     if (_s.getLastRow() === 0) _s.appendRow(ORDER_HEADERS);
   }
-  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var ss   = getCrmSS_();
   var oss2 = getOrderSS_();
   var log  = 'OK v12.0 - CareData:' + ss.getSheetByName(SH_CARE).getLastRow();
   for (var j = 0; j < ORDER_SHEETS.length; j++) {
@@ -1539,7 +1549,7 @@ function broadcastQueueForCS_(csName) {
   // CS cham soc tung khach (CareData) -> extension chi gui khach cua CS dang chon
   var csMap = {};
   try {
-    var careRowsQ = readCare_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH_CARE));
+    var careRowsQ = readCare_(getCrmSS_().getSheetByName(SH_CARE));
     for (var cqi = 0; cqi < careRowsQ.length; cqi++) {
       csMap[normPhone_(careRowsQ[cqi].phone)] = String(careRowsQ[cqi].cs || '').trim().toLowerCase();
     }
@@ -1676,7 +1686,7 @@ var PRODUCT_CODE_MAP_ = [
 // dung fallback ve PRODUCT_CODE_MAP_).
 function readProductCodeMapFromSheet_() {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = getCrmSS_();
     var sh = ss.getSheetByName('Mã Zalo');
     if (!sh || sh.getLastRow() < 2) return null;
     var vals = sh.getDataRange().getValues();
@@ -1907,7 +1917,7 @@ function runFollowUpScan_() {
 
   // Doc CareData 1 lan: phone -> { cs phu trach, cac nick Zalo da ket ban }
   var careMap = {};
-  var careRows = readCare_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH_CARE));
+  var careRows = readCare_(getCrmSS_().getSheetByName(SH_CARE));
   for (var ci = 0; ci < careRows.length; ci++) {
     var cr = careRows[ci];
     careMap[normPhone_(cr.phone)] = {
