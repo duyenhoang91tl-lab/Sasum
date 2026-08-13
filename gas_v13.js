@@ -384,6 +384,7 @@ function doGet(e) {
     if (action === 'dashboard') return jsonOut_(buildDashboard_());
 
     if (action === 'assign')    return jsonOut_({ assignHistory: readAssign_(ss.getSheetByName(SH_ASSIGN)) });
+    if (action === 'tasks')     return jsonOut_({ tasks: readTasks_(ss.getSheetByName(SH_TASK)) });
 
     if (action === 'count') {
       var shC = ss.getSheetByName(SH_CARE); var totalOrders = 0;
@@ -516,6 +517,8 @@ function doPost(e) {
     if (action === 'addZaloNick')         return addZaloNick_(data.nick);
     if (action === 'saveAssign')          return saveAssignEntry_(data.entry);
     if (action === 'saveAssignHistory')   return saveAssignHistory_(data.history);
+    if (action === 'saveTask')  return saveTaskEntry_(data.task);
+    if (action === 'deleteTask') return deleteTask_(data.id);
     if (action === 'saveCareStatus')      return saveCareStatus_(data.careStatus);
     if (action === 'saveAIContext')        return saveAIContext_(data.type, data.content, data.context);
     if (action === 'ai')                  return callGroqAI_(data);
@@ -2035,4 +2038,65 @@ function runFollowUpScan_() {
 function runFollowUpScanTrigger() {
   var res = runFollowUpScan_();
   Logger.log(JSON.stringify(res));
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  TASKS ADDON — Quản lý công việc (Công việc + CS tham gia)
+//  Dán TOÀN BỘ khối này vào CUỐI file gas_v13.js (trước dòng cuối cùng)
+// ═══════════════════════════════════════════════════════════════
+
+var SH_TASK = 'Tasks';
+var TASK_HEADERS = ['id','title','description','csAssigned','deadline','status','createdBy','createdAt','updatedAt'];
+
+function readTasks_(sh) {
+  var out = [];
+  if (!sh || sh.getLastRow() < 2) return out;
+  var v = sh.getDataRange().getValues();
+  for (var i = 1; i < v.length; i++) {
+    if (!v[i][0]) continue;
+    var cs = [];
+    try { cs = v[i][3] ? JSON.parse(v[i][3]) : []; } catch (e) { cs = String(v[i][3] || '').split(',').filter(Boolean); }
+    out.push({
+      id: String(v[i][0]),
+      title: String(v[i][1] || ''),
+      description: String(v[i][2] || ''),
+      csAssigned: cs,
+      deadline: v[i][4] ? String(v[i][4]) : '',
+      status: String(v[i][5] || 'Chưa làm'),
+      createdBy: String(v[i][6] || ''),
+      createdAt: String(v[i][7] || ''),
+      updatedAt: String(v[i][8] || '')
+    });
+  }
+  return out;
+}
+
+// Tạo mới (khi t.id rỗng) hoặc cập nhật (khi t.id đã tồn tại) — cùng 1 hàm, giống pattern saveAssignEntry_
+function saveTaskEntry_(t) {
+  if (!t || !String(t.title || '').trim()) return jsonOut_({ error: 'Thieu title' });
+  var sh = getSheet_(SH_TASK, TASK_HEADERS);
+  var now = new Date().toISOString();
+  var id = t.id || ('tk_' + Date.now() + '_' + Math.floor(Math.random() * 1000));
+  var last = sh.getLastRow(); var rowIdx = -1;
+  if (t.id && last >= 2) {
+    var cell = sh.getRange(2, 1, last - 1, 1).createTextFinder(String(t.id)).matchEntireCell(true).findNext();
+    if (cell) rowIdx = cell.getRow();
+  }
+  var createdAt = t.createdAt || now;
+  var row = [id, t.title || '', t.description || '', JSON.stringify(t.csAssigned || []),
+             t.deadline || '', t.status || 'Chưa làm', t.createdBy || '', createdAt, now];
+  if (rowIdx > 0) sh.getRange(rowIdx, 1, 1, TASK_HEADERS.length).setValues([row]);
+  else sh.appendRow(row);
+  return jsonOut_({ ok: true, id: id });
+}
+
+function deleteTask_(id) {
+  if (!id) return jsonOut_({ error: 'Thieu id' });
+  var sh = getSheet_(SH_TASK, TASK_HEADERS);
+  var last = sh.getLastRow();
+  if (last >= 2) {
+    var cell = sh.getRange(2, 1, last - 1, 1).createTextFinder(String(id)).matchEntireCell(true).findNext();
+    if (cell) sh.deleteRow(cell.getRow());
+  }
+  return jsonOut_({ ok: true });
 }

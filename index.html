@@ -941,6 +941,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
       <div class="tab" onclick="switchTab('overdue',this)">Quá hạn <span class="tab-badge" id="tb-over" style="background:#fee2e2;color:#991b1b">0</span></div>
       <div class="tab" onclick="switchTab('mydata',this)">📋 Data của tôi <span class="tab-badge" id="tb-mydata">0</span></div>
       <div class="tab" onclick="switchTab('zaloai',this)">🤖 Zalo AI</div>
+      <div class="tab" onclick="switchTab('task',this)">🗂️ Công việc <span class="tab-badge" id="tb-task">0</span></div>
     </div>
 
     <!-- STATS -->
@@ -1148,6 +1149,51 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
       <div class="toolbar"><span class="rcount">Các lịch đã <strong>quá hạn</strong> chưa xử lý</span></div>
       <div class="sched-grid" id="overdue-grid"></div>
     </div>
+
+<!-- ══════ PHẦN A — nội dung tab (dán trong #data-view, ngang hàng #tab-list) ══════ -->
+<div id="tab-task" style="display:none;flex-direction:column;flex:1;overflow:hidden;padding:14px 18px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+    <div class="assign-tabs" style="border:none;background:transparent">
+      <div class="assign-tab active" id="task-subtab-manage" onclick="switchTaskSubTab('manage')">📋 Quản lý công việc</div>
+      <div class="assign-tab" id="task-subtab-track" onclick="switchTaskSubTab('track')">📊 Theo dõi</div>
+    </div>
+    <button class="btn primary sm" onclick="openTaskModal()">+ Tạo công việc</button>
+  </div>
+
+  <!-- BẢNG 1: QUẢN LÝ CÔNG VIỆC -->
+  <div id="task-view-manage" style="flex:1;overflow:auto">
+    <table class="task-table" style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="background:var(--surface2)">
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Công việc</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">CS tham gia</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Hạn chót</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Trạng thái</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Người tạo</th>
+          <th style="width:70px;border-bottom:1px solid var(--border)"></th>
+        </tr>
+      </thead>
+      <tbody id="task-manage-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- BẢNG 2: THEO DÕI (tổng hợp theo từng CS) -->
+  <div id="task-view-track" style="flex:1;overflow:auto;display:none">
+    <table class="task-table" style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="background:var(--surface2)">
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">CS</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Chưa làm</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Đang làm</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Hoàn thành</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Tổng</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Gần đến hạn</th>
+        </tr>
+      </thead>
+      <tbody id="task-track-tbody"></tbody>
+    </table>
+  </div>
+</div>
 
     <!-- MY DATA TAB -->
     <!-- ZALO AI TAB -->
@@ -4680,8 +4726,10 @@ function switchTab(tab, el) {
   document.getElementById('tab-list').style.display = tab==='list'?'flex':'none';
   document.getElementById('tab-schedule').style.display = tab==='schedule'?'flex':'none';
   document.getElementById('tab-overdue').style.display = tab==='overdue'?'flex':'none';
+  document.getElementById('tab-task').style.display = tab==='task'?'flex':'none';
   if (tab==='schedule') renderScheduleTab();
   if (tab==='overdue') renderOverdueTab();
+  if (tab==='task') loadTasks();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -12051,5 +12099,186 @@ function openBcLogModal(phone){
   m.classList.add('open');
 }
 </script>
+<!-- ══════ PHẦN B — modal tạo/sửa công việc (dán cuối <body>) ══════ -->
+<div class="assign-modal-overlay" id="task-modal-overlay">
+  <div class="assign-modal" style="width:520px">
+    <div class="assign-modal-hdr">
+      <div class="assign-modal-title" id="task-modal-title">Tạo công việc</div>
+      <span style="cursor:pointer" onclick="closeTaskModal()">✕</span>
+    </div>
+    <div class="assign-body">
+      <div class="assign-form-row">
+        <div class="assign-form-label">Tên</div>
+        <input type="text" id="task-f-title" class="assign-input" style="flex:1" placeholder="Tên công việc">
+      </div>
+      <div class="assign-form-row" style="align-items:flex-start">
+        <div class="assign-form-label">Mô tả</div>
+        <textarea id="task-f-desc" class="assign-input" style="flex:1;min-height:60px" placeholder="Mô tả (không bắt buộc)"></textarea>
+      </div>
+      <div class="assign-form-row">
+        <div class="assign-form-label">Hạn chót</div>
+        <input type="date" id="task-f-deadline" class="assign-input">
+      </div>
+      <div class="assign-form-row">
+        <div class="assign-form-label">Trạng thái</div>
+        <select id="task-f-status" class="assign-input">
+          <option>Chưa làm</option>
+          <option>Đang làm</option>
+          <option>Hoàn thành</option>
+        </select>
+      </div>
+      <div class="assign-section-title">CS tham gia</div>
+      <div class="assign-cs-list" id="task-f-cs"></div>
+    </div>
+    <div class="assign-footer">
+      <button class="btn secondary" onclick="closeTaskModal()">Hủy</button>
+      <button class="btn primary" onclick="saveTaskFromModal()">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var allTasks = [];
+var _taskEditId = null;
+var _taskSelectedCS = new Set();
+
+async function loadTasks(){
+  if (!gsUrl) return;
+  try{
+    var sep = gsUrl.includes('?') ? '&' : '?';
+    var r = await fetch(gsUrl + sep + 'action=tasks', { redirect:'follow' });
+    var d = await r.json();
+    if (d && Array.isArray(d.tasks)) allTasks = d.tasks;
+  }catch(e){ console.warn('loadTasks failed:', e); }
+  renderTaskTables();
+}
+
+function renderTaskTables(){
+  txt('tb-task', allTasks.length);
+
+  var tbM = document.getElementById('task-manage-tbody');
+  if (tbM){
+    tbM.innerHTML = allTasks.map(function(t){
+      return '<tr>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border)">'+esc(t.title)+
+          (t.description ? '<div style="color:var(--muted);font-size:11px;margin-top:2px">'+esc(t.description)+'</div>' : '')+'</td>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border)">'+
+          (t.csAssigned||[]).map(function(n){ return '<span class="assign-badge-pill">'+esc(n)+'</span>'; }).join('') +
+          ((t.csAssigned||[]).length ? '' : '<span style="color:var(--muted)">—</span>') + '</td>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border)">'+esc(t.deadline||'—')+'</td>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border)">'+_taskStatusBadge(t.status)+'</td>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border)">'+esc(t.createdBy||'')+'</td>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border);white-space:nowrap">'+
+          '<span style="cursor:pointer;margin-right:8px" title="Sửa" onclick="openTaskModal(\''+t.id+'\')">✏️</span>'+
+          '<span style="cursor:pointer" title="Xóa" onclick="deleteTaskUI(\''+t.id+'\')">🗑️</span></td>'+
+      '</tr>';
+    }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">Chưa có công việc nào — bấm "+ Tạo công việc" để bắt đầu</td></tr>';
+  }
+
+  var tbT = document.getElementById('task-track-tbody');
+  if (tbT){
+    var byCS = {};
+    var today = new Date(); today.setHours(0,0,0,0);
+    allTasks.forEach(function(t){
+      var list = (t.csAssigned && t.csAssigned.length) ? t.csAssigned : ['(chưa gán)'];
+      list.forEach(function(cs){
+        if (!byCS[cs]) byCS[cs] = { todo:0, doing:0, done:0, soon:0 };
+        if (t.status==='Hoàn thành') byCS[cs].done++;
+        else if (t.status==='Đang làm') byCS[cs].doing++;
+        else byCS[cs].todo++;
+        if (t.deadline && t.status!=='Hoàn thành'){
+          var dl = new Date(t.deadline);
+          var diffDays = Math.ceil((dl - today) / 86400000);
+          if (diffDays <= 2) byCS[cs].soon++;
+        }
+      });
+    });
+    var names = Object.keys(byCS).sort(function(a,b){ return a.localeCompare(b,'vi'); });
+    tbT.innerHTML = names.map(function(cs){
+      var s = byCS[cs]; var total = s.todo + s.doing + s.done;
+      return '<tr>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border)">'+esc(cs)+'</td>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border)">'+s.todo+'</td>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border)">'+s.doing+'</td>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border)">'+s.done+'</td>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border)"><strong>'+total+'</strong></td>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border)">'+
+          (s.soon>0 ? '<span class="assign-badge-pill has-assign">'+s.soon+' gần hạn</span>' : '<span style="color:var(--muted)">—</span>')+'</td>'+
+      '</tr>';
+    }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">Chưa có dữ liệu</td></tr>';
+  }
+}
+
+function _taskStatusBadge(st){
+  st = st || 'Chưa làm';
+  var color = st==='Hoàn thành' ? 'var(--green)' : st==='Đang làm' ? '#2563eb' : 'var(--muted)';
+  var bg    = st==='Hoàn thành' ? 'var(--green-bg)' : st==='Đang làm' ? '#dbeafe' : 'var(--surface2)';
+  return '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;color:'+color+';background:'+bg+'">'+esc(st)+'</span>';
+}
+
+function switchTaskSubTab(which){
+  document.getElementById('task-subtab-manage').classList.toggle('active', which==='manage');
+  document.getElementById('task-subtab-track').classList.toggle('active', which==='track');
+  document.getElementById('task-view-manage').style.display = which==='manage' ? 'block' : 'none';
+  document.getElementById('task-view-track').style.display  = which==='track'  ? 'block' : 'none';
+}
+
+function openTaskModal(id){
+  _taskEditId = id || null;
+  _taskSelectedCS = new Set();
+  var t = id ? allTasks.find(function(x){ return x.id===id; }) : null;
+
+  document.getElementById('task-modal-title').textContent = t ? 'Sửa công việc' : 'Tạo công việc';
+  document.getElementById('task-f-title').value = t ? t.title : '';
+  document.getElementById('task-f-desc').value = t ? t.description : '';
+  document.getElementById('task-f-deadline').value = t ? t.deadline : '';
+  document.getElementById('task-f-status').value = t ? t.status : 'Chưa làm';
+  if (t) (t.csAssigned||[]).forEach(function(n){ _taskSelectedCS.add(n); });
+
+  var names = (typeof _allCSNames === 'function') ? _allCSNames() : [];
+  var wrap = document.getElementById('task-f-cs');
+  wrap.innerHTML = names.map(function(n){
+    return '<div class="assign-cs-chip-multi'+(_taskSelectedCS.has(n)?' selected':'')+'" onclick="_taskToggleCS(this,\''+esc(n)+'\')">'+esc(n)+'</div>';
+  }).join('') || '<div style="color:var(--muted);font-size:12px">Chưa có CS nào (thêm ở mục Nhân sự / Team trước)</div>';
+
+  document.getElementById('task-modal-overlay').classList.add('open');
+}
+function closeTaskModal(){ document.getElementById('task-modal-overlay').classList.remove('open'); }
+function _taskToggleCS(el, name){
+  if (_taskSelectedCS.has(name)) _taskSelectedCS.delete(name); else _taskSelectedCS.add(name);
+  el.classList.toggle('selected');
+}
+
+async function saveTaskFromModal(){
+  var title = document.getElementById('task-f-title').value.trim();
+  if (!title){ alert('Nhập tên công việc'); return; }
+  var task = {
+    id: _taskEditId,
+    title: title,
+    description: document.getElementById('task-f-desc').value.trim(),
+    deadline: document.getElementById('task-f-deadline').value,
+    status: document.getElementById('task-f-status').value,
+    csAssigned: Array.from(_taskSelectedCS),
+    createdBy: (typeof currentUser !== 'undefined' && currentUser && currentUser.name) || ''
+  };
+  if (!gsUrl){ alert('Chưa kết nối Google Sheets'); return; }
+  try{
+    var r = await fetch(gsUrl, { method:'POST', redirect:'follow', body: JSON.stringify({ action:'saveTask', task: task }) });
+    var d = await r.json();
+    if (d && d.error){ alert('Lỗi: '+d.error); return; }
+  }catch(e){ alert('Lỗi kết nối, thử lại'); return; }
+  closeTaskModal();
+  loadTasks();
+}
+
+async function deleteTaskUI(id){
+  if (!confirm('Xóa công việc này?')) return;
+  try{
+    await fetch(gsUrl, { method:'POST', redirect:'follow', body: JSON.stringify({ action:'deleteTask', id: id }) });
+  }catch(e){}
+  loadTasks();
+}
+</script>
+
 </body>
 </html>
