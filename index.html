@@ -3244,10 +3244,47 @@ function renderHistTab(c) {
   });
   const allBrands   = [...new Set(allCustomers.flatMap(cx=>cx.brands).filter(Boolean))].sort();
   const allDetails  = [...new Set(allCustomers.flatMap(cx=>cx.orders.map(o=>o.productDetail)).filter(Boolean))].sort();
+  const allSources  = [...new Set(allCustomers.flatMap(cx=>cx.orders.map(o=>o.source)).filter(Boolean))].sort();
   const dlBrands    = `<datalist id="hedit-product-list">${allBrands.map(b=>`<option value="${esc(b)}">`).join('')}</datalist>`;
   const dlDetails   = `<datalist id="hedit-detail-list">${allDetails.map(d=>`<option value="${esc(d)}">`).join('')}</datalist>`;
+  const dlSources   = `<datalist id="mo-source-list">${allSources.map(s2=>`<option value="${esc(s2)}">`).join('')}</datalist>`;
+  const todayStr    = _ymd(new Date());
 
-  return `<div class="dp-section">${dlBrands}${dlDetails}
+  return `<div class="dp-section">${dlBrands}${dlDetails}${dlSources}
+    <button class="save-btn" style="margin-bottom:10px" onclick="_toggleAddOrderForm()">+ Thêm đơn hàng</button>
+    <div id="add-order-form" style="display:none;margin-bottom:14px;padding:10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+        <div>
+          <div class="form-label">Sản phẩm</div>
+          <input class="form-input" id="mo-product" list="hedit-product-list" placeholder="Chọn hoặc gõ...">
+        </div>
+        <div>
+          <div class="form-label">Doanh thu (VNĐ)</div>
+          <input class="form-input" id="mo-revenue" type="number" min="0" placeholder="0">
+        </div>
+      </div>
+      <div style="margin-bottom:6px">
+        <div class="form-label">Sản phẩm chi tiết</div>
+        <input class="form-input" id="mo-detail" list="hedit-detail-list" placeholder="Make9 x2, W15 x1...">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+        <div>
+          <div class="form-label">Ngày đặt</div>
+          <input class="form-input" id="mo-date" type="date" value="${todayStr}">
+        </div>
+        <div>
+          <div class="form-label">Nguồn đơn</div>
+          <input class="form-input" id="mo-source" list="mo-source-list" placeholder="KH Renew, Data mới...">
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-bottom:8px">
+        <input type="checkbox" id="mo-auto-sched"> Tự động thêm lịch chăm sóc (+7, +14 ngày, +1, +2 tháng)
+      </label>
+      <div style="display:flex;gap:6px">
+        <button class="save-btn" style="flex:1;padding:6px" onclick="addManualOrder('${esc(c.phone)}')">💾 Lưu đơn hàng</button>
+        <button onclick="_toggleAddOrderForm()" style="border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">Hủy</button>
+      </div>
+    </div>
     <div class="dp-stitle">Lịch sử đặt hàng (${sorted.length} đơn — ${fmtVND(c.totalRevenue)} tổng · <span style="color:var(--green)">${c.renewOrders} Renew</span>)</div>
     ${sorted.slice(0,60).map((o,si)=>{
       const isRenew   = RENEW_SOURCES.includes(s(o.source).toLowerCase());
@@ -4229,6 +4266,11 @@ function quickSched(phone) {
   toast('✓ Đã thêm lịch hẹn');
 }
 
+function _toggleAddOrderForm() {
+  const el = document.getElementById('add-order-form');
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
 async function addManualOrder(phone) {
   const product = (document.getElementById('mo-product').value||'').trim();
   const revenue = parseFloat(document.getElementById('mo-revenue').value||0)||0;
@@ -4254,6 +4296,7 @@ async function addManualOrder(phone) {
 
   c.orders.push(newOrder);
   c._keys = c._keys||new Set();
+  c._keys.add(`${phone}_${yr}_${mo}_${revenue}`);
 
   // Recompute totals
   c.totalRevenue = c.orders.reduce((s,o)=>s+(o.revenue||0),0);
