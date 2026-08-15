@@ -996,6 +996,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
           <button class="btn sm secondary" id="bcstat-open-btn" onclick="openBcStatModal()" title="Tình trạng chiến dịch + số khách đã gửi theo CS">📊 TK chiến dịch</button>
           <button class="btn sm secondary" id="bct-open-btn" onclick="openBctModal()" title="Lọc khách theo sản phẩm chi tiết / số đơn / thời gian mua / nguồn / phân loại rồi soạn tin bắn">🎯 CD theo điều kiện</button>
           <button class="btn sm secondary" id="futpl-inline-btn" onclick="openFuTplModal()" title="Mẫu tin hỏi thăm tự động theo mốc ngày sau mua — máy tự tạo chiến dịch mỗi sáng">📨 Hỏi thăm tự động</button>
+          <button class="btn sm secondary" id="task-quick-btn" onclick="openTaskModal()" title="Tạo công việc mới" style="padding:0 8px;min-width:auto">🗂️+</button>
           <button class="btn sm secondary" id="bdaytpl-inline-btn" onclick="openBdayTplModal()" title="Mẫu tin chúc mừng sinh nhật — máy tự tạo chiến dịch mỗi sáng cho khách sinh nhật hôm đó">🎂 Sinh nhật tự động</button>
           <button class="btn sm secondary" id="broadcast-filter-btn" onclick="openBroadcastFromCurrentFilter()" title="Tạo chiến dịch bắn trực tiếp từ danh sách đang lọc (CS, sản phẩm, nguồn, trạng thái, ngày mua...) — không cần qua Chia data">
             📢 Tạo chiến dịch bắn
@@ -3269,10 +3270,47 @@ function renderHistTab(c) {
   });
   const allBrands   = [...new Set(allCustomers.flatMap(cx=>cx.brands).filter(Boolean))].sort();
   const allDetails  = [...new Set(allCustomers.flatMap(cx=>cx.orders.map(o=>o.productDetail)).filter(Boolean))].sort();
+  const allSources  = [...new Set(allCustomers.flatMap(cx=>cx.orders.map(o=>o.source)).filter(Boolean))].sort();
   const dlBrands    = `<datalist id="hedit-product-list">${allBrands.map(b=>`<option value="${esc(b)}">`).join('')}</datalist>`;
   const dlDetails   = `<datalist id="hedit-detail-list">${allDetails.map(d=>`<option value="${esc(d)}">`).join('')}</datalist>`;
+  const dlSources   = `<datalist id="mo-source-list">${allSources.map(s2=>`<option value="${esc(s2)}">`).join('')}</datalist>`;
+  const todayStr    = _ymd(new Date());
 
-  return `<div class="dp-section">${dlBrands}${dlDetails}
+  return `<div class="dp-section">${dlBrands}${dlDetails}${dlSources}
+    <button class="save-btn" style="margin-bottom:10px" onclick="_toggleAddOrderForm()">+ Thêm đơn hàng</button>
+    <div id="add-order-form" style="display:none;margin-bottom:14px;padding:10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+        <div>
+          <div class="form-label">Sản phẩm</div>
+          <input class="form-input" id="mo-product" list="hedit-product-list" placeholder="Chọn hoặc gõ...">
+        </div>
+        <div>
+          <div class="form-label">Doanh thu (VNĐ)</div>
+          <input class="form-input" id="mo-revenue" type="number" min="0" placeholder="0">
+        </div>
+      </div>
+      <div style="margin-bottom:6px">
+        <div class="form-label">Sản phẩm chi tiết</div>
+        <input class="form-input" id="mo-detail" list="hedit-detail-list" placeholder="Make9 x2, W15 x1...">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+        <div>
+          <div class="form-label">Ngày đặt</div>
+          <input class="form-input" id="mo-date" type="date" value="${todayStr}">
+        </div>
+        <div>
+          <div class="form-label">Nguồn đơn</div>
+          <input class="form-input" id="mo-source" list="mo-source-list" placeholder="KH Renew, Data mới...">
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-bottom:8px">
+        <input type="checkbox" id="mo-auto-sched"> Tự động thêm lịch chăm sóc (+7, +14 ngày, +1, +2 tháng)
+      </label>
+      <div style="display:flex;gap:6px">
+        <button class="save-btn" style="flex:1;padding:6px" onclick="addManualOrder('${esc(c.phone)}')">💾 Lưu đơn hàng</button>
+        <button onclick="_toggleAddOrderForm()" style="border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">Hủy</button>
+      </div>
+    </div>
     <div class="dp-stitle">Lịch sử đặt hàng (${sorted.length} đơn — ${fmtVND(c.totalRevenue)} tổng · <span style="color:var(--green)">${c.renewOrders} Renew</span>)</div>
     ${sorted.slice(0,60).map((o,si)=>{
       const isRenew   = RENEW_SOURCES.includes(s(o.source).toLowerCase());
@@ -4254,6 +4292,11 @@ function quickSched(phone) {
   toast('✓ Đã thêm lịch hẹn');
 }
 
+function _toggleAddOrderForm() {
+  const el = document.getElementById('add-order-form');
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
 async function addManualOrder(phone) {
   const product = (document.getElementById('mo-product').value||'').trim();
   const revenue = parseFloat(document.getElementById('mo-revenue').value||0)||0;
@@ -4279,6 +4322,7 @@ async function addManualOrder(phone) {
 
   c.orders.push(newOrder);
   c._keys = c._keys||new Set();
+  c._keys.add(`${phone}_${yr}_${mo}_${revenue}`);
 
   // Recompute totals
   c.totalRevenue = c.orders.reduce((s,o)=>s+(o.revenue||0),0);
@@ -12178,9 +12222,11 @@ function openBcLogModal(phone){
           <textarea id="task-f-result" class="assign-input" style="width:100%;min-height:44px" placeholder="Kết quả công việc (điền khi đang làm / hoàn thành)"></textarea>
         </div>
       </div>
-      <div class="assign-section-title" style="margin-top:6px">CS tham gia</div>
-      <div class="assign-form-hint" style="font-size:10.5px;color:var(--hint);margin-bottom:8px">Chọn nhân viên CS được giao thực hiện công việc này</div>
+      <div class="assign-section-title" style="margin-top:6px">① Chọn Team tham gia</div>
+      <div class="assign-cs-list" id="task-f-team"></div>
+      <div class="assign-section-title">② Chọn user tham gia (trong Team đã chọn)</div>
       <div class="assign-cs-list" id="task-f-cs"></div>
+      <div id="task-f-perm-note" style="display:none;color:var(--hint);font-size:11px;margin-top:4px">🔒 Chỉ Admin mới có thể chọn/đổi người tham gia. Bạn vẫn tạo/sửa được các thông tin khác của công việc.</div>
     </div>
     <div class="assign-footer">
       <button class="btn secondary" onclick="closeTaskModal()">Hủy</button>
@@ -12243,6 +12289,8 @@ var _taskStatusFilter = 'all'; // all | Đang làm | Hoàn thành | overdue
 var _taskDetailId = null;
 var _taskCmPendingImages = []; // {file, dataUrl} — ảnh đang chọn trong ô thảo luận
 var allTaskComments = [];
+var _taskSelectedTeams = new Set();
+var _taskIsAdmin = false;
 
 async function loadTasks(){
   if (!gsUrl) return;
@@ -12362,6 +12410,7 @@ function openTaskModal(id){
   _taskEditId = id || null;
   _taskSelectedCS = new Set();
   _taskPendingImages = [];
+  _taskSelectedTeams = new Set();
   var t = id ? allTasks.find(function(x){ return x.id===id; }) : null;
 
   document.getElementById('task-modal-title').textContent = t ? 'Sửa công việc' : 'Tạo công việc';
@@ -12374,16 +12423,74 @@ function openTaskModal(id){
   if (t) (t.images||[]).forEach(function(u){ _taskPendingImages.push({ url: u }); });
   _renderTaskFormImages();
 
-  var names = (typeof _allCSNames === 'function') ? _allCSNames() : [];
-  var wrap = document.getElementById('task-f-cs');
-  wrap.innerHTML = names.map(function(n){
-    return '<div class="assign-cs-chip-multi'+(_taskSelectedCS.has(n)?' selected':'')+'" onclick="_taskToggleCS(this,\''+esc(n)+'\')">'+esc(n)+'</div>';
-  }).join('') || '<div style="color:var(--muted);font-size:12px">Chưa có CS nào (thêm ở mục Nhân sự / Team trước)</div>';
+  // Suy ra Team đã chọn: ưu tiên teamsAssigned đã lưu, nếu không có thì suy từ csAssigned
+  if (t && Array.isArray(t.teamsAssigned) && t.teamsAssigned.length){
+    t.teamsAssigned.forEach(function(tn){ _taskSelectedTeams.add(tn); });
+  } else if (t){
+    (typeof teams !== 'undefined' ? teams : []).forEach(function(tm){
+      var members = [tm.leader].concat(tm.members||[]).filter(Boolean);
+      if (members.some(function(m){ return _taskSelectedCS.has(m); })) _taskSelectedTeams.add(tm.name);
+    });
+  }
+
+  _taskIsAdmin = (typeof currentUser !== 'undefined' && currentUser && currentUser.role === 'admin');
+  document.getElementById('task-f-perm-note').style.display = _taskIsAdmin ? 'none' : 'block';
+  _taskRenderTeamChips();
+  _taskRenderUserChips();
 
   document.getElementById('task-modal-overlay').classList.add('open');
 }
 function closeTaskModal(){ document.getElementById('task-modal-overlay').classList.remove('open'); }
+
+function _taskRenderTeamChips(){
+  var wrap = document.getElementById('task-f-team');
+  var list = (typeof teams !== 'undefined' ? teams : []);
+  if (!list.length){
+    wrap.innerHTML = '<div style="color:var(--muted);font-size:12px">Chưa có Team nào (thêm ở mục Nhân sự / Team trước)</div>';
+    return;
+  }
+  wrap.innerHTML = list.map(function(tm){
+    var sel = _taskSelectedTeams.has(tm.name);
+    return '<div class="assign-cs-chip-multi'+(sel?' selected':'')+'"'+
+      (_taskIsAdmin ? ' onclick="_taskToggleTeam(this,\''+esc(tm.name)+'\')"' : ' style="cursor:default;opacity:.6"')+
+      '>'+esc(tm.name)+'</div>';
+  }).join('');
+}
+
+function _taskRenderUserChips(){
+  var wrap = document.getElementById('task-f-cs');
+  var pool = new Set();
+  (typeof teams !== 'undefined' ? teams : []).forEach(function(tm){
+    if (!_taskSelectedTeams.has(tm.name)) return;
+    if (tm.leader) pool.add(tm.leader);
+    (tm.members||[]).forEach(function(m){ if (m) pool.add(m); });
+  });
+  // Bỏ chọn user không còn thuộc Team đã chọn
+  Array.from(_taskSelectedCS).forEach(function(n){ if (!pool.has(n)) _taskSelectedCS.delete(n); });
+
+  var names = Array.from(pool).sort(function(a,b){ return a.localeCompare(b,'vi'); });
+  if (!names.length){
+    wrap.innerHTML = '<div style="color:var(--muted);font-size:12px">'+
+      (_taskSelectedTeams.size ? 'Team đã chọn chưa có thành viên' : 'Chọn Team ở trên trước để hiện danh sách user')+
+      '</div>';
+    return;
+  }
+  wrap.innerHTML = names.map(function(n){
+    var sel = _taskSelectedCS.has(n);
+    return '<div class="assign-cs-chip-multi'+(sel?' selected':'')+'"'+
+      (_taskIsAdmin ? ' onclick="_taskToggleCS(this,\''+esc(n)+'\')"' : ' style="cursor:default;opacity:.6"')+
+      '>'+esc(n)+'</div>';
+  }).join('');
+}
+
+function _taskToggleTeam(el, name){
+  if (!_taskIsAdmin) return;
+  if (_taskSelectedTeams.has(name)) _taskSelectedTeams.delete(name); else _taskSelectedTeams.add(name);
+  el.classList.toggle('selected');
+  _taskRenderUserChips();
+}
 function _taskToggleCS(el, name){
+  if (!_taskIsAdmin) return;
   if (_taskSelectedCS.has(name)) _taskSelectedCS.delete(name); else _taskSelectedCS.add(name);
   el.classList.toggle('selected');
 }
@@ -12447,6 +12554,7 @@ async function saveTaskFromModal(){
       result: document.getElementById('task-f-result').value.trim(),
       images: imageUrls,
       csAssigned: Array.from(_taskSelectedCS),
+      teamsAssigned: Array.from(_taskSelectedTeams),
       createdBy: (typeof currentUser !== 'undefined' && currentUser && currentUser.name) || ''
     };
     var r = await fetch(gsUrl, { method:'POST', redirect:'follow', body: JSON.stringify({ action:'saveTask', task: task }) });
