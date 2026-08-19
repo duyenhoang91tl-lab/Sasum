@@ -196,6 +196,15 @@ select.srt{padding:4px 8px;border:1px solid var(--border);border-radius:var(--rs
 .assign-cs-chip-multi{padding:5px 12px;border-radius:20px;font-size:12px;border:1.5px solid var(--border-md);background:var(--surface2);color:var(--muted);cursor:pointer;transition:all .12s;user-select:none;}
 .assign-cs-chip-multi.selected{background:var(--green-bg);color:var(--green);border-color:var(--green);font-weight:500;}
 .assign-cs-chip-multi.selected::before{content:"✓ ";}
+.task-status-tab{padding:7px 14px;font-size:12px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
+.task-status-tab.active{color:var(--green);border-bottom-color:var(--green);font-weight:600;}
+.task-form-hint{font-size:10.5px;color:var(--hint);margin-top:2px;width:100%;}
+.task-cm-item{display:flex;gap:8px;margin-bottom:14px;}
+.task-cm-avatar{width:30px;height:30px;border-radius:50%;background:var(--green-bg);color:var(--green);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;}
+.task-cm-bubble{background:var(--surface2);border-radius:10px;padding:8px 10px;flex:1;min-width:0;}
+.task-cm-img{max-width:180px;border-radius:8px;margin-top:6px;display:block;cursor:pointer;}
+.task-detail-tab{padding:8px 14px;font-size:12px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;}
+.task-detail-tab.active{color:var(--green);border-bottom-color:var(--green);font-weight:600;}
 .assign-dist-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px;}
 .assign-dist-table th{padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--hint);background:var(--surface2);border-bottom:1px solid var(--border);}
 .assign-dist-table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle;}
@@ -1151,9 +1160,9 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
       <div class="sched-grid" id="overdue-grid"></div>
     </div>
 
-<!-- ══════ PHẦN A — nội dung tab (dán trong #data-view, ngang hàng #tab-list) ══════ -->
+<!-- ══════ TAB CÔNG VIỆC ══════ -->
 <div id="tab-task" style="display:none;flex-direction:column;flex:1;overflow:hidden;padding:14px 18px">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:10px">
     <div class="assign-tabs" style="border:none;background:transparent">
       <div class="assign-tab active" id="task-subtab-manage" onclick="switchTaskSubTab('manage')">📋 Quản lý công việc</div>
       <div class="assign-tab" id="task-subtab-track" onclick="switchTaskSubTab('track')">📊 Theo dõi</div>
@@ -1162,20 +1171,36 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
   </div>
 
   <!-- BẢNG 1: QUẢN LÝ CÔNG VIỆC -->
-  <div id="task-view-manage" style="flex:1;overflow:auto">
-    <table class="task-table" style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead>
-        <tr style="background:var(--surface2)">
-          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Công việc</th>
-          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">CS tham gia</th>
-          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Hạn chót</th>
-          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Trạng thái</th>
-          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Người tạo</th>
-          <th style="width:70px;border-bottom:1px solid var(--border)"></th>
-        </tr>
-      </thead>
-      <tbody id="task-manage-tbody"></tbody>
-    </table>
+  <div id="task-view-manage" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <div class="assign-tabs" style="border:none;background:transparent" id="task-scope-tabs">
+        <div class="assign-tab active" data-scope="mine" onclick="setTaskScope('mine',this)">Giao cho tôi</div>
+        <div class="assign-tab" data-scope="createdByMe" onclick="setTaskScope('createdByMe',this)">Tạo bởi tôi</div>
+        <div class="assign-tab" data-scope="all" onclick="setTaskScope('all',this)">Tất cả</div>
+      </div>
+      <input type="text" id="task-search" class="assign-input" placeholder="🔍 Tìm công việc..." style="min-width:180px" oninput="renderTaskTables()">
+    </div>
+    <div style="display:flex;gap:4px;margin-bottom:8px;border-bottom:1px solid var(--border)">
+      <div class="task-status-tab active" data-status="all" onclick="setTaskStatusFilter('all',this)">Tất cả</div>
+      <div class="task-status-tab" data-status="Đang làm" onclick="setTaskStatusFilter('Đang làm',this)">Đang làm</div>
+      <div class="task-status-tab" data-status="Hoàn thành" onclick="setTaskStatusFilter('Hoàn thành',this)">Đã hoàn thành</div>
+      <div class="task-status-tab" data-status="overdue" onclick="setTaskStatusFilter('overdue',this)">Quá hạn</div>
+    </div>
+    <div style="flex:1;overflow:auto">
+      <table class="task-table" style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:var(--surface2)">
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Công việc</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Kết quả công việc</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Giao cho</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Thời hạn</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Trạng thái</th>
+            <th style="width:70px;border-bottom:1px solid var(--border)"></th>
+          </tr>
+        </thead>
+        <tbody id="task-manage-tbody"></tbody>
+      </table>
+    </div>
   </div>
 
   <!-- BẢNG 2: THEO DÕI (tổng hợp theo từng CS) -->
@@ -1195,6 +1220,7 @@ select.ymf-sel.ymf-active{background:var(--green-bg);color:var(--green);}
     </table>
   </div>
 </div>
+
 
     <!-- MY DATA TAB -->
     <!-- ZALO AI TAB -->
@@ -3244,10 +3270,47 @@ function renderHistTab(c) {
   });
   const allBrands   = [...new Set(allCustomers.flatMap(cx=>cx.brands).filter(Boolean))].sort();
   const allDetails  = [...new Set(allCustomers.flatMap(cx=>cx.orders.map(o=>o.productDetail)).filter(Boolean))].sort();
+  const allSources  = [...new Set(allCustomers.flatMap(cx=>cx.orders.map(o=>o.source)).filter(Boolean))].sort();
   const dlBrands    = `<datalist id="hedit-product-list">${allBrands.map(b=>`<option value="${esc(b)}">`).join('')}</datalist>`;
   const dlDetails   = `<datalist id="hedit-detail-list">${allDetails.map(d=>`<option value="${esc(d)}">`).join('')}</datalist>`;
+  const dlSources   = `<datalist id="mo-source-list">${allSources.map(s2=>`<option value="${esc(s2)}">`).join('')}</datalist>`;
+  const todayStr    = _ymd(new Date());
 
-  return `<div class="dp-section">${dlBrands}${dlDetails}
+  return `<div class="dp-section">${dlBrands}${dlDetails}${dlSources}
+    <button class="save-btn" style="margin-bottom:10px" onclick="_toggleAddOrderForm()">+ Thêm đơn hàng</button>
+    <div id="add-order-form" style="display:none;margin-bottom:14px;padding:10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+        <div>
+          <div class="form-label">Sản phẩm</div>
+          <input class="form-input" id="mo-product" list="hedit-product-list" placeholder="Chọn hoặc gõ...">
+        </div>
+        <div>
+          <div class="form-label">Doanh thu (VNĐ)</div>
+          <input class="form-input" id="mo-revenue" type="number" min="0" placeholder="0">
+        </div>
+      </div>
+      <div style="margin-bottom:6px">
+        <div class="form-label">Sản phẩm chi tiết</div>
+        <input class="form-input" id="mo-detail" list="hedit-detail-list" placeholder="Make9 x2, W15 x1...">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+        <div>
+          <div class="form-label">Ngày đặt</div>
+          <input class="form-input" id="mo-date" type="date" value="${todayStr}">
+        </div>
+        <div>
+          <div class="form-label">Nguồn đơn</div>
+          <input class="form-input" id="mo-source" list="mo-source-list" placeholder="KH Renew, Data mới...">
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-bottom:8px">
+        <input type="checkbox" id="mo-auto-sched"> Tự động thêm lịch chăm sóc (+7, +14 ngày, +1, +2 tháng)
+      </label>
+      <div style="display:flex;gap:6px">
+        <button class="save-btn" style="flex:1;padding:6px" onclick="addManualOrder('${esc(c.phone)}')">💾 Lưu đơn hàng</button>
+        <button onclick="_toggleAddOrderForm()" style="border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">Hủy</button>
+      </div>
+    </div>
     <div class="dp-stitle">Lịch sử đặt hàng (${sorted.length} đơn — ${fmtVND(c.totalRevenue)} tổng · <span style="color:var(--green)">${c.renewOrders} Renew</span>)</div>
     ${sorted.slice(0,60).map((o,si)=>{
       const isRenew   = RENEW_SOURCES.includes(s(o.source).toLowerCase());
@@ -4229,6 +4292,11 @@ function quickSched(phone) {
   toast('✓ Đã thêm lịch hẹn');
 }
 
+function _toggleAddOrderForm() {
+  const el = document.getElementById('add-order-form');
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
 async function addManualOrder(phone) {
   const product = (document.getElementById('mo-product').value||'').trim();
   const revenue = parseFloat(document.getElementById('mo-revenue').value||0)||0;
@@ -4254,6 +4322,7 @@ async function addManualOrder(phone) {
 
   c.orders.push(newOrder);
   c._keys = c._keys||new Set();
+  c._keys.add(`${phone}_${yr}_${mo}_${revenue}`);
 
   // Recompute totals
   c.totalRevenue = c.orders.reduce((s,o)=>s+(o.revenue||0),0);
@@ -12100,35 +12169,60 @@ function openBcLogModal(phone){
   m.classList.add('open');
 }
 </script>
-<!-- ══════ PHẦN B — modal tạo/sửa công việc (dán cuối <body>) ══════ -->
+<!-- ══════ MODAL TẠO/SỬA CÔNG VIỆC ══════ -->
 <div class="assign-modal-overlay" id="task-modal-overlay">
-  <div class="assign-modal" style="width:520px">
+  <div class="assign-modal" style="width:560px">
     <div class="assign-modal-hdr">
       <div class="assign-modal-title" id="task-modal-title">Tạo công việc</div>
       <span style="cursor:pointer" onclick="closeTaskModal()">✕</span>
     </div>
     <div class="assign-body">
-      <div class="assign-form-row">
-        <div class="assign-form-label">Tên</div>
-        <input type="text" id="task-f-title" class="assign-input" style="flex:1" placeholder="Tên công việc">
+      <div class="assign-form-row" style="align-items:flex-start">
+        <div class="assign-form-label" style="padding-top:6px">Tên công việc</div>
+        <div style="flex:1">
+          <input type="text" id="task-f-title" class="assign-input" style="width:100%" placeholder="Tên công việc">
+          <div class="task-form-hint">Tên ngắn gọn, dễ nhận biết công việc cần làm</div>
+        </div>
       </div>
       <div class="assign-form-row" style="align-items:flex-start">
-        <div class="assign-form-label">Mô tả</div>
-        <textarea id="task-f-desc" class="assign-input" style="flex:1;min-height:60px" placeholder="Mô tả (không bắt buộc)"></textarea>
+        <div class="assign-form-label" style="padding-top:6px">Mô tả</div>
+        <div style="flex:1">
+          <textarea id="task-f-desc" class="assign-input" style="width:100%;min-height:60px" placeholder="Mô tả chi tiết công việc (không bắt buộc)"></textarea>
+          <div class="task-form-hint">Mô tả chi tiết về công việc cần thực hiện</div>
+        </div>
       </div>
-      <div class="assign-form-row">
-        <div class="assign-form-label">Hạn chót</div>
-        <input type="date" id="task-f-deadline" class="assign-input">
+      <div class="assign-form-row" style="align-items:flex-start">
+        <div class="assign-form-label" style="padding-top:6px">Ảnh đính kèm</div>
+        <div style="flex:1">
+          <div id="task-f-images" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px"></div>
+          <input type="file" id="task-f-img-input" accept="image/*" multiple style="display:none" onchange="_taskAddImages(this.files)">
+          <button type="button" class="btn secondary sm" onclick="document.getElementById('task-f-img-input').click()">+ Thêm ảnh</button>
+        </div>
       </div>
-      <div class="assign-form-row">
-        <div class="assign-form-label">Trạng thái</div>
-        <select id="task-f-status" class="assign-input">
-          <option>Chưa làm</option>
-          <option>Đang làm</option>
-          <option>Hoàn thành</option>
-        </select>
+      <div class="assign-form-row" style="align-items:flex-start">
+        <div class="assign-form-label" style="padding-top:6px">Hạn chót</div>
+        <div style="flex:1">
+          <input type="date" id="task-f-deadline" class="assign-input">
+          <div class="task-form-hint">Thời hạn hoàn thành công việc</div>
+        </div>
       </div>
-      <div class="assign-section-title">① Chọn Team tham gia</div>
+      <div class="assign-form-row" style="align-items:flex-start">
+        <div class="assign-form-label" style="padding-top:6px">Trạng thái</div>
+        <div style="flex:1">
+          <select id="task-f-status" class="assign-input" style="width:100%">
+            <option>Chưa làm</option>
+            <option>Đang làm</option>
+            <option>Hoàn thành</option>
+          </select>
+        </div>
+      </div>
+      <div class="assign-form-row" style="align-items:flex-start" id="task-f-result-row">
+        <div class="assign-form-label" style="padding-top:6px">Kết quả</div>
+        <div style="flex:1">
+          <textarea id="task-f-result" class="assign-input" style="width:100%;min-height:44px" placeholder="Kết quả công việc (điền khi đang làm / hoàn thành)"></textarea>
+        </div>
+      </div>
+      <div class="assign-section-title" style="margin-top:6px">① Chọn Team tham gia</div>
       <div class="assign-cs-list" id="task-f-team"></div>
       <div class="assign-section-title">② Chọn user tham gia (trong Team đã chọn)</div>
       <div class="assign-cs-list" id="task-f-cs"></div>
@@ -12141,10 +12235,60 @@ function openBcLogModal(phone){
   </div>
 </div>
 
+<!-- ══════ MODAL CHI TIẾT CÔNG VIỆC (Tổng quan + Thảo luận) ══════ -->
+<div class="assign-modal-overlay" id="task-detail-modal-overlay">
+  <div class="assign-modal" style="width:560px;max-height:90vh">
+    <div class="assign-modal-hdr" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div class="assign-modal-title" id="task-detail-title">Chi tiết công việc</div>
+        <span style="cursor:pointer" onclick="closeTaskDetailModal()">✕</span>
+      </div>
+      <div style="display:flex;gap:16px;font-size:11.5px;color:var(--muted);flex-wrap:wrap">
+        <span>👤 Người thực thi: <strong id="task-detail-cs" style="color:var(--text)">—</strong></span>
+        <span>📅 Thời hạn: <strong id="task-detail-deadline" style="color:var(--text)">—</strong></span>
+        <span id="task-detail-status-wrap"></span>
+      </div>
+    </div>
+    <div style="display:flex;border-bottom:1px solid var(--border);flex-shrink:0">
+      <div class="task-detail-tab active" id="task-detail-tab-overview" onclick="switchTaskDetailTab('overview')">Tổng quan</div>
+      <div class="task-detail-tab" id="task-detail-tab-discuss" onclick="switchTaskDetailTab('discuss')">Thảo luận <span id="task-detail-cm-count"></span></div>
+    </div>
+
+    <!-- TỔNG QUAN -->
+    <div class="assign-body" id="task-detail-view-overview">
+      <div class="assign-section-title">Mô tả</div>
+      <div id="task-detail-desc" style="font-size:12.5px;color:var(--text);margin-bottom:14px;white-space:pre-wrap">—</div>
+      <div id="task-detail-images" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
+      <div class="assign-section-title">Kết quả công việc</div>
+      <div id="task-detail-result" style="font-size:12.5px;color:var(--text);margin-bottom:6px;white-space:pre-wrap">Chưa có kết quả</div>
+    </div>
+
+    <!-- THẢO LUẬN -->
+    <div class="assign-body" id="task-detail-view-discuss" style="display:none">
+      <div id="task-cm-list"></div>
+    </div>
+    <div class="assign-footer" id="task-cm-footer" style="display:none;flex-direction:column;align-items:stretch;gap:6px">
+      <div id="task-cm-pending-images" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <textarea id="task-cm-input" class="assign-input" style="flex:1;min-height:36px" placeholder="Viết thảo luận..."></textarea>
+        <input type="file" id="task-cm-img-input" accept="image/*" multiple style="display:none" onchange="_taskCmAddImages(this.files)">
+        <button type="button" class="btn secondary sm" onclick="document.getElementById('task-cm-img-input').click()" title="Đính kèm ảnh">📎</button>
+        <button type="button" class="btn primary sm" onclick="sendTaskComment()">Gửi</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 var allTasks = [];
 var _taskEditId = null;
 var _taskSelectedCS = new Set();
+var _taskPendingImages = [];   // {file, dataUrl} — ảnh đang chọn trong modal tạo/sửa
+var _taskScope = 'mine';       // mine | createdByMe | all
+var _taskStatusFilter = 'all'; // all | Đang làm | Hoàn thành | overdue
+var _taskDetailId = null;
+var _taskCmPendingImages = []; // {file, dataUrl} — ảnh đang chọn trong ô thảo luận
+var allTaskComments = [];
 var _taskSelectedTeams = new Set();
 var _taskIsAdmin = false;
 
@@ -12159,32 +12303,64 @@ async function loadTasks(){
   renderTaskTables();
 }
 
+function _taskIsOverdue(t){
+  if (!t.deadline || t.status === 'Hoàn thành') return false;
+  var dl = new Date(t.deadline); dl.setHours(23,59,59,999);
+  return dl.getTime() < Date.now();
+}
+
+function setTaskScope(scope, el){
+  _taskScope = scope;
+  document.querySelectorAll('#task-scope-tabs .assign-tab').forEach(function(t){ t.classList.remove('active'); });
+  el.classList.add('active');
+  renderTaskTables();
+}
+function setTaskStatusFilter(st, el){
+  _taskStatusFilter = st;
+  document.querySelectorAll('.task-status-tab').forEach(function(t){ t.classList.remove('active'); });
+  el.classList.add('active');
+  renderTaskTables();
+}
+
 function renderTaskTables(){
+  var myName = (typeof currentUser !== 'undefined' && currentUser && currentUser.name) || '';
+  var q = (document.getElementById('task-search') ? document.getElementById('task-search').value : '').trim().toLowerCase();
+
+  var filtered = allTasks.filter(function(t){
+    if (_taskScope === 'mine' && myName && (t.csAssigned||[]).indexOf(myName) === -1) return false;
+    if (_taskScope === 'createdByMe' && myName && t.createdBy !== myName) return false;
+    if (_taskStatusFilter === 'overdue' && !_taskIsOverdue(t)) return false;
+    if (_taskStatusFilter === 'Đang làm' && t.status !== 'Đang làm') return false;
+    if (_taskStatusFilter === 'Hoàn thành' && t.status !== 'Hoàn thành') return false;
+    if (q && (t.title||'').toLowerCase().indexOf(q) === -1 && (t.description||'').toLowerCase().indexOf(q) === -1) return false;
+    return true;
+  });
+
   txt('tb-task', allTasks.length);
 
   var tbM = document.getElementById('task-manage-tbody');
   if (tbM){
-    tbM.innerHTML = allTasks.map(function(t){
-      return '<tr>'+
+    tbM.innerHTML = filtered.map(function(t){
+      var overdue = _taskIsOverdue(t);
+      return '<tr style="cursor:pointer" onclick="openTaskDetailModal(\''+t.id+'\')">'+
         '<td style="padding:8px;border-bottom:1px solid var(--border)">'+esc(t.title)+
-          (t.description ? '<div style="color:var(--muted);font-size:11px;margin-top:2px">'+esc(t.description)+'</div>' : '')+'</td>'+
+          (overdue ? ' <span class="assign-badge-pill has-assign">Quá hạn</span>' : '')+'</td>'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border);color:var(--muted)">'+(esc(t.result||'') || '—')+'</td>'+
         '<td style="padding:8px;border-bottom:1px solid var(--border)">'+
           (t.csAssigned||[]).map(function(n){ return '<span class="assign-badge-pill">'+esc(n)+'</span>'; }).join('') +
           ((t.csAssigned||[]).length ? '' : '<span style="color:var(--muted)">—</span>') + '</td>'+
         '<td style="padding:8px;border-bottom:1px solid var(--border)">'+esc(t.deadline||'—')+'</td>'+
         '<td style="padding:8px;border-bottom:1px solid var(--border)">'+_taskStatusBadge(t.status)+'</td>'+
-        '<td style="padding:8px;border-bottom:1px solid var(--border)">'+esc(t.createdBy||'')+'</td>'+
-        '<td style="padding:8px;border-bottom:1px solid var(--border);white-space:nowrap">'+
+        '<td style="padding:8px;border-bottom:1px solid var(--border);white-space:nowrap" onclick="event.stopPropagation()">'+
           '<span style="cursor:pointer;margin-right:8px" title="Sửa" onclick="openTaskModal(\''+t.id+'\')">✏️</span>'+
           '<span style="cursor:pointer" title="Xóa" onclick="deleteTaskUI(\''+t.id+'\')">🗑️</span></td>'+
       '</tr>';
-    }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">Chưa có công việc nào — bấm "+ Tạo công việc" để bắt đầu</td></tr>';
+    }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">Không có công việc nào'+(allTasks.length?' khớp bộ lọc':' — bấm "+ Tạo công việc" để bắt đầu')+'</td></tr>';
   }
 
   var tbT = document.getElementById('task-track-tbody');
   if (tbT){
     var byCS = {};
-    var today = new Date(); today.setHours(0,0,0,0);
     allTasks.forEach(function(t){
       var list = (t.csAssigned && t.csAssigned.length) ? t.csAssigned : ['(chưa gán)'];
       list.forEach(function(cs){
@@ -12194,7 +12370,7 @@ function renderTaskTables(){
         else byCS[cs].todo++;
         if (t.deadline && t.status!=='Hoàn thành'){
           var dl = new Date(t.deadline);
-          var diffDays = Math.ceil((dl - today) / 86400000);
+          var diffDays = Math.ceil((dl - new Date().setHours(0,0,0,0)) / 86400000);
           if (diffDays <= 2) byCS[cs].soon++;
         }
       });
@@ -12225,13 +12401,15 @@ function _taskStatusBadge(st){
 function switchTaskSubTab(which){
   document.getElementById('task-subtab-manage').classList.toggle('active', which==='manage');
   document.getElementById('task-subtab-track').classList.toggle('active', which==='track');
-  document.getElementById('task-view-manage').style.display = which==='manage' ? 'block' : 'none';
+  document.getElementById('task-view-manage').style.display = which==='manage' ? 'flex' : 'none';
   document.getElementById('task-view-track').style.display  = which==='track'  ? 'block' : 'none';
 }
 
+// ── MODAL TẠO/SỬA ──────────────────────────────────────────────
 function openTaskModal(id){
   _taskEditId = id || null;
   _taskSelectedCS = new Set();
+  _taskPendingImages = [];
   _taskSelectedTeams = new Set();
   var t = id ? allTasks.find(function(x){ return x.id===id; }) : null;
 
@@ -12240,7 +12418,10 @@ function openTaskModal(id){
   document.getElementById('task-f-desc').value = t ? t.description : '';
   document.getElementById('task-f-deadline').value = t ? t.deadline : '';
   document.getElementById('task-f-status').value = t ? t.status : 'Chưa làm';
+  document.getElementById('task-f-result').value = t ? (t.result||'') : '';
   if (t) (t.csAssigned||[]).forEach(function(n){ _taskSelectedCS.add(n); });
+  if (t) (t.images||[]).forEach(function(u){ _taskPendingImages.push({ url: u }); });
+  _renderTaskFormImages();
 
   // Suy ra Team đã chọn: ưu tiên teamsAssigned đã lưu, nếu không có thì suy từ csAssigned
   if (t && Array.isArray(t.teamsAssigned) && t.teamsAssigned.length){
@@ -12314,25 +12495,73 @@ function _taskToggleCS(el, name){
   el.classList.toggle('selected');
 }
 
+function _taskAddImages(files){
+  Array.from(files || []).forEach(function(file){
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      _taskPendingImages.push({ file: file, dataUrl: ev.target.result });
+      _renderTaskFormImages();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function _renderTaskFormImages(){
+  var wrap = document.getElementById('task-f-images');
+  wrap.innerHTML = _taskPendingImages.map(function(img, idx){
+    var src = img.url || img.dataUrl;
+    return '<div style="position:relative">'+
+      '<img src="'+esc(src)+'" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">'+
+      '<span onclick="_taskRemoveImage('+idx+')" style="position:absolute;top:-6px;right:-6px;background:#dc2626;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;display:flex;align-items:center;justify-content:center;cursor:pointer">✕</span>'+
+    '</div>';
+  }).join('');
+}
+function _taskRemoveImage(idx){ _taskPendingImages.splice(idx,1); _renderTaskFormImages(); }
+
+async function _uploadImagesToDrive(images){
+  // images: array of {file,dataUrl} (chưa upload) hoặc {url} (đã có sẵn) → trả về mảng URL
+  var urls = [];
+  for (var i = 0; i < images.length; i++){
+    if (images[i].url){ urls.push(images[i].url); continue; }
+    try{
+      var base64 = images[i].dataUrl.split(',')[1];
+      var mimeType = (images[i].file && images[i].file.type) || 'image/jpeg';
+      var fname = (images[i].file && images[i].file.name) || ('img_'+Date.now()+'.jpg');
+      var r = await fetch(gsUrl, {
+        method:'POST', redirect:'follow',
+        body: JSON.stringify({ action:'uploadBroadcastImg', base64: base64, filename: fname, mimeType: mimeType })
+      });
+      var d = await r.json();
+      if (d.ok && d.url) urls.push(d.url);
+    }catch(e){ console.warn('Upload ảnh lỗi:', e); }
+  }
+  return urls;
+}
+
 async function saveTaskFromModal(){
   var title = document.getElementById('task-f-title').value.trim();
   if (!title){ alert('Nhập tên công việc'); return; }
-  var task = {
-    id: _taskEditId,
-    title: title,
-    description: document.getElementById('task-f-desc').value.trim(),
-    deadline: document.getElementById('task-f-deadline').value,
-    status: document.getElementById('task-f-status').value,
-    csAssigned: Array.from(_taskSelectedCS),
-    teamsAssigned: Array.from(_taskSelectedTeams),
-    createdBy: (typeof currentUser !== 'undefined' && currentUser && currentUser.name) || ''
-  };
   if (!gsUrl){ alert('Chưa kết nối Google Sheets'); return; }
+  var saveBtn = document.querySelector('#task-modal-overlay .assign-footer .btn.primary');
+  if (saveBtn){ saveBtn.disabled = true; saveBtn.textContent = 'Đang lưu...'; }
   try{
+    var imageUrls = await _uploadImagesToDrive(_taskPendingImages);
+    var task = {
+      id: _taskEditId,
+      title: title,
+      description: document.getElementById('task-f-desc').value.trim(),
+      deadline: document.getElementById('task-f-deadline').value,
+      status: document.getElementById('task-f-status').value,
+      result: document.getElementById('task-f-result').value.trim(),
+      images: imageUrls,
+      csAssigned: Array.from(_taskSelectedCS),
+      teamsAssigned: Array.from(_taskSelectedTeams),
+      createdBy: (typeof currentUser !== 'undefined' && currentUser && currentUser.name) || ''
+    };
     var r = await fetch(gsUrl, { method:'POST', redirect:'follow', body: JSON.stringify({ action:'saveTask', task: task }) });
     var d = await r.json();
     if (d && d.error){ alert('Lỗi: '+d.error); return; }
   }catch(e){ alert('Lỗi kết nối, thử lại'); return; }
+  finally{ if (saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Lưu'; } }
   closeTaskModal();
   loadTasks();
 }
@@ -12344,7 +12573,119 @@ async function deleteTaskUI(id){
   }catch(e){}
   loadTasks();
 }
+
+// ── MODAL CHI TIẾT (Tổng quan + Thảo luận) ──────────────────────
+function openTaskDetailModal(id){
+  var t = allTasks.find(function(x){ return x.id===id; });
+  if (!t) return;
+  _taskDetailId = id;
+
+  document.getElementById('task-detail-title').textContent = t.title;
+  document.getElementById('task-detail-cs').textContent = (t.csAssigned||[]).join(', ') || '—';
+  document.getElementById('task-detail-deadline').textContent = t.deadline || '—';
+  document.getElementById('task-detail-status-wrap').innerHTML = _taskStatusBadge(t.status) + (_taskIsOverdue(t) ? ' <span class="assign-badge-pill has-assign">Quá hạn</span>' : '');
+  document.getElementById('task-detail-desc').textContent = t.description || 'Không có mô tả';
+  document.getElementById('task-detail-images').innerHTML = (t.images||[]).map(function(u){
+    return '<img src="'+esc(u)+'" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer" onclick="window.open(\''+esc(u)+'\',\'_blank\')">';
+  }).join('');
+  document.getElementById('task-detail-result').textContent = t.result || 'Chưa có kết quả';
+
+  switchTaskDetailTab('overview');
+  document.getElementById('task-detail-modal-overlay').classList.add('open');
+  loadTaskComments(id);
+}
+function closeTaskDetailModal(){ document.getElementById('task-detail-modal-overlay').classList.remove('open'); _taskDetailId = null; }
+
+function switchTaskDetailTab(which){
+  document.getElementById('task-detail-tab-overview').classList.toggle('active', which==='overview');
+  document.getElementById('task-detail-tab-discuss').classList.toggle('active', which==='discuss');
+  document.getElementById('task-detail-view-overview').style.display = which==='overview' ? 'block' : 'none';
+  document.getElementById('task-detail-view-discuss').style.display = which==='discuss' ? 'block' : 'none';
+  document.getElementById('task-cm-footer').style.display = which==='discuss' ? 'flex' : 'none';
+}
+
+async function loadTaskComments(taskId){
+  var listEl = document.getElementById('task-cm-list');
+  listEl.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:16px">Đang tải...</div>';
+  allTaskComments = [];
+  if (gsUrl){
+    try{
+      var sep = gsUrl.includes('?') ? '&' : '?';
+      var r = await fetch(gsUrl + sep + 'action=taskComments&taskId=' + encodeURIComponent(taskId), { redirect:'follow' });
+      var d = await r.json();
+      if (d && Array.isArray(d.comments)) allTaskComments = d.comments;
+    }catch(e){ console.warn('loadTaskComments failed:', e); }
+  }
+  renderTaskComments();
+}
+
+function renderTaskComments(){
+  var listEl = document.getElementById('task-cm-list');
+  var cntEl = document.getElementById('task-detail-cm-count');
+  cntEl.textContent = allTaskComments.length ? '('+allTaskComments.length+')' : '';
+  listEl.innerHTML = allTaskComments.map(function(c){
+    var initial = (c.author || '?').trim().charAt(0).toUpperCase();
+    var when = c.createdAt ? new Date(c.createdAt).toLocaleString('vi-VN', { hour:'2-digit', minute:'2-digit', day:'2-digit', month:'2-digit' }) : '';
+    var imgs = (c.images||[]).map(function(u){ return '<img src="'+esc(u)+'" class="task-cm-img" onclick="window.open(\''+esc(u)+'\',\'_blank\')">'; }).join('');
+    return '<div class="task-cm-item">'+
+      '<div class="task-cm-avatar">'+esc(initial)+'</div>'+
+      '<div class="task-cm-bubble">'+
+        '<div style="font-weight:700;font-size:12px">'+esc(c.author||'Ẩn danh')+'</div>'+
+        (c.content ? '<div style="font-size:12.5px;white-space:pre-wrap;margin-top:2px">'+esc(c.content)+'</div>' : '')+
+        imgs+
+        '<div style="font-size:10px;color:var(--muted);margin-top:4px">'+when+'</div>'+
+      '</div>'+
+    '</div>';
+  }).join('') || '<div style="color:var(--muted);font-size:12px;text-align:center;padding:16px">Chưa có thảo luận nào</div>';
+  listEl.scrollTop = listEl.scrollHeight;
+}
+
+function _taskCmAddImages(files){
+  Array.from(files || []).forEach(function(file){
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      _taskCmPendingImages.push({ file: file, dataUrl: ev.target.result });
+      _renderTaskCmPendingImages();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function _renderTaskCmPendingImages(){
+  var wrap = document.getElementById('task-cm-pending-images');
+  wrap.innerHTML = _taskCmPendingImages.map(function(img, idx){
+    return '<div style="position:relative">'+
+      '<img src="'+esc(img.dataUrl)+'" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">'+
+      '<span onclick="_taskCmRemoveImage('+idx+')" style="position:absolute;top:-5px;right:-5px;background:#dc2626;color:#fff;border-radius:50%;width:14px;height:14px;font-size:9px;display:flex;align-items:center;justify-content:center;cursor:pointer">✕</span>'+
+    '</div>';
+  }).join('');
+}
+function _taskCmRemoveImage(idx){ _taskCmPendingImages.splice(idx,1); _renderTaskCmPendingImages(); }
+
+async function sendTaskComment(){
+  var input = document.getElementById('task-cm-input');
+  var content = input.value.trim();
+  if (!content && !_taskCmPendingImages.length) return;
+  if (!gsUrl || !_taskDetailId) return;
+  var sendBtn = document.querySelector('#task-cm-footer .btn.primary');
+  if (sendBtn){ sendBtn.disabled = true; }
+  try{
+    var imageUrls = await _uploadImagesToDrive(_taskCmPendingImages);
+    var comment = {
+      taskId: _taskDetailId,
+      author: (typeof currentUser !== 'undefined' && currentUser && currentUser.name) || 'Ẩn danh',
+      content: content,
+      images: imageUrls
+    };
+    await fetch(gsUrl, { method:'POST', redirect:'follow', body: JSON.stringify({ action:'saveTaskComment', comment: comment }) });
+  }catch(e){ console.warn('sendTaskComment failed:', e); }
+  finally{ if (sendBtn){ sendBtn.disabled = false; } }
+  input.value = '';
+  _taskCmPendingImages = [];
+  _renderTaskCmPendingImages();
+  loadTaskComments(_taskDetailId);
+}
 </script>
+
 
 </body>
 </html>
