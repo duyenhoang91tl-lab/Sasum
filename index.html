@@ -9055,7 +9055,7 @@ function _dkpi(label,val,sub){
 function _dfmtV(v){ return typeof fmtVND==='function'?fmtVND(v):fmt(v); }
 
 // ── pivot engine ─────────────────────────────────────────
-function _dashPivot(list, rowKey, colKey, metric) {
+function _dashPivot(list, rowKey, colKey, metric, dateFrom, dateTo) {
   var ROW_KEYS = {
     'month':    function(o){ return o.year&&o.month ? (o.year+'-'+String(o.month).padStart(2,'0')) : '—'; },
     'cs':       function(o){ return o.cs||'—'; },
@@ -9080,11 +9080,24 @@ function _dashPivot(list, rowKey, colKey, metric) {
   var cFn = COL_KEYS[colKey] || COL_KEYS['cs'];
   var mFn = MET[metric] || MET['revenue'];
 
+  // Lọc theo khoảng thời gian (dateFrom/dateTo dạng 'YYYY-MM-DD', bỏ trống = toàn thời gian)
+  var fromT = dateFrom ? new Date(dateFrom+'T00:00:00').getTime() : null;
+  var toT   = dateTo   ? new Date(dateTo+'T23:59:59').getTime()   : null;
+  function _dpInRange(o){
+    if (!fromT && !toT) return true;
+    var t = o.date instanceof Date ? o.date.getTime() : (o.date ? new Date(o.date).getTime() : NaN);
+    if (isNaN(t)) return false;
+    if (fromT!==null && t < fromT) return false;
+    if (toT!==null && t > toT) return false;
+    return true;
+  }
+
   var rows={}, cols={}, data={}, colTotals={}, rowTotals={};
   var khByCell={};  // for kh metric: unique phones
 
   list.forEach(function(c){
     c.orders.forEach(function(o){
+      if (!_dpInRange(o)) return;
       var r=rFn(o,c), cl=cFn(o,c);
       rows[r]=true; cols[cl]=true;
       var k=r+'|'+cl;
@@ -9224,6 +9237,7 @@ function _dashRenderWidget(w, idx, list, csArr, teamStats, totalKH) {
 
   } else if (t==='pivot') {
     var row=cfg.row||'month', col=cfg.col||'cs', met=cfg.metric||'revenue';
+    var dFrom=cfg.dateFrom||'', dTo=cfg.dateTo||'';
     var dims=['month','cs','product','source','tier'];
     var mets=['revenue','orders','kh'];
     inner='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px">'+
@@ -9239,8 +9253,16 @@ function _dashRenderWidget(w, idx, list, csArr, teamStats, totalKH) {
       '<select style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface)" onchange="'+
         '_dashWidgets()['+idx+'].cfg=_dashWidgets()['+idx+'].cfg||{};_dashWidgets()['+idx+'].cfg.metric=this.value;_dashSave();renderDashboard()">'+
         mets.map(function(m){return '<option value="'+m+'"'+(m===met?' selected':'')+'>'+_dashMetLabel(m)+'</option>';}).join('')+'</select>'+
+      '<span style="color:var(--muted);margin-left:6px">Từ:</span>'+
+      '<input type="date" value="'+esc(dFrom)+'" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface)" onchange="'+
+        '_dashWidgets()['+idx+'].cfg=_dashWidgets()['+idx+'].cfg||{};_dashWidgets()['+idx+'].cfg.dateFrom=this.value;_dashSave();renderDashboard()">'+
+      '<span style="color:var(--muted)">Đến:</span>'+
+      '<input type="date" value="'+esc(dTo)+'" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface)" onchange="'+
+        '_dashWidgets()['+idx+'].cfg=_dashWidgets()['+idx+'].cfg||{};_dashWidgets()['+idx+'].cfg.dateTo=this.value;_dashSave();renderDashboard()">'+
+      ((dFrom||dTo) ? '<button class="btn sm secondary" style="padding:2px 8px" onclick="'+
+        '_dashWidgets()['+idx+'].cfg.dateFrom=\'\';_dashWidgets()['+idx+'].cfg.dateTo=\'\';_dashSave();renderDashboard()" title="Xóa lọc thời gian, xem toàn bộ">↺ Toàn bộ</button>' : '')+
     '</div>'+
-    _dashPivot(list, row, col, met);
+    _dashPivot(list, row, col, met, dFrom, dTo);
   }
 
   return '<div class="dash-widget" style="'+fullW+'" draggable="true"'+
