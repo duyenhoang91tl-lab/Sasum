@@ -9017,7 +9017,7 @@ var _DASH_WIDGET_DEFS = [
 var _DEFAULT_DASH_WIDGETS = [
   {type:'kpi'}, {type:'tier'}, {type:'top_rev'},
   {type:'top_close'}, {type:'team'}, {type:'cs_detail'},
-  {type:'pivot', cfg:{row:'month', col:'cs', metric:'revenue'}}
+  {type:'pivot', cfg:{row:'month', col:'cs', metric:'rev_orders'}}
 ];
 
 function _dashLoad() {
@@ -9071,14 +9071,16 @@ function _dashPivot(list, rowKey, colKey, metric, dateFrom, dateTo) {
     'tier':     function(o,c){ return c.tier||'—'; },
   };
   var MET = {
-    'revenue': function(o){ return +(o.revenue)||0; },
-    'orders':  function(){ return 1; },
-    'kh':      function(){ return 0; }, // handled separately
+    'revenue':    function(o){ return +(o.revenue)||0; },
+    'orders':     function(){ return 1; },
+    'rev_orders': function(o){ return +(o.revenue)||0; }, // dùng chung hàm doanh thu, số đơn tính riêng bên dưới
+    'kh':         function(){ return 0; }, // handled separately
   };
 
   var rFn = ROW_KEYS[rowKey] || ROW_KEYS['month'];
   var cFn = COL_KEYS[colKey] || COL_KEYS['cs'];
   var mFn = MET[metric] || MET['revenue'];
+  var combo = metric === 'rev_orders'; // hiển thị đồng thời Doanh thu + Số đơn trong mỗi ô
 
   // Lọc theo khoảng thời gian (dateFrom/dateTo dạng 'YYYY-MM-DD', bỏ trống = toàn thời gian)
   var fromT = dateFrom ? new Date(dateFrom+'T00:00:00').getTime() : null;
@@ -9093,6 +9095,7 @@ function _dashPivot(list, rowKey, colKey, metric, dateFrom, dateTo) {
   }
 
   var rows={}, cols={}, data={}, colTotals={}, rowTotals={};
+  var ordData={}, ordColTotals={}, ordRowTotals={}; // chỉ dùng khi combo=true
   var khByCell={};  // for kh metric: unique phones
 
   list.forEach(function(c){
@@ -9108,11 +9111,13 @@ function _dashPivot(list, rowKey, colKey, metric, dateFrom, dateTo) {
         data[k]=(data[k]||0)+mFn(o,c);
         colTotals[cl]=(colTotals[cl]||0)+mFn(o,c);
         rowTotals[r]=(rowTotals[r]||0)+mFn(o,c);
+        if (combo){
+          ordData[k]=(ordData[k]||0)+1;
+          ordColTotals[cl]=(ordColTotals[cl]||0)+1;
+          ordRowTotals[r]=(ordRowTotals[r]||0)+1;
+        }
       }
     });
-    if (metric==='kh'){
-      // also ensure row/col from tier if needed
-    }
   });
 
   if (metric==='kh'){
@@ -9129,9 +9134,15 @@ function _dashPivot(list, rowKey, colKey, metric, dateFrom, dateTo) {
   var colArr = Object.keys(cols).sort();
   if (colArr.length > 12) colArr = colArr.slice(0,12); // cap columns
 
-  var fmtCell = metric==='revenue' ? _dfmtV : fmt;
+  var fmtCell = (metric==='revenue'||combo) ? _dfmtV : fmt;
+  function _dpCellHtml(v, ordV){
+    if (!v && !ordV) return '—';
+    if (!combo) return fmtCell(v);
+    return '<div>'+_dfmtV(v)+'</div><div style="color:var(--muted);font-size:10px">'+fmt(ordV||0)+' đơn</div>';
+  }
 
   var grand=0; Object.values(rowTotals).forEach(function(v){grand+=v;});
+  var grandOrd=0; if (combo) Object.values(ordRowTotals).forEach(function(v){grandOrd+=v;});
 
   var html='<div style="overflow-x:auto"><table class="dash-table" style="font-size:11px;min-width:100%">'+
     '<thead><tr><th style="white-space:nowrap">'+_dashDimLabel(rowKey)+'</th>'+
@@ -9141,15 +9152,16 @@ function _dashPivot(list, rowKey, colKey, metric, dateFrom, dateTo) {
   rowArr.forEach(function(r){
     html+='<tr><td style="font-weight:600;white-space:nowrap">'+esc(r)+'</td>';
     colArr.forEach(function(cl){
-      var v=data[r+'|'+cl]||0;
-      html+='<td style="text-align:right">'+(v?fmtCell(v):'—')+'</td>';
+      var k=r+'|'+cl;
+      var v=data[k]||0, ordV=combo?(ordData[k]||0):0;
+      html+='<td style="text-align:right">'+_dpCellHtml(v, ordV)+'</td>';
     });
-    html+='<td style="text-align:right;font-weight:700;background:var(--surface2)">'+fmtCell(rowTotals[r]||0)+'</td></tr>';
+    html+='<td style="text-align:right;font-weight:700;background:var(--surface2)">'+_dpCellHtml(rowTotals[r]||0, combo?(ordRowTotals[r]||0):0)+'</td></tr>';
   });
 
   html+='<tr style="border-top:2px solid var(--border)"><td style="font-weight:700">Tổng</td>';
-  colArr.forEach(function(cl){ html+='<td style="text-align:right;font-weight:700">'+fmtCell(colTotals[cl]||0)+'</td>'; });
-  html+='<td style="text-align:right;font-weight:700;background:var(--green-bg);color:var(--green)">'+fmtCell(grand)+'</td></tr>';
+  colArr.forEach(function(cl){ html+='<td style="text-align:right;font-weight:700">'+_dpCellHtml(colTotals[cl]||0, combo?(ordColTotals[cl]||0):0)+'</td>'; });
+  html+='<td style="text-align:right;font-weight:700;background:var(--green-bg);color:var(--green)">'+_dpCellHtml(grand, grandOrd)+'</td></tr>';
   html+='</tbody></table></div>';
   return html;
 }
@@ -9157,7 +9169,7 @@ function _dashDimLabel(k){
   return {month:'Tháng',cs:'CS',product:'Sản phẩm',source:'Nguồn',tier:'Phân hạng'}[k]||k;
 }
 function _dashMetLabel(k){
-  return {revenue:'Doanh thu',orders:'Số đơn',kh:'Số KH'}[k]||k;
+  return {revenue:'Doanh thu',orders:'Số đơn',rev_orders:'Doanh thu + Số đơn',kh:'Số KH'}[k]||k;
 }
 
 // ── render từng widget ────────────────────────────────────
@@ -9236,10 +9248,10 @@ function _dashRenderWidget(w, idx, list, csArr, teamStats, totalKH) {
     inner+='</tbody></table></div>';
 
   } else if (t==='pivot') {
-    var row=cfg.row||'month', col=cfg.col||'cs', met=cfg.metric||'revenue';
+    var row=cfg.row||'month', col=cfg.col||'cs', met=cfg.metric||'rev_orders';
     var dFrom=cfg.dateFrom||'', dTo=cfg.dateTo||'';
     var dims=['month','cs','product','source','tier'];
-    var mets=['revenue','orders','kh'];
+    var mets=['rev_orders','revenue','orders','kh'];
     inner='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px">'+
       '<span style="color:var(--muted)">Hàng:</span>'+
       '<select style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface)" onchange="'+
@@ -9297,7 +9309,7 @@ function _dashAddWidget(type) {
   var existing=_dashWidgets().find(function(w){return w.type===type;});
   if (existing&&type!=='pivot') { toast('Widget này đã có trên dashboard'); return; }
   var w={type:type};
-  if (type==='pivot') w.cfg={row:'month',col:'cs',metric:'revenue'};
+  if (type==='pivot') w.cfg={row:'month',col:'cs',metric:'rev_orders'};
   _dashWidgets().push(w);
   _dashSave();
   renderDashboard();
